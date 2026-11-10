@@ -57,6 +57,8 @@ OBJCOPY  ?= powerpc-eabi-objcopy
 
 # v49 : programme resident du lanceur natif (source/natres) : compile a part, sans
 # bibliotheque, lie a une adresse fixe (tools/natres.ld), puis range dans build/natres_bin.h
+# v398 : -Os (Pulse trop gros pour le mode trap) ; v399 : retour a -O2 pour tous les jeux (Rayman 3 restait noir avec le
+# Pulse -Os) ; le Pulse -Os (natres_os_bin, natres_wz_os_bin) ne sert qu'au mode Pulse universel (natif.c, na_petit).
 NATRESFLAGS := -O2 -mcpu=750 -meabi -msoft-float -G 0 -msdata=none -fno-pic -ffreestanding -fno-builtin \
                -fno-asynchronous-unwind-tables -fno-exceptions -nostdlib -nostartfiles -Wall
 
@@ -106,16 +108,47 @@ build/fatfs/%.o: source/fatfs/%.c source/fatfs/ffconf.h source/fatfs/ff.h source
 LIBOBJ   := $(MBED_OBJ) $(HELIX_OBJ) $(CODEC_OBJ) $(GME_OBJ) $(XMP_OBJ) $(WEBP_OBJ) $(CB_OBJ) $(FATFS_OBJ)
 MAINDEPS := $(wildcard source/*.c source/*.h source/natres/*.h)
 
+# build 908 : deux Pulse : Broadband Adapter seul (PULSE_NET=1, natres_bin) et W5500 seul (PULSE_NET=2, natres_wz_bin) ;
+# GC Station met le bon selon l'adaptateur branche (natif.c, na_rb)
 build/natres.elf: source/natres/natres.c source/natres/natres.h tools/natres.ld
 > @mkdir -p build
-> $(CC) $(NATRESFLAGS) -Wl,-T,tools/natres.ld -Wl,--no-gc-sections $< -o $@ -lgcc || { \
->   $(CC) $(NATRESFLAGS) -Wl,-T,tools/natres.ld -Wl,--no-gc-sections -Wl,--noinhibit-exec $< -o build/natres-gros.elf -lgcc; \
+> $(CC) $(NATRESFLAGS) -DPULSE_NET=1 -Wl,-T,tools/natres.ld -Wl,--no-gc-sections $< -o $@ -lgcc || { \
+>   $(CC) $(NATRESFLAGS) -DPULSE_NET=1 -Wl,-T,tools/natres.ld -Wl,--no-gc-sections -Wl,--noinhibit-exec $< -o build/natres-gros.elf -lgcc; \
 >   echo "::error::resident Pulse trop gros : fin a $$(powerpc-eabi-nm build/natres-gros.elf | grep __natres_end) (max 817FFF00)"; exit 1; }
-> @echo "::notice::resident Pulse : fin a $$(powerpc-eabi-nm $@ | grep __natres_end) (max 817FFF00)"
+> @echo "::notice::resident Pulse BBA : fin a $$(powerpc-eabi-nm $@ | grep __natres_end) (max 817FFF00)"
+
+
+# v399 : les memes en -Os, pour le mode Pulse universel (trap) : doivent finir sous 817FFC00 (sinon la compilation echoue)
+build/natres_os.elf: source/natres/natres.c source/natres/natres.h tools/natres.ld
+> @mkdir -p build
+> $(CC) $(subst -O2,-Os,$(NATRESFLAGS)) -DPULSE_NET=1 -Wl,-T,tools/natres.ld -Wl,--no-gc-sections $< -o $@ -lgcc
+> @e=$$(powerpc-eabi-nm $@ | awk '/__natres_end/{print $$1}'); echo "::notice::resident Pulse BBA -Os (mode trap) : fin a $$e (max 817FFC00)"; \
+>   [ $$((0x$$e)) -le $$((0x817FFC00)) ] || { echo "::error::resident Pulse BBA -Os : fin a $$e, au-dessus de 817FFC00"; exit 1; }
+build/natres_wz_os.elf: source/natres/natres.c source/natres/natres.h tools/natres.ld
+> @mkdir -p build
+> $(CC) $(subst -O2,-Os,$(NATRESFLAGS)) -DPULSE_NET=2 -Wl,-T,tools/natres.ld -Wl,--no-gc-sections $< -o $@ -lgcc
+> @e=$$(powerpc-eabi-nm $@ | awk '/__natres_end/{print $$1}'); echo "::notice::resident Pulse W5500 -Os (mode trap) : fin a $$e (max 817FFC00)"; \
+>   [ $$((0x$$e)) -le $$((0x817FFC00)) ] || { echo "::error::resident Pulse W5500 -Os : fin a $$e, au-dessus de 817FFC00"; exit 1; }
+build/natres_os_bin.h: build/natres_os.elf tools/bin2h.py
+> $(OBJCOPY) -O binary build/natres_os.elf build/natres_os.bin
+> python3 tools/bin2h.py build/natres_os.bin $@ natres_os_bin
+build/natres_wz_os_bin.h: build/natres_wz_os.elf tools/bin2h.py
+> $(OBJCOPY) -O binary build/natres_wz_os.elf build/natres_wz_os.bin
+> python3 tools/bin2h.py build/natres_wz_os.bin $@ natres_wz_os_bin
 
 build/natres_bin.h: build/natres.elf tools/bin2h.py
 > $(OBJCOPY) -O binary build/natres.elf build/natres.bin
 > python3 tools/bin2h.py build/natres.bin $@ natres_bin
+
+build/natres_wz.elf: source/natres/natres.c source/natres/natres.h tools/natres.ld
+> @mkdir -p build
+> $(CC) $(NATRESFLAGS) -DPULSE_NET=2 -Wl,-T,tools/natres.ld -Wl,--no-gc-sections $< -o $@ -lgcc || { \
+>   echo "::error::resident Pulse W5500 trop gros (max 817FFF00)"; exit 1; }
+> @echo "::notice::resident Pulse W5500 : fin a $$(powerpc-eabi-nm $@ | grep __natres_end) (max 817FFF00)"
+
+build/natres_wz_bin.h: build/natres_wz.elf tools/bin2h.py
+> $(OBJCOPY) -O binary build/natres_wz.elf build/natres_wz.bin
+> python3 tools/bin2h.py build/natres_wz.bin $@ natres_wz_bin
 
 # v359 : Pulse LAN (jeu en reseau local par Internet) : le meme resident, sans telephone ni chercheur de codes, avec le pont
 build/natres_lan.elf: source/natres/natres.c source/natres/natres.h tools/natres.ld
@@ -134,7 +167,19 @@ build/natret_bin.h: build/natret.elf tools/bin2h.py
 > $(OBJCOPY) -O binary build/natret.elf build/natret.bin
 > python3 tools/bin2h.py build/natret.bin $@ natret_bin
 
-build/main.o: $(MAINDEPS) build/natres_bin.h build/natres_lan_bin.h build/natret_bin.h
+# v397 : bandeau des succes sur la tele (source/natres/bandeau.c) : du code seul (pas de donnees, pas de table de sauts),
+# pose par GC Station sous Pulse a une adresse qui change d'un jeu a l'autre ; tools/bandeau.ld refuse toute donnee
+# (-lgcc : en -Os, gcc appelle _savegpr / _restgpr, du code seul a branchements relatifs)
+build/bandeau.elf: source/natres/bandeau.c source/natres/bandeau.h tools/bandeau.ld
+> @mkdir -p build
+> $(CC) $(subst -O2,-Os,$(NATRESFLAGS)) -fno-jump-tables -fno-tree-loop-distribute-patterns -fno-tree-switch-conversion -Wl,-T,tools/bandeau.ld -Wl,--no-gc-sections $< -o $@ -lgcc
+> @echo "::notice::bandeau des succes : $$(powerpc-eabi-nm $@ | grep __ban_fin) octets de code"
+
+build/bandeau_bin.h: build/bandeau.elf tools/bin2h.py
+> $(OBJCOPY) -O binary build/bandeau.elf build/bandeau.bin
+> python3 tools/bin2h.py build/bandeau.bin $@ bandeau_bin
+
+build/main.o: $(MAINDEPS) build/natres_bin.h build/natres_wz_bin.h build/natres_os_bin.h build/natres_wz_os_bin.h build/natres_lan_bin.h build/natret_bin.h build/bandeau_bin.h
 > @mkdir -p build
 > $(CC) $(CFLAGS) -Ibuild -DUSE_DEFAULT_STDLIB -c source/main.c -o $@
 

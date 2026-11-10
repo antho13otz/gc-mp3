@@ -143,6 +143,14 @@ public class PlaybackService extends Service {
         return START_STICKY;
     }
 
+    // build 487 : appli balayee des applis recentes : la GBA du telephone et le micro s'arretent (le service, lui, peut rester
+    // pour la musique de la console)
+    @Override
+    public void onTaskRemoved(android.content.Intent rootIntent) {
+        StationActivityKt.arreterAccessoires();
+        super.onTaskRemoved(rootIntent);
+    }
+
     @Override
     public void onDestroy() {
         running = false;
@@ -268,12 +276,13 @@ public class PlaybackService extends Service {
     }
 }
 
-/** nouveau build de GC Station publie sur GitHub (release "dernier") plus recent que celui de la console ? */
+/** nouveau build de GC Station publie (build 452 : GitLab d'abord, puis GitHub, release "dernier") plus recent que celui de la console ? */
 final class BuildCheck {
     static void run(final Context c) {
         new Thread(() -> {
             try {
-                String rel = HttpGet.text("https://github.com/antho13otz/gc-mp3/releases/download/dernier/release.json", 8000);
+                String rel = HttpGet.text("https://gitlab.com/api/v4/projects/88617655/packages/generic/console/dernier/release.json", 8000);
+                if (rel == null) rel = HttpGet.text("https://github.com/antho13otz/gc-mp3/releases/download/dernier/release.json", 8000);
                 String mem = Api.get("/api/memoire", 3000);
                 if (rel == null || mem == null) return;
                 int pub = 0;

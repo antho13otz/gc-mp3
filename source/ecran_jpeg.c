@@ -43,6 +43,9 @@ typedef struct { u16 code[256]; u8 len[256]; } ej_huff;
 static ej_huff ej_hdl, ej_hdc, ej_hal, ej_hac;
 static int ej_ready = 0;
 static u8 ej_ylut[256], ej_clut[256];             /* niveaux video (16-235 / 16-240) -> pleine echelle du JPEG */
+/* v396 : les memes en flottants, deja centres sur 0 (valeur - 128) : le Gekko n'a pas d'instruction pour passer d'un
+   entier a un flottant (il passe par la memoire) ; une table evite ce detour pour chaque pixel. Resultat identique. */
+static float ej_fy[256], ej_fcv[256], ej_f128[256];
 
 static void ej_build(ej_huff *h, const u8 *n, const u8 *v) {
     int code = 0, k = 0;
@@ -59,6 +62,7 @@ static void ej_init(void) {
         int y = (i - 16) * 255 / 219, c = (i - 128) * 255 / 224 + 128;
         ej_ylut[i] = (u8)(y < 0 ? 0 : y > 255 ? 255 : y);
         ej_clut[i] = (u8)(c < 0 ? 0 : c > 255 ? 255 : c);
+        ej_fy[i] = ej_ylut[i] - 128.0f; ej_fcv[i] = ej_clut[i] - 128.0f; ej_f128[i] = i - 128.0f;
     }
     ej_ready = 1;
 }
@@ -116,7 +120,8 @@ static int ej_block(ej_out *w, float *b, const float *fq, int dc, const ej_huff 
     for (int i = 0; i < 8; i++) ej_dct8(b + i * 8, 1);
     for (int i = 0; i < 8; i++) ej_dct8(b + i, 8);
     int z[64];
-    for (int k = 0; k < 64; k++) { float v = b[ej_zz[k]] * fq[ej_zz[k]]; z[k] = (int)(v < 0 ? v - 0.5f : v + 0.5f); }
+    /* v396 : |v| < 0,5 donne 0 a l'arrondi : on l'ecrit directement (la plupart des coefficients ; meme resultat qu'avant) */
+    for (int k = 0; k < 64; k++) { float v = b[ej_zz[k]] * fq[ej_zz[k]]; z[k] = (v > -0.5f && v < 0.5f) ? 0 : (int)(v < 0 ? v - 0.5f : v + 0.5f); }
     int diff = z[0] - dc, a = diff < 0 ? -diff : diff, nb = 0;
     while (a) { nb++; a >>= 1; }
     ej_bits(w, hd->code[nb], hd->len[nb]);
@@ -169,6 +174,7 @@ static int ej_encode(const u8 *fb, int sw, int sh, int s, int quality, u8 *out, 
     ej_byte(&w, 0); ej_byte(&w, 63); ej_byte(&w, 0);
     int dy = 0, du = 0, dv = 0;
     float yb[4][64], ub[64], vb[64];
+    int cu[64], cv[64];
     for (int my = 0; my < H; my += 16) {
         for (int mx = 0; mx < W; mx += 16) {
             /* un bloc de 16x16 pixels : 4 blocs de luminance, 1 de chaque couleur (moyenne de 2x2 pixels) */
@@ -176,21 +182,20 @@ static int ej_encode(const u8 *fb, int sw, int sh, int s, int quality, u8 *out, 
                 int oy = my + y; if (oy >= H) oy = H - 1;
                 for (int x = 0; x < 16; x += 2) {
                     int ox = mx + x; if (ox >= W) ox = (W - 2) & ~1;
-                    int ya, yb2, u, v;
-                    if (s == 1) {
-                        const u8 *p = fb + ((size_t)oy * sw + ox) * 2;
-                        ya = ej_ylut[p[0]]; yb2 = ej_ylut[p[2]]; u = p[1]; v = p[3];
-                    } else {                           /* (moitie : moyenne de 2x2 pixels) */
-                        const u8 *p = fb + ((size_t)(oy * 2) * sw + ox * 2) * 2, *q = p + (size_t)sw * 2;
-                        ya = ej_ylut[(p[0] + p[2] + q[0] + q[2] + 2) >> 2]; yb2 = ej_ylut[(p[4] + p[6] + q[4] + q[6] + 2) >> 2];
-                        u = (p[1] + p[5] + q[1] + q[5] + 2) >> 2; v = (p[3] + p[7] + q[3] + q[7] + 2) >> 2;
-                    }
+                    int u, v;
                     float *bl = yb[(y >> 3) * 2 + (x >> 3)];
                     int bi = (y & 7) * 8 + (x & 7);
-                    bl[bi] = ya - 128.0f; bl[bi + 1] = yb2 - 128.0f;
+                    if (s == 1) {
+                        const u8 *p = fb + ((size_t)oy * sw + ox) * 2;
+                        bl[bi] = ej_fy[p[0]]; bl[bi + 1] = ej_fy[p[2]]; u = p[1]; v = p[3];
+                    } else {                           /* (moitie : moyenne de 2x2 pixels) */
+                        const u8 *p = fb + ((size_t)(oy * 2) * sw + ox * 2) * 2, *q = p + (size_t)sw * 2;
+                        bl[bi] = ej_fy[(p[0] + p[2] + q[0] + q[2] + 2) >> 2]; bl[bi + 1] = ej_fy[(p[4] + p[6] + q[4] + q[6] + 2) >> 2];
+                        u = (p[1] + p[5] + q[1] + q[5] + 2) >> 2; v = (p[3] + p[7] + q[3] + q[7] + 2) >> 2;
+                    }
                     int ci = (y >> 1) * 8 + (x >> 1);
-                    if (!(y & 1)) { ub[ci] = (float)u; vb[ci] = (float)v; }
-                    else { ub[ci] = ej_clut[(int)(ub[ci] + u + 1) >> 1] - 128.0f; vb[ci] = ej_clut[(int)(vb[ci] + v + 1) >> 1] - 128.0f; }
+                    if (!(y & 1)) { cu[ci] = u; cv[ci] = v; }   /* (v396 : la ligne d'au-dessus, gardee en entiers) */
+                    else { ub[ci] = ej_fcv[(cu[ci] + u + 1) >> 1]; vb[ci] = ej_fcv[(cv[ci] + v + 1) >> 1]; }
                 }
             }
             for (int k = 0; k < 4; k++) dy = ej_block(&w, yb[k], ej_fl, dy, &ej_hdl, &ej_hal);
@@ -267,8 +272,8 @@ static int ej_encode_mcus(const u8 *base, const u16 *idx, int n, int cols, int W
     for (int k = 0; k < total; k++) {
         int kk = k < n ? k : n - 1;                              /* (fin de la derniere ligne : le dernier bloc, repete) */
         const u8 *m = base + (size_t)(idx ? idx[kk] : kk) * EJ_MCU;
-        for (int y = 0; y < 16; y++) for (int x = 0; x < 16; x++) yb[(y >> 3) * 2 + (x >> 3)][(y & 7) * 8 + (x & 7)] = m[y * 16 + x] - 128.0f;
-        for (int i = 0; i < 64; i++) { ub[i] = m[256 + i] - 128.0f; vb[i] = m[320 + i] - 128.0f; }
+        for (int y = 0; y < 16; y++) for (int x = 0; x < 16; x++) yb[(y >> 3) * 2 + (x >> 3)][(y & 7) * 8 + (x & 7)] = ej_f128[m[y * 16 + x]];
+        for (int i = 0; i < 64; i++) { ub[i] = ej_f128[m[256 + i]]; vb[i] = ej_f128[m[320 + i]]; }
         for (int b = 0; b < 4; b++) dy = ej_block(&w, yb[b], ej_fl, dy, &ej_hdl, &ej_hal);
         du = ej_block(&w, ub, ej_fc, du, &ej_hdc, &ej_hac);
         dv = ej_block(&w, vb, ej_fc, dv, &ej_hdc, &ej_hac);

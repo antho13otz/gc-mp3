@@ -537,6 +537,18 @@ static u32 pn_seq = 0x5000;
 /* v327 : l'adaptateur : 1 = Broadband Adapter (canal 0, peripherique 2), 2 = W5500 (ETH2SP1 : canal 0, peripherique 2 ;
    ETH2GC : port de carte B ou A, peripherique 0) ; pn_cs / pn_frq : son peripherique et sa vitesse */
 static int pn_hw = 0;
+/* build 908 : deux Pulse compiles a partir de ce fichier (place pour le direct) : PULSE_NET=1 Broadband Adapter seulement
+   (natres_bin), PULSE_NET=2 W5500 seulement (natres_wz_bin) ; GC Station met le bon selon l'adaptateur branche (natif.c,
+   na_rb). Sans PULSE_NET (Pulse LAN, bancs d'essai) : les deux pilotes, comme avant. Le pilote absent n'est pas compile. */
+#ifndef PULSE_NET                                         /* (build 909 : sans precision, le Pulse du BBA ; Pulse LAN : les deux pilotes, comme avant) */
+#ifdef NATRES_LAN
+#define PULSE_NET 0
+#else
+#define PULSE_NET 1
+#endif
+#endif
+#define PN_BBA (PULSE_NET != 2)
+#define PN_WZ (PULSE_NET != 1)
 static u32 pn_cs = 0x80u << 2, pn_frq = 5, pn_ch = 0;
 static void bb_sel(void) { bx[0] = (bx[0] & 0x405) | (pn_frq << 4) | pn_cs; }   /* (BBA : 32 MHz, peripherique 2) */
 static void bb_desel(void) { bx[0] = bx[0] & 0x405; }
@@ -564,6 +576,7 @@ static u32 pn_be16(const u8 *p) { return (u32)p[0] << 8 | p[1]; }
 static u32 pn_be32(const u8 *p) { return (u32)p[0] << 24 | (u32)p[1] << 16 | (u32)p[2] << 8 | p[3]; }
 static void pn_p16(u8 *p, u32 v) { p[0] = (u8)(v >> 8); p[1] = (u8)v; }
 static void pn_p32(u8 *p, u32 v) { p[0] = (u8)(v >> 24); p[1] = (u8)(v >> 16); p[2] = (u8)(v >> 8); p[3] = (u8)v; }
+#if PN_WZ
 /* ---- v327 : W5500 (WIZnet, ETH2SP1 / ETH2GC), socket 0 en MACRAW (trames Ethernet brutes), sans interruption.
    Trame SPI : adresse (16 bits), controle (bloc << 3 | ecriture << 2 | 0 = longueur libre), donnees. Blocs : 0 commun,
    1 registres du socket 0, 2 son tampon d'envoi, 3 son tampon de reception (les pointeurs font le tour seuls). */
@@ -608,19 +621,27 @@ static __attribute__((noinline, optimize("Os"))) u32 wz_recv(void) {
     wz_cmd(0x40);                                                   /* RECV */
     return n;
 }
+#endif
 static MEM_OS void pn_send(u8 *f, u32 n) {                       /* trame Ethernet complete (adresses comprises) */
     while (n < 60) f[n++] = 0;
-    if (pn_hw == 2) { u32 m = irq_off(); wz_send(f, n); irq_restore(m); return; }
+#if PN_WZ
+    if (!PN_BBA || pn_hw == 2) { u32 m = irq_off(); wz_send(f, n); irq_restore(m); return; }
+#endif
+#if PN_BBA
     u32 m = irq_off();
     bb_out16(BB_TXFIFOCNT, n);
     bb_outs(BB_WRTXFIFOD, f, n);
     bb_out8(BB_NCRA, (bb_in8(BB_NCRA) & ~2u) | 4u);       /* ST1 : envoyer */
     for (u32 i = 0; i < 20000u && (bb_in8(BB_NCRA) & 6u); i++) { }
     irq_restore(m);
+#endif
 }
 /* une trame recue (0 = aucune) : copiee dans pn_fr */
 static u32 pn_recv(void) {
-    if (pn_hw == 2) { u32 m = irq_off(); u32 k = wz_recv(); irq_restore(m); return k; }
+#if PN_WZ
+    if (!PN_BBA || pn_hw == 2) { u32 m = irq_off(); u32 k = wz_recv(); irq_restore(m); return k; }
+#endif
+#if PN_BBA
     u32 m = irq_off(), n = 0;
     u32 rrp = bb_in16(BB_RRP) & 0xFFF, rwp = bb_in16(BB_RWP) & 0xFFF;
     if (rrp != rwp) {
@@ -638,6 +659,7 @@ static u32 pn_recv(void) {
     }
     irq_restore(m);
     return n;
+#endif
 }
 static u32 pn_ipsum(const u8 *h) { u32 s = 0; for (int i = 0; i < 20; i += 2) s += pn_be16(h + i); while (s >> 16) s = (s & 0xFFFF) + (s >> 16); return ~s & 0xFFFF; }
 static void pn_eth(u8 *f, const u8 *dst, u32 type) { for (int i = 0; i < 6; i++) { f[i] = dst[i]; f[6 + i] = pn_mac[i]; } pn_p16(f + 12, type); }
@@ -667,6 +689,7 @@ static int MEM_OS pn_rx(u32 n, u32 seq) {
     if (pn_be16(u) != PN_NET->port || pn_be32(u + 8) != 0x504E4131u || pn_be32(u + 12) != seq) return 0;   /* "PNA1" */
     return 1;
 }
+#if PN_WZ
 /* v327 : un W5500 en (canal, peripherique) pret a recevoir : 0, ou -1. Son adresse Ethernet est gardee (GC Station
    l'a reglee, le routeur la connait deja) ; sinon une adresse tiree du numero de la console (registres ECID). */
 static int __attribute__((noinline, optimize("Os"))) pn_wz_init(u32 ch, u32 dev) {
@@ -704,6 +727,7 @@ static int __attribute__((noinline, optimize("Os"))) pn_wz_init(u32 ch, u32 dev)
     pn_hw = 2; pn_ch = ch;
     return 0;
 }
+#endif
 /* l'adaptateur pret a recevoir (sans chercher de serveur) : 0, -1 = aucun, -2 = un canal pris par le jeu (plus tard).
    Broadband Adapter d'abord, puis W5500 : port serie 1 (ETH2SP1), puis ports de carte B et A (ETH2GC) */
 /* v372 : vitesse du cable : avant, 10 Mbit/s seulement (0x01) ; maintenant toutes, jusqu'a 100 Mbit/s (0x1F, comme libogc) ;
@@ -711,15 +735,22 @@ static int __attribute__((noinline, optimize("Os"))) pn_wz_init(u32 ch, u32 dev)
 static u32 pn_nw = 0x1F, pn_nw_tb = 0;
 static int __attribute__((noinline)) MEM_OS pn_bba_init(void) {
     bx = HW6(0xCC006800u); pn_cs = 0x80u << 2; pn_frq = 5; pn_hw = 1; pn_ch = 0;
+#if PN_BBA
     u32 m = irq_off();
     bb_sel(); bb_w(0, 2); u32 id = bb_r(4); bb_desel();      /* (identifiant du peripherique EXI) */
     if (id != 0x04020200u) {
         irq_restore(m);
+#endif
+#if PN_WZ
         static const u8 wp[3][2] = { { 0, 2 }, { 1, 0 }, { 0, 0 } };
         int pris = 0;
         for (int i = 0; i < 3; i++) { int r = pn_wz_init(wp[i][0], wp[i][1]); if (!r) return 0; if (r == -2) pris = 1; }
         bx = HW6(0xCC006800u); pn_cs = 0x80u << 2; pn_frq = 5; pn_hw = 1; pn_ch = 0;
         return pris ? -2 : -1;
+#else
+        return -1;
+#endif
+#if PN_BBA
     }
     bb_cout(0x02, 0x00);                                  /* (interruptions du BBA : aucune) */
     bb_out8(BB_NCRA, 1);                                  /* remise a zero */
@@ -740,6 +771,7 @@ static int __attribute__((noinline)) MEM_OS pn_bba_init(void) {
     bb_ins(BB_PAR, pn_mac, 6);
     irq_restore(m);
     return 0;
+#endif
 }
 static int __attribute__((noinline)) MEM_OS pn_init(void) {
     if (!H.net || ((const natres_net_t *)H.net)->magic != NATRES_NET_MAGIC) return -1;
@@ -895,10 +927,10 @@ static MEM_OS void mem_blocks(natres_pad_t *p, u32 seq, u32 a, u32 n) {
    v328 : 64 morceaux, 10 Ko envoyes par image au plus ; options dans le haut de la longueur : bit 31 « compact » (des
    matrices 3 x 4 : la 1re telle quelle, les suivantes en 9 nombres de 16 bits, voir ms_mat), bit 30 seulement aux images
    paires, bit 29 seulement aux impaires. (Une Pulse plus ancienne s'arrete au 1er morceau compact : l'appli les met a la fin.) */
-#define MS_MAX 64
-#define MS_TOT 10240u
+#define MS_MAX 96                         /* (build 911 : 64 avant ; mode Detaille de l'appli) */
+#define MS_TOT 16384u                     /* (build 911 : 10 Ko avant) */
 #define MS_PAQ 1400u
-static u32 ms_a[MS_MAX], ms_n = 0, ms_per = 1, ms_tb = 0;
+static u32 ms_a[MS_MAX], ms_n = 0, ms_per = 1, ms_tb = 0, ms_nc = 0;
 static unsigned short ms_l[MS_MAX];                       /* (longueur, et les options en bits 13 a 15) */
 static MEM_OS u32 ms_out(u32 l) { return l >> 15 ? 48u + ((l & 0x1FFFu) / 48u - 1u) * 18u : l & 0x1FFFu; }
 static MEM_OS void ms_req(const u8 *d, u32 dispo) {
@@ -909,12 +941,13 @@ static MEM_OS void ms_req(const u8 *d, u32 dispo) {
         u32 a = pn_be32(d + 20 + 8 * i), l = pn_be32(d + 24 + 8 * i), f = l >> 29;
         l &= 0xFFFFu;
         if (f & 4 && (l % 48u || a & 3)) f &= 3;           /* (compact : des matrices entieres, alignees) */
-        if (!l || l > 4608u || !mem_ok(a, l) || (f & 3) == 3) break;
+        if (!l || l > 4608u || !mem_ok(a, l)) break;          /* (build 909 : (f & 3) == 3 : un envoi sur deux, voir ms_saute) */
         l |= f << 13;
         if (tot + ms_out(l) > MS_TOT) break;
         ms_a[ms_n] = a; ms_l[ms_n] = (unsigned short)l; ms_n++; tot += ms_out(l);
     }
     ms_per = per >= 1 && per <= 8 ? per : 1;
+    ms_nc = PN_BBA && dispo >= 20 ? pn_be32(d + 16) & 1u : 0;   /* build 909 (Pulse « 3 », essai) : envoi sans copie, demande par l'appli */
     ms_tb = tbl();
 }
 /* un flottant (bits IEEE) x 2^sh en entier, sans calcul flottant (Pulse est en -msoft-float) ; trop grand : +-2^30 */
@@ -926,6 +959,9 @@ static MEM_OS int ms_fx(u32 b, int sh) {
     return b >> 31 ? -v : v;
 }
 static u32 ms_o, ms_part, ms_parts, ms_tot;
+/* build 909 (Pulse « 2 ») : un morceau saute a cet envoi ? options : 2 images paires seulement, 1 impaires seulement,
+   3 un envoi sur deux (les objets du direct de Wind Waker : moitie moins de donnees ; l'appli prolonge leur mouvement) */
+static MEM_OS int ms_saute(u32 f, u32 imp, u32 alt) { f &= 3; return (f == 2 && imp) || (f == 1 && !imp) || (f == 3 && alt); }
 /* v370 : mesure du temps pris au jeu : le direct (ms_send), tout ce que Pulse fait pour le telephone a chaque image
    (pd_poll), et les octets envoyes ; une fois par seconde, un paquet "GCMT" a l'appli abonnee au direct :
    {"GCMT", image, moyenne du direct (us), pire du direct (us), pire de tout (us), octets du direct par image} */
@@ -935,7 +971,7 @@ static u32 mt_sum = 0, mt_n = 0, mt_max = 0, mt_oct = 0;   /* (v372 : plus l'att
    paquet suivant pendant qu'il part ; on attend seulement avant d'ecrire le suivant, et a la fin du direct (les autres
    envois de Pulse comptent sur une file libre) */
 static MEM_OS void pn_link_check(void) {                /* v372 : (voir pn_nw) une seule fois, 5 s apres le demarrage de l'adaptateur */
-    if (!pn_nw_tb || tbl() - pn_nw_tb < 5u * TB_SEC || (*HW6(0xCC006800u) & 0x380u)) return;   /* (pn_nw_tb : Broadband Adapter seulement) */
+    if (!PN_BBA || !pn_nw_tb || tbl() - pn_nw_tb < 5u * TB_SEC || (*HW6(0xCC006800u) & 0x380u)) return;   /* (pn_nw_tb : Broadband Adapter seulement) */
     bx = HW6(0xCC006800u);
     u32 m = irq_off();
     if (!(bb_in8(0x31) & 3u)) { pn_nw = 0x01; bb_out8(0x5E, 0x01); bb_out8(0x5C, bb_in8(0x5C) | 0x04u); }   /* (NWAYS : pas de lien) */
@@ -946,7 +982,7 @@ static MEM_OS void ms_txwait(void) {
     for (u32 i = 0; i < 20000u && (bb_in8(BB_NCRA) & 6u); i++) { }
 }
 static MEM_OS __attribute__((noinline)) void ms_tx(u8 *f, u32 n) {
-    if (pn_hw != 1) { pn_send(f, n); return; }            /* (W5500 : comme avant) */
+    if (!PN_BBA || pn_hw != 1) { pn_send(f, n); return; }   /* (W5500 : comme avant) */
     while (n < 60) f[n++] = 0;
     u32 m = irq_off();
     ms_txwait();
@@ -963,16 +999,76 @@ static MEM_OS __attribute__((noinline)) void ms_tx(u8 *f, u32 n) {
     bb_out8(BB_NCRA, (bb_in8(BB_NCRA) & ~2u) | 4u);       /* ST1 : envoyer (sans attendre) */
     irq_restore(m);
 }
+/* build 909 (Pulse « 3 », 1re etape, essai : seulement si l'appli le demande ; Broadband Adapter seulement) : le direct sans
+   recopie. Les octets bruts des morceaux ne sont plus copies un par un dans la trame : la trame est une liste de segments
+   (l'en-tete et les octets calcules des morceaux compacts dans pn_fr, les autres directement dans la memoire du jeu) ;
+   chacun va dans la file d'envoi de l'adaptateur : debut et fin non alignes en ecriture directe, le milieu (blocs de 32
+   octets alignes) par DMA, apres avoir vide le cache du processeur sur ces octets. */
+#define MS_SEGS 72
+static const u8 *ms_sa[MS_SEGS];
+static unsigned short ms_sn[MS_SEGS];
+static u32 ms_ns = 0, ms_st = 0;                          /* (segments de la trame ; octets calcules deja ranges dans pn_fr) */
+static MEM_OS void ms_fifo(const u8 *s, u32 n) {
+    u32 h = (32u - ((u32)s & 31u)) & 31u, k;
+    if (h > n) h = n;
+    if (h) bb_outs(BB_WRTXFIFOD, s, h);
+    s += h; n -= h; k = n & ~31u;
+    if (k) {
+        cache_flush((u32)s, k);
+        bb_sel(); bb_mx(BB_WRTXFIFOD, 1);
+        bx[1] = (u32)s & 0x1FFFFFE0u; bx[2] = k; bx[3] = 7;   /* (DMA, ecriture, depart) */
+        for (u32 i = 0; i < 200000u && (bx[3] & 1); i++) { }
+        bb_desel();
+    }
+    if (n > k) bb_outs(BB_WRTXFIFOD, s + k, n - k);
+}
+static MEM_OS void ms_seg(const u8 *s, u32 n) {            /* un segment de plus (colle au precedent s'il le prolonge) */
+    if (ms_ns && ms_sa[ms_ns - 1] + ms_sn[ms_ns - 1] == s) { ms_sn[ms_ns - 1] = (unsigned short)(ms_sn[ms_ns - 1] + n); return; }
+    ms_sa[ms_ns] = s; ms_sn[ms_ns] = (unsigned short)n; ms_ns++;
+}
+static MEM_OS __attribute__((noinline)) void ms_tx_segs(u32 n) {   /* n : trame entiere (en-tete compris) */
+    static const u8 zero[20] = { 0 };
+    u32 m = irq_off();
+    ms_txwait();
+    bb_out16(BB_TXFIFOCNT, n < 60 ? 60 : n);
+    ms_fifo(pn_fr, 42 + 16);
+    for (u32 i = 0; i < ms_ns; i++) ms_fifo(ms_sa[i], ms_sn[i]);
+    if (n < 60) ms_fifo(zero, 60 - n);
+    bb_out8(BB_NCRA, (bb_in8(BB_NCRA) & ~2u) | 4u);       /* ST1 : envoyer (sans attendre) */
+    irq_restore(m);
+    ms_ns = 0; ms_st = 0;
+}
 static MEM_OS void ms_udp(natres_pad_t *p, u32 dlen) { pn_udp_hdr(p, p->mmac, p->mip, p->mport, dlen); ms_tx(pn_fr, 42 + dlen); }   /* (comme pn_udp) */
 static MEM_OS void ms_put(natres_pad_t *p, u32 v) {     /* un octet de plus ; paquet plein (ou v > 255 : la fin) : on l'envoie */
     u8 *d = pn_fr + 42;
-    if (v < 256u) d[16 + ms_o++] = (u8)v;
+    if (v < 256u) {
+        if (ms_nc && pn_hw == 1) { d[16 + ms_st] = (u8)v; ms_seg(d + 16 + ms_st, 1); ms_st++; ms_o++; }   /* (build 909 : octet calcule) */
+        else d[16 + ms_o++] = (u8)v;
+    }
     if (ms_o == MS_PAQ || (v > 255u && ms_o)) {
         pn_p32(d, 0x47434D53u); pn_p32(d + 4, H.vi_count); pn_p32(d + 8, ms_part << 16 | ms_parts); pn_p32(d + 12, ms_tot);   /* "GCMS" */
-        ms_udp(p, 16 + ms_o); ms_part++; ms_o = 0;   /* (v371 : DMA, sans attendre l'envoi) */
+        if (ms_nc && pn_hw == 1) { pn_udp_hdr(p, p->mmac, p->mip, p->mport, 16 + ms_o); ms_tx_segs(42 + 16 + ms_o); }
+        else ms_udp(p, 16 + ms_o);   /* (v371 : DMA, sans attendre l'envoi) */
+        ms_part++; ms_o = 0;
     }
 }
-static MEM_OS void ms_p16(natres_pad_t *p, int v) { v = v > 32767 ? 32767 : v < -32767 ? -32767 : v; ms_put(p, (u32)v >> 8 & 0xFFu); ms_put(p, (u32)v & 0xFFu); }
+/* build 910 : plus vite : les octets vont directement dans la trame tant qu'elle a de la place (avant : ms_put pour chacun,
+   avec ses tests) ; la trame pleine ou l'envoi sans recopie passent par ms_put, comme avant. Memes octets envoyes. */
+static MEM_OS void ms_p16(natres_pad_t *p, int v) {
+    v = v > 32767 ? 32767 : v < -32767 ? -32767 : v;
+    if (!ms_nc && ms_o + 2u < MS_PAQ) { u8 *d = pn_fr + 42 + 16 + ms_o; d[0] = (u8)((u32)v >> 8); d[1] = (u8)v; ms_o += 2; return; }
+    ms_put(p, (u32)v >> 8 & 0xFFu); ms_put(p, (u32)v & 0xFFu);
+}
+static MEM_OS void ms_copie(natres_pad_t *p, const u8 *src, u32 n) {   /* n octets bruts (sans l'envoi sans recopie) */
+    while (n) {
+        u32 t = MS_PAQ - ms_o;
+        if (t > n) t = n;
+        u8 *d = pn_fr + 42 + 16 + ms_o;
+        for (u32 i = 0; i < t; i++) d[i] = src[i];
+        ms_o += t; src += t; n -= t;
+        if (ms_o == MS_PAQ) ms_put(p, 256u);              /* (trame pleine : envoyee) */
+    }
+}
 /* compact : matrice suivante = les 2 premieres lignes de la rotation x 16384 (la 3e se refait : produit vectoriel), puis la
    position x 4 moins celle de la 1re matrice du morceau ; 18 octets au lieu de 48 */
 static MEM_OS void ms_mat(natres_pad_t *p, const u32 *w, const int *t0) {
@@ -983,24 +1079,32 @@ static MEM_OS void ms_send(natres_pad_t *p) {
     if (!ms_n || !p->mip) return;
     if (tbl() - ms_tb > 3u * TB_SEC) { ms_n = 0; return; }   /* (l'appli ne renouvelle plus : fini) */
     if (H.vi_count % ms_per) return;
-    u32 imp = H.vi_count & 1, i;
+    u32 imp = H.vi_count & 1, alt = (H.vi_count / ms_per) & 1, i;
     ms_tot = 0;
-    for (i = 0; i < ms_n; i++) if (!((ms_l[i] >> 13 & 2) && imp) && !((ms_l[i] >> 13 & 1) && !imp)) ms_tot += ms_out(ms_l[i]);
+    for (i = 0; i < ms_n; i++) if (!ms_saute(ms_l[i] >> 13, imp, alt)) ms_tot += ms_out(ms_l[i]);
     if (!ms_tot) return;
     ms_parts = (ms_tot + MS_PAQ - 1) / MS_PAQ; ms_part = 0; ms_o = 0;
     for (i = 0; i < ms_n; i++) {
         u32 l = ms_l[i], f = l >> 13, n = l & 0x1FFFu, k = 0;
-        if ((f & 2 && imp) || (f & 1 && !imp)) continue;
+        if (ms_saute(f, imp, alt)) continue;
         const u8 *src = (const u8 *)ms_a[i];
         if (f & 4) {
             const u32 *w = (const u32 *)src;
             int t0[3] = { ms_fx(w[3], 2), ms_fx(w[7], 2), ms_fx(w[11], 2) };
-            for (; k < 48; k++) ms_put(p, src[k]);
+            if (!ms_nc) { ms_copie(p, src, 48); k = 48; } else for (; k < 48; k++) ms_put(p, src[k]);
             for (; k < n; k += 48) ms_mat(p, w + k / 4, t0);
-        } else for (; k < n; k++) ms_put(p, src[k]);
+        } else if (ms_nc && pn_hw == 1) {                 /* build 909 : octets bruts : directement depuis la memoire du jeu */
+            while (k < n) {
+                u32 t = n - k, r = MS_PAQ - ms_o;
+                if (t > r) t = r;
+                if (ms_ns >= MS_SEGS - 1) { ms_put(p, src[k]); k++; continue; }   /* (liste pleine : recopie, comme avant) */
+                ms_seg(src + k, t); k += t; ms_o += t;
+                if (ms_o == MS_PAQ) ms_put(p, 256u);
+            }
+        } else ms_copie(p, src + k, n - k);               /* (build 910 : par blocs) */
     }
     ms_put(p, 256u);
-    if (pn_hw == 1) { u32 m = irq_off(); ms_txwait(); irq_restore(m); }   /* (v371 : file libre pour les autres envois) */
+    if (PN_BBA && pn_hw == 1) { u32 m = irq_off(); ms_txwait(); irq_restore(m); }   /* (v371 : file libre pour les autres envois) */
     mt_oct += ms_tot;
 }
 static MEM_OS void mem_req(natres_pad_t *p, const u8 *f, const u8 *u, const u8 *d, u32 dispo) {
@@ -1285,7 +1389,14 @@ static void MEM_OS pd_frame(natres_pad_t *p, u32 n, u32 now) {
     if (!(p->chmask >> ch & 1)) { p->bad++; return; }
     u32 seq = pn_be32(d + 8);
     if (seq == p->seq[ch]) return;                        /* (deja vu) */
-    p->seq[ch] = seq; p->h[ch] = pn_be32(d + 12) | 0x00800000u; p->l[ch] = pn_be32(d + 16); p->tb[ch] = now; p->rx++;
+    /* v383 : d[6] bit 0 = bongos (DK Bongos : Donkey Konga, Jungle Beat). Les vrais bongos se disent manette standard (0x0900)
+       mais n'ont pas le bit 0x0080 des touches : c'est ce que le jeu regarde pour les reconnaitre (lu dans Donkey Konga 2,
+       adresses seulement : 0x800B0B5C) ; il prend alors la gachette R pour le niveau du micro. Ce bit n'est donc plus
+       ajoute pour un port bongos */
+    p->seq[ch] = seq; p->h[ch] = pn_be32(d + 12) | ((d[6] & 3) ? 0u : 0x00800000u); p->l[ch] = pn_be32(d + 16); p->tb[ch] = now; p->rx++;
+    /* v384 : d[6] bit 1 = clavier : INBUFH porte alors les 3 touches enfoncees (codes du clavier, octets 1 a 3) ; la
+       reponse au jeu (8 octets : compteur, 0, 0, 0, touches, controle) est faite a sa lecture (kb_h, kb_l) */
+    if (d[6] & 2) { p->kbmask |= 1u << ch; p->h[ch] &= 0x00FFFFFFu; p->l[ch] = 0; } else p->kbmask &= ~(1u << ch);
     p->pip[ch] = pn_be32(f + 26); p->pport[ch] = pn_be16(u); for (int i = 0; i < 6; i++) p->pmac[ch][i] = f[6 + i];   /* (v275 : pour la vibration) */
 }
 void pd_poll(void) __attribute__((used));
@@ -1346,17 +1457,26 @@ void MEM_OS pd_poll(void) {
     }
     H.net_pk = p->rx; H.net_rt = p->state << 24 | (p->arp & 0xFFF) << 12 | (p->bad & 0xFFF);   /* (journal : pas de H.net ici) */
     for (u32 ch = 0; ch < 4; ch++)
-        if ((p->chmask >> ch & 1) && now - p->tb[ch] > TB_SEC) { p->h[ch] = 0x00808080u; p->l[ch] = 0x80800000u; }   /* (au repos) */
+        if ((p->chmask >> ch & 1) && now - p->tb[ch] > TB_SEC) {   /* (au repos ; v384 : un clavier reste un clavier, sans touche) */
+            if (p->kbmask >> ch & 1) { p->h[ch] = 0; p->l[ch] = 0; } else { p->h[ch] = 0x00808080u; p->l[ch] = 0x80800000u; } }
 }
 static void pd_ev(natres_pad_t *p, u32 t, u32 d) {      /* (journal : 20 premiers, puis les 20 derniers) */
     u32 i = p->nev < 20 ? p->nev : 20 + (p->nev - 20) % 20;
     p->ev[i] = t << 24 | (d & 0xFFFFFFu); p->nev++;
+}
+/* v384 : reponse d'un clavier (commande 0x54, 8 octets) : octet 0 = compteur (4 bits), octets 4 a 6 = touches enfoncees,
+   octet 7 = controle (touches et compteur melanges par ou exclusif) : ce que lit un vrai clavier (voir source/gckb.c) */
+static u32 kb_h(natres_pad_t *p) { p->kbcnt = (p->kbcnt + 1) & 15u; return p->kbcnt << 24; }
+static u32 kb_l(natres_pad_t *p, u32 ch) {
+    u32 k = p->h[ch] & 0x00FFFFFFu, c = (k >> 16 ^ k >> 8 ^ k ^ p->kbcnt) & 0xFFu;
+    return k << 8 | c;
 }
 static MEM_OS u32 pd_si_load(natres_pad_t *p, u32 o, u32 v, int *done) {
     *done = 1;
     if (o < 0x30u) {
         u32 ch = o / 12u, r = o % 12u;
         if (r == 4) p->ninb[ch]++;                        /* (journal : quels ports le jeu lit) */
+        if ((p->chmask & p->kbmask) >> ch & 1) { if (r == 4) { H.si_fixes++; return kb_h(p); } if (r == 8) return kb_l(p, ch); }   /* (v384 : clavier) */
         if (p->chmask >> ch & 1) { if (r == 4) { H.si_fixes++; return p->h[ch]; } if (r == 8) return p->l[ch]; }   /* (journal : lectures donnees) */
         *done = 0; return v;
     }
@@ -1380,7 +1500,9 @@ static MEM_OS u32 pd_si_load(natres_pad_t *p, u32 o, u32 v, int *done) {
         u32 w = (o - 0x80u) / 4u;
         p->nbuf++;
         if (p->xcmd != 0x00 || p->nbuf < 4) pd_ev(p, 4, (p->xcmd & 0xFF) << 8 | w);
-        if (p->xcmd == 0x00 || p->xcmd == 0xFF) { if (!w) p->types++; return w ? 0 : 0x09000000u; }          /* manette standard */
+        int kb = p->kbmask >> p->xch & 1;                 /* (v384 : ce port est un clavier) */
+        if (p->xcmd == 0x00 || p->xcmd == 0xFF) { if (!w) p->types++; return w ? 0 : kb ? 0x08200000u : 0x09000000u; }   /* manette standard (v384 : ou clavier) */
+        if (p->xcmd == 0x54 && kb) return w == 0 ? kb_h(p) : w == 1 ? kb_l(p, p->xch) : 0;   /* (v384 : touches du clavier) */
         if (p->xcmd == 0x41 || p->xcmd == 0x42) { if (!w) p->origins++; return w == 0 ? 0x00808080u : w == 1 ? 0x80801F1Fu : 0; }   /* origine */
     }
     *done = 0;
@@ -2076,7 +2198,9 @@ static MEM_OS __attribute__((noinline)) natres_pad_t *mic_p(void) { natres_pad_t
 /* v353 : comme un vrai micro, un paquet a la cadence de la frequence choisie (32 octets a 11025 Hz : toutes les 1,45 ms),
    des que le jeu l'allume : le son du telephone s'il est la, sinon du silence. Avant : seulement quand le son du telephone
    etait arrive (~200 ms apres la mise en marche) ; Mario Party 7 eteignait le micro avant (« no Mic »). */
-static u32 mic_tnext = 0;                                /* (horloge : quand le prochain paquet est du) */
+static u32 mic_tnext = 0;
+static u32 mic_rng = 0x2545F491u;                       /* v387 : souffle du silence (suite pseudo-aleatoire) */
+static u8 mic_lo = 0, mic_got = 0;                      /* (mic_got : le son du telephone est deja arrive depuis la mise en marche) */                                /* (horloge : quand le prochain paquet est du) */
 static MEM_OS void mic_ready(natres_pad_t *p) {          /* un paquet est du : interruption EXI du slot B */
     vcard_t *v = &vc[1];
     u32 k = (p->mstat >> 13) & 3u, r = (p->mstat >> 11) & 3u;   /* (paquets de 32, 64, 128 octets ; 11025, 22050, 44100 Hz) */
@@ -2101,7 +2225,14 @@ static MEM_OS u8 mic_byte(vcard_t *v, u8 b) {
         if (v->pos == 1) v->addr = (u32)b << 8;
         else if (v->pos == 2) {
             u32 st = (v->addr | b) & 0xFDFFu;            /* (bit 9 : debordement, jamais ici) */
-            if (st != p->mstat) { p->mr = p->mw; mic_tnext = tbl(); p->mfill = 1; }   /* (mise en marche, autre frequence : pas de vieux son ; v353 : 1er paquet tout de suite) */
+            if (st != p->mstat) {                       /* (v387b : a la mise en marche, les ~46 ms les plus recentes du telephone, qui envoie
+                                                    son son micro eteint (appli 477) ; une autre frequence en marche : pas de vieux son) */
+                if ((st & 0x8000u) && !(p->mstat & 0x8000u)) { if (p->mw - p->mr > 1024u) p->mr = p->mw - 1024u; }
+                else p->mr = p->mw;
+                mic_tnext = tbl(); p->mfill = 0; mic_got = 0;
+            }   /* (mise en marche, autre frequence : pas de vieux son ; v353 : 1er paquet tout de suite ;
+                                                     v387 : le son du telephone des qu'il arrive, sans attendre la reserve : Mario Party 7
+                                                     teste le micro ~0,35 s apres l'avoir allume et ne recevait que du silence) */
             if (!(st & 0x8000u)) v->irq &= ~2u;
             p->mstat = st;
         }
@@ -2114,8 +2245,16 @@ static MEM_OS u8 mic_byte(vcard_t *v, u8 b) {
         u32 dispo = p->mw - p->mr;
         if (p->mfill && dispo >= pre) p->mfill = 0;
         if (!p->mfill && dispo > pre * 4u && pre * 4u < NATRES_MIC_RING) { p->mr = (p->mw - pre * 2u) & ~1u; dispo = p->mw - p->mr; }
-        if (!p->mfill && dispo) r = MIC_RING(p)[p->mr++ & (NATRES_MIC_RING - 1u)];
-        else { r = 0; p->mlow++; if (!p->mfill && !(p->mnrd & 1u)) { p->mfill = 1; p->mnrefill++; } }
+        if (!p->mfill && dispo) { r = MIC_RING(p)[p->mr++ & (NATRES_MIC_RING - 1u)]; mic_got = 1; }
+        else {                                           /* v387 : un souffle faible (+-255 sur 32767) plutot que des zeros parfaits :  */
+            if (!(p->mnrd & 1u)) {                       /* un vrai micro n'en donne jamais, et le test du micro de Mario Party 7 le */
+                mic_rng = mic_rng * 1664525u + 1013904223u;   /* jugeait mort (micro « absent ») */
+                int n = (int)((mic_rng >> 24) + ((mic_rng >> 16) & 0xFFu)) - 255;   /* (v387b : +-255, en triangle : le moteur de voix
+                                                                                       de Mario Party 7 a aussi « TOO QUIET », « NO SIGNAL ») */
+                r = (u8)(n < 0 ? 0xFF : 0x00); mic_lo = (u8)n;
+            } else r = mic_lo;
+            p->mlow++; if (mic_got && !p->mfill && !(p->mnrd & 1u)) { p->mfill = 1; p->mnrefill++; }
+        }
         p->mnrd++;
     }
     else if (v->cmd == 0x00 && v->pos >= 2) r = (u8)(MIC_ID >> (24 - ((v->pos - 2) & 3) * 8));
@@ -2751,13 +2890,14 @@ __asm__(".pushsection .text\n.globl ach_eval\nach_eval:\n"
         ".Lach_a:\n"                                      /* un succes */
         "  lwz 8,0(7)\n  addi 9,7,12\n  li 10,1\n  mtctr 8\n"
         ".Lach_b:\n"                                      /* un terme */
-        "  lis 8,0x0180\n  addi 8,8,-4\n  lwz 11,0(9)\n  lwz 12,4(9)\n  srwi. 0,11,24\n  beq .Lach_c\n"
+        "  lis 8,0x0180\n  addi 8,8,-4\n  lwz 11,0(9)\n  lwz 12,4(9)\n  andis. 0,11,0x0100\n  beq .Lach_c\n"   /* (v389 : bit 24 seul : pointeur) */
         "  lwz 0,0(12)\n  lwz 12,8(9)\n  add 12,0,12\n"   /* pointeur (adresse verifiee par GC Station) : valeur lue + decalage */
         ".Lach_c:\n"
         "  addis 0,12,-0x8000\n  cmplw 0,8\n  li 0,0\n  bgt .Lach_v\n"   /* (hors de la memoire du jeu : 0) */
         "  rlwinm 8,11,16,29,31\n  cmpwi 8,2\n  lhz 0,0(12)\n  beq .Lach_v\n  lbz 0,0(12)\n  blt .Lach_v\n  lwz 0,0(12)\n"   /* taille 2, 1, 4 */
         ".Lach_v:\n"                                      /* bit 8 + (v >= c) + (v > c) du type */
-        "  lwz 12,12(9)\n  li 8,8\n  cmplw 0,12\n  blt .Lach_m\n  li 8,9\n  beq .Lach_m\n  li 8,10\n"
+        "  lwz 12,12(9)\n  andis. 8,11,0x0200\n  beq .Lach_w\n  and 0,0,12\n"   /* (v389 : bit 25 : bits a 1 : v & c, compare a c) */
+        ".Lach_w:\n  li 8,8\n  cmplw 0,12\n  blt .Lach_m\n  li 8,9\n  beq .Lach_m\n  li 8,10\n"
         ".Lach_m:\n  srw 11,11,8\n  and 10,10,11\n  addi 9,9,16\n  bdnz .Lach_b\n"
         ".Lach_d:\n"                                      /* r10 & 1 : condition vraie */
         "  lwz 11,0(6)\n  andi. 0,11,2\n  bne .Lach_e\n"  /* (deja obtenu) */

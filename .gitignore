@@ -1,2 +1,10 @@
 __pycache__/
 tools/exfat-test/work/
+
+# CI GitLab (dossiers de travail)
+ci-cache/
+work-swiss/
+sortie/
+
+# Appli privee build 498 : SDK de Discord (ne doit pas etre redistribue)
+android/app/libs-prive/

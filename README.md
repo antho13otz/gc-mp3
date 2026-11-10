@@ -1,34 +1,56 @@
 # GC Station — GameCube Media Center
 
-Centre multimédia pour GameCube : musique, webradios, jeux GameCube, photos et vidéos, web, podcasts,
-météo et télécommande sur téléphone, dans une seule application.
+Centre multimédia et lanceur de jeux pour **Nintendo GameCube**, avec **Pulse**, le compagnon qui reste en mémoire pendant
+tes parties, et **GC Remote Lite**, l'appli Android qui pilote tout depuis ton téléphone.
 *(Anciennement GC-MP3 : les fichiers gardent leur nom, `gc-mp3player.dol` et `SD:/gc-mp3`.)*
 
+**📥 Télécharger : [les Releases](https://github.com/antho13otz/gc-mp3/releases)** — la dernière console (`gc-mp3player-bNNN.dol`)
+et la dernière appli (`gc-remote-lite-NNN.apk`).
+
+> **English** — GC Station is a homebrew media center and game launcher for the Nintendo GameCube (music, web radios,
+> photos, videos, web, podcasts, GameCube games), with *Pulse*, a resident companion that stays in memory while you play
+> (cheats, achievements shown on the TV, live 3D view on your phone), and *GC Remote Lite*, its Android companion app.
+> Grab the latest `.dol` and `.apk` from the [Releases](https://github.com/antho13otz/gc-mp3/releases) page. The interface is in
+> French and English.
+
 ## Installation
-- Copie `gc-mp3player.dol` de la release [« dernier »](https://github.com/antho13otz/gc-mp3/releases/tag/dernier)
-  sur la carte SD (SD2SP2 ou SD Gecko) et lance-le.
-- Mise à jour : START > Mise à jour.
-- Consoles avec puce : grave `gc-station-disque-<région>-bN.iso` sur un mini-DVD.
+- **Console** : copie `gc-mp3player-bNNN.dol` sur la carte SD (SD2SP2 ou SD Gecko) et lance-le depuis Swiss.
+  La version `gc-station-compresse-bNNN.bin` est la même, plus petite.
+- **Mises à jour** : sur la console, START > Mise à jour. Elle se met à jour toute seule depuis les publications du projet.
+- **Téléphone** : installe `gc-remote-lite-NNN.apk` (Android). L'appli se met ensuite à jour toute seule.
+  Console et téléphone sur le même réseau (Broadband Adapter ou adaptateur W5500 sur la console).
 
-## Fonctionnalités
-- **Musique** (`SD:/mp3`) : MP3, FLAC, OGG, AAC, pochettes, paroles, listes, égaliseur.
-- **Radio** : webradios, favoris, enregistrement.
-- **Jeux GameCube** (`.iso`, `.gcm`, `.ciso`) : lanceur Pulse (A), lanceur de secours (X), disque de la console,
-  GC Loader, cartes mémoire virtuelles, cheats, profils de joueurs.
-- **Photos, vidéos, web, podcasts, rétro** (NSF, SPC…), **infos** (météo, actualités, réveil), **fichiers**
-  (carte SD et réseau SMB / FTP), **téléphone** (télécommande et envoi de fichiers par QR code).
-- **Jukebox des jeux** (musiques lues dans tes images .iso), **globe des radios** en 3D, **compagnon** qui grandit avec ta musique.
-- **Assistant IA** (onglet Cube Browser) : questions à Claude, à un service compatible OpenAI ou à Ollama sur un PC (clé API à toi).
-- Vidéo : 480i, 480p, 576i et 576p (50 Hz), 4:3 / 16:9. Français / anglais. Fonctionne aussi dans Dolphin.
+## La console
+- **Musique** (`SD:/mp3`) : MP3, FLAC, OGG, AAC, pochettes, paroles, listes, égaliseur ; **webradios** et globe des radios en 3D.
+- **Jeux GameCube** (`.iso`, `.gcm`, `.ciso`) : lancement avec **Pulse**, lanceur de secours, cartes mémoire virtuelles,
+  cheats, profils, temps de jeu, succès GC Station.
+- **Photos, vidéos, web, podcasts, rétro** (NSF, SPC…), **infos** (météo, actualités, réveil), **fichiers** (carte SD, SMB, FTP).
+- Vidéo 480i, 480p, 576i, 576p, 4:3 / 16:9. Français / anglais. Fonctionne aussi dans Dolphin.
 
-## Commandes
-**Z** : onglet suivant · **START** : menu · **A** : choisir · **B** : retour · **Y** : pause ·
-**L / R** : précédent / suivant · **stick C** : vues, mode soirée.
+## Pulse, pendant tes parties
+- Reste en mémoire pendant le jeu : cheats, retour au menu (A + Z + START), carte mémoire virtuelle.
+- **Succès sur la télé** : un bandeau en bas de l'image quand un succès tombe (GC Station ou RetroAchievements).
+- Mode **Pulse universel** pour les jeux qui le demandent.
+- Le téléphone voit la partie en direct : compagnon de jeu, chercheur de codes, **vue 3D** de Wind Waker, Mario Kart et
+  Rayman 3 (avec les packs que tu installes toi-même).
 
-Réglages et données de GC Station : `SD:/gc-mp3` (réglages dans `gc-mp3.txt`).
+## GC Remote Lite (Android)
+- **Jeux** : ta bibliothèque, jaquettes, étagère 3D, fiche de chaque jeu, lancement en un geste.
+- **Pulse** : la partie en cours, le compagnon, les codes, les succès, le bandeau de la télé, les mini-jeux.
+- **Musique** et **Télé** : la télécommande, et l'image de la télé sur le téléphone.
+- **Console** : fichiers, photos, réglages, cartes mémoire, outils, rapport de bug.
+- **RetroAchievements** (mode normal), fiches des jeux, mode hors-ligne.
+
+## Commandes de la console
+**L / R** : onglet précédent / suivant · **START** : menu · **A** : choisir · **B** : retour · **Y** : pause ·
+**Z** : morceau suivant (deux appuis : précédent) · **stick C** : vues, mode soirée.
+Réglages et données : `SD:/gc-mp3` (réglages dans `gc-mp3.txt`).
 
 ## Pour les développeurs
-- Compilation : GitHub Actions (devkitPPC), `.github/workflows/build.yml`.
-- Simulateur PC : `tools/pc-sim` · banc d'essai de Pulse : `tools/natif-test`.
-- Historique des versions : [`docs/HISTORIQUE.md`](docs/HISTORIQUE.md) · licence MIT (`LICENSE`) ·
-  crédits : [`CREDITS.md`](CREDITS.md).
+- Le projet vit sur GitLab ([gc-station-group/gc-station](https://gitlab.com/gc-station-group/gc-station)) ; ce dépôt GitHub
+  en reçoit une copie, et chaque publication y est recopiée dans les Releases.
+- Compilation : CircleCI (`.circleci/config.yml` : devkitPPC pour la console, Android SDK pour l'appli).
+- Simulateur PC : `tools/pc-sim` · banc d'essai de Pulse (émulateur PowerPC) : `tools/natif-test`.
+- Historique des versions : [`docs/HISTORIQUE.md`](docs/HISTORIQUE.md).
+- Licence MIT (`LICENSE`) pour la console seulement (`source/`, `tools/`) ; l'appli Android et la version PC ne sont pas
+  libres. Crédits : [`CREDITS.md`](CREDITS.md).

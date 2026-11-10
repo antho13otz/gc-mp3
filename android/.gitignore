@@ -6,3 +6,4 @@ local.properties
 *.keystore
 app/src/main/cpp/mgba/
 app/.cxx/
+app/src/main/cpp/rcheevos/

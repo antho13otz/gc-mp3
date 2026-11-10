@@ -248,6 +248,10 @@ static void jeux_cfg_apply(const char *id, int resident) {
     jc_load(id);
     nat_ws = jc_ws;                                           /* v121 : 16:9 force (Pulse) */
     nat_vmode = jc_v[JC_VIDEO - JC_V0]; nat_deflick = jc_v[JC_FLOU - JC_V0]; nat_wide = jc_v[JC_WIDE - JC_V0];   /* v122 */
+    /* v392 : Pac-Man vs. PAL (PRJP) : "Comme le jeu" = PAL 60 Hz. Le jeu passe l'image en NTSC 60 Hz ; selon ce que la
+       console avait avant (mode PAL laisse par GC Station), les couleurs sortaient inversees (rouge / bleu) et l'ecran
+       se brouillait au retour par A+Z+START. En PAL 60 Hz : bon a chaque fois (essai du 8 novembre 2026) */
+    if (nat_vmode == 0 && !strncmp(id, "PRJP", 4)) nat_vmode = 2;
     nat_cstick = jc_v[JC_CSTICK - JC_V0]; nat_trig = jc_v[JC_TRIG - JC_V0]; nat_poll = jc_v[JC_POLL - JC_V0];
     nat_speed = jc_v[JC_SPEED - JC_V0] == 1 || (jc_v[JC_SPEED - JC_V0] == 0 && jc_slow_known(id));   /* v133 : 0 = auto, 1 = vrai lecteur, 2 = rapide */
     nat_speed_auto = jc_v[JC_SPEED - JC_V0] == 0 && nat_speed;
@@ -482,12 +486,21 @@ static const char *gcl_boot(int k);                           /* v121 : GC Loade
 static int gcl_path(const char *p);
 static void tpl_game(const char *id, const char *name);      /* v266 : l'appli du telephone prevenue (tab_phone.c) */
 static void tpl_game_fail(void);
+static void ra_prepare(int k);                               /* v393 : empreinte RetroAchievements (ra_hash.c) */
+/* v395 : RetroAchievements, mode hardcore : l'appli doit savoir si des cheats seront appliques au jeu (Pulse ou le lanceur
+   de secours) ; avec des cheats, elle reste en mode normal. Cheats choisis pour le jeu et pas coupes dans ses reglages. */
+static int ra_cur_cheats;                                    /* (tab_phone.c) */
+static int jc_cheats_actifs(int k) {
+    if (k < 0 || k >= gl_n || gl_cheats_on(k) <= 0) return 0;
+    jc_load(gl[k].id);                                       /* (relu de toute facon au lancement : jeux_cfg_apply) */
+    return jc_v[JC_NOCHEAT - JC_V0] == 1 ? 0 : 1;
+}
 static const char *game_boot_auto2(int k);
 static const char *game_boot2(int k, int resident);
 static const char *game_boot_auto(int k) {
     if (kt_on) return "Test des touches : pas de lancement";   /* v376 : (A dans la fiche lance tout de suite) */
     { const char *lim = pj_launch_check(); if (lim) return lim; }
-    if (k >= 0 && k < gl_n) tpl_game(gl[k].id, gl[k].title);
+    if (k >= 0 && k < gl_n) { ra_prepare(k); ra_cur_cheats = jc_cheats_actifs(k); tpl_game(gl[k].id, gl[k].title); }
     const char *e = game_boot_auto2(k);                      /* (ne revient pas si ca marche) */
     if (e) tpl_game_fail();
     return e;
@@ -496,6 +509,8 @@ static const char *game_boot(int k, int resident) {
     if (kt_on) return "Test des touches : pas de lancement";   /* v376 */
     if (k < 0 || k >= gl_n) return "Jeu introuvable";
     { const char *lim = pj_launch_check(); if (lim) return lim; }
+    ra_prepare(k);
+    ra_cur_cheats = jc_cheats_actifs(k);
     tpl_game(gl[k].id, gl[k].title);
     const char *e = game_boot2(k, resident);
     if (e) tpl_game_fail();

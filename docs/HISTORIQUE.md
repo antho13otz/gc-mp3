@@ -20,9 +20,382 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
   (`gcd_moves` dans main.c). Les autres fichiers de la racine (Swiss, `ipl.dol`, `config.ini`…) ne sont pas touchés.
 
 ## Onglets
-**Z** passe à l'onglet suivant : MUSIQUE, RADIO, WEB, RÉTRO, PODCASTS, PHOTOS, FICHIERS, INFOS,
+**L / R** passent à l'onglet précédent / suivant (v386 ; avant : **Z**) : MUSIQUE, RADIO, WEB, RÉTRO, PODCASTS, PHOTOS, FICHIERS, INFOS,
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
+
+## Nouveautés v401 (build 930) — logos des applis dans les notifications, emojis
+- **Logo de l'application** (Snapchat, Instagram, WhatsApp…) dans les notifications du téléphone : l'appli privée (524) envoie l'icône de l'appli qui a notifié. Dans GC Station, une image 24 × 24 (`/api/notif?px=`, 2304 chiffres hexadécimaux, RGBA4444) dessinée à la place du symbole ; pendant les jeux, une image 16 × 16 dans le bandeau (4 cases d'images dans la zone du bandeau, `BAN3`, `BAN_O_IMG`). Sans image, le symbole d'avant.
+- **Emojis** : la console n'a pas de quoi les dessiner ; l'appli les enlève maintenant avant l'envoi (plus de « ? » à la place) et ramène les lettres accentuées qu'elle ne connaît pas à leur lettre simple.
+- Corrigé : les paramètres des requêtes du téléphone étaient coupés à 2100 caractères (l'icône n'arrivait pas entière) ; requête lue jusqu'à 4600 caractères.
+- Vérifié : simulateur PC (carte avec le logo) ; banc d'essai de Pulse (icône 16 × 16 dessinée par le vrai code PowerPC dans le bandeau).
+
+## Nouveautés v400 (build 929) — bandeau en haut, carillon des notifications
+- **Bandeau des succès et des notifications** (pendant les jeux) : en haut, au milieu de l'image ; il descend du haut de l'écran en arrivant et remonte en partant. Un peu plus petit : police 11 × 22 (avant 12 × 24 ; trophée et icônes ramenés à cette taille), 58 lignes de haut (avant 70), marges plus serrées.
+- Réglage START > Jeux > **« Place du bandeau (Pulse) »** : en haut (par défaut) ou en bas, comme avant (`succes_tele_bas`, mot `BAN_O_BAS` de la zone du bandeau).
+- **Petit carillon** quand une notification du téléphone descend en haut de l'écran de GC Station : deux notes de cloche (mi puis la), 0,45 s, ajoutées par-dessus la musique (`notif_tele.c`, `ntf_son_mix` dans `dma_cb`). Réglage START > Jeux > **« Son des notifications du téléphone »** (oui par défaut ; on l'entend en le rallumant).
+- Vérifié : simulateur PC (la carte descend, compteur des suivantes, `/api/notif`) ; banc d'essai de Pulse (bandeau en haut, notification « Message » du téléphone dessinée par le vrai code PowerPC).
+
+## Nouveautés v399 (build 928, appli privée 522) — Rayman 3 se relance, notifications du téléphone sur la télé
+- **Rayman 3 restait noir** avec la v398, avant sa première image (journal : le jeu arrêté dans Pulse, juste après sa première question au lecteur ; même chose bandeau coupé). Cause : le Pulse compilé en `-Os` de la v398. Tous les jeux reprennent le Pulse de la v397 (`-O2`) ; le Pulse `-Os` (plus petit) n'est plus posé que pour le mode Pulse universel (`natres_os_bin`, `natres_wz_os_bin` ; natif.c, `na_petit`), qui seul a besoin qu'il finisse sous 0x817FFC00 (la compilation échoue sinon).
+- **Notifications du téléphone sur la télé** :
+  - pendant un jeu lancé avec Pulse : le bandeau en bas de l'image, avec l'étiquette et l'icône envoyées par le téléphone (type 4 ; zone de données « BAN2 », `bandeau.h`) ;
+  - dans GC Station : une carte en verre qui descend du haut de l'écran avec un ressort, reste ~5 s et remonte, par-dessus tout, même le menu ; les suivantes attendent (`notif_tele.c`, adresse `/api/notif?e=&m=&i=`) ;
+  - icônes de la police du bandeau (codes 2 à 6, dessinées à la main) : message, appel, alarme, ami, info.
+- **Appli privée 522** : onglet Pulse → « Message pour la télé » (champ et bouton Envoyer) ; « Notifications du téléphone sur la télé » (accès aux notifications d'Android, une fois) : messages, appels, alarmes, réseaux sociaux et mails partent vers la télé, une toutes les 3 s au plus.
+- Banc d'essai : Pulse compilé en `-O2` comme celui des jeux ; l'essai du bandeau envoie une vraie notification (étiquette, icône).
+
+## Appli publique 521 (GC Remote Lite) — bandeau de la télé, sans outils de test
+- **Bandeau des succès sur la télé** (console v397 et plus) : onglet Pulse → « Tester la notification sur la télé » et « Succès RetroAchievements sur la télé » ; chaque succès RetroAchievements s'affiche en bas de la télé.
+- **Plus d'outils de test** : Outils → « Test de la console », mesures et « Rapport du direct » de la vue 3D, essai « direct sans recopie » : appli privée seulement. Les rapports de bug restent (Outils → Rapport de bug, 🐞 de la vue 3D, journal de Pulse, rapports de la GBA et du micro du téléphone).
+- **Néon plus sombre** : fond plus noir, rubans et taches de couleur atténués.
+
+## Appli privée 514 à 521 — vrai verre liquide
+- **514** : le verre recalcule le fond (l'aurore, calculée par la puce graphique) vu à travers une lentille : bord courbé, irisation, centre grossi, reflet du bord qui suit l'inclinaison du téléphone (capteur de gravité) ; appuis en gelée ; bulle des onglets à tirer au doigt, loupe sur les icônes, onde dans le verre à chaque toucher (`LiquideGL.kt`, Android 13+).
+- **515** : thème **Aurore** (le fond de la console : presque noir, rubans à 40 / 34 / 22 sur 255), néon plus sombre, verre moins éclairci ; seule l'icône grossit sous la bulle (elle était coupée).
+- **516** : l'icône ne tremble plus (loupe qui s'éteint en douceur, pas d'effet gelée sur les onglets).
+- **517** (d'après la galerie de MagicOS) : bulle en verre clair qui gonfle et déborde de la barre en chemin, onglet choisi en couleur.
+- **518-519** : chaque icône a son geste à l'arrivée de la bulle (manette qui se dandine, tour de Pulse, saut de la note, télé qui s'écrase, grille qui gonfle) ; bulle plus lente et élastique.
+- **520** : passage d'un onglet à l'autre liquide (l'écran qui arrive ondule et se calme, celui qui part se floute) ; houle et reflet qui balaie le verre ; irisation calculée seulement au bord (trois fois moins de travail ailleurs).
+- **521** : le verre aussi sur l'écran du lecteur (la pochette floue recalculée dans le verre : image de 16 pixels agrandie avec lissage, même dérive et même voile).
+
+## Nouveautés v398 (build 927, appli build 513) — bandeau arrondi, Pulse universel de nouveau possible
+- **Bandeau des succès sur la télé** : coins arrondis (rayon 14, le jeu reste visible autour), texte plus grand (DejaVu Sans Mono Bold 12×24, `tools/police_bandeau.py`), arrivée en glissant depuis le bas (14 images, freine à la fin) et départ en redescendant (10 images). Code du bandeau : 2,3 Ko (limite de garde passée à 3 Ko) ; police : 1,2 Ko de plus sous Pulse. Vérifié en 480i, 480p, 576i et trame seule (rendu PC) et dans l'émulateur PowerPC (coins transparents sur l'image du jeu).
+- **Pulse compilé en `-Os`** (Makefile, `NATRESFLAGS`) : il finissait à 0x817FFE60, au-dessus de 0x817FFC00 (table des pages du mode trap) ; GC Station lançait alors sans Pulse les jeux en « Pulse universel » (Rogue Leader…) et les DOL compressés qui en ont besoin. En `-Os` : fin à ~0x817FD400 (environ 10 Ko de moins). La compilation échoue maintenant si Pulse dépasse 0x817FFC00 (garde dans le Makefile), pour que ça ne revienne pas sans bruit.
+- Banc d'essai (`tools/natif-test/run.sh`) : Pulse compilé avec gcc `-Os` comme la console (avant : clang). 54 essais sur 55 passent, dont `check_z` (Pulse posé avec un DOL compressé). `trap` échoue aussi avec gcc `-O2` : l'émulateur ne rejoue pas les exceptions de ce mode avec un Pulse compilé par gcc (le même mode marchait sur la vraie console en v337). À essayer sur la console avec un jeu en Pulse universel.
+
+## Appli publique 513 (GC Remote Lite) — le vrai logo de Pulse
+- La 512 montrait une icône fixe (hexagone) à la place du logo de Pulse. Le logo animé (cube dans l'hexagone néon, battement, même dessin que la console) sort de `PulseLancement.kt` (appli privée) vers `LogoPulse.kt` : la version publique a le même que l'appli privée (carte Pulse de l'onglet Jeux et de l'onglet Pulse).
+
+## Appli publique 512 (GC Remote Lite) — rangée par onglets, télé plus fluide
+- La version publique reçoit le rangement des appli privées 504 à 507 (drapeau `Rangee.ACTIF`, App.kt) : barre d'onglets **Jeux, Pulse, Musique, Télé, Console**, loupe de recherche en haut, haut de l'onglet Jeux avec la carte Pulse (logo fixe dans la version publique, l'animé reste privé) et le menu ⋮, fiche d'un jeu en sous-onglets.
+- **Onglet Télé** rangé (une ligne de commandes et ⚙), images intermédiaires aussi sans upscaling, image réduite en 320×240 pendant le mouvement (demande la console v396 ou plus).
+- Rien de privé : l'onglet Pulse public ne montre que le compagnon, le chercheur de codes, les succès et les mini-jeux ; Console ne propose pas « Extraire d'un .iso » ; le bandeau de la télé (essai, succès RetroAchievements) reste dans l'appli privée. Vérifié dans l'APK : aucune classe d'extraction, d'export des packs ni de Discord.
+- `ci/appli-publique.sh` vérifie maintenant l'**empreinte exacte** de la clé (`android/signature-publique.txt`, lue sur les APK publiés 486 et 493) : avant, le nom de l'ancienne clé (« CN=GC Remote Lite », encore dans les variables CircleCI) était accepté.
+- Clé de CircleCI remplacée par la bonne (celle de Termux, CN=GCRemoteLite, empreinte CC:BB:9F:B3…) ; publiée par CircleCI (branche `appli-compiler`).
+
+## Appli privée 511 — correction du plantage de la 510
+- La 510 plantait (« Padding must be non-negative », `BarreLiquide`, App.kt) : les ressorts de la bulle de la barre d'onglets rebondissent un peu avant le premier onglet, ce qui donnait une marge négative. Positions bornées à la barre, bulle placée par décalage (`offset`).
+
+## Appli privée 510 — style « Verre liquide »
+- Nouveau style (Console > ⚙ > Apparence > Style ; choisi par défaut dans l'appli privée), dans l'esprit d'iOS 26 / MagicOS : surfaces de verre plus transparentes, voile clair en haut qui s'efface vers le bas, reflet vif sur le bord du haut et de gauche (`verreLiquide`, Theme.kt) ; boutons principaux et puces choisies en verre teinté rose / violet / cyan au lieu du dégradé plein (`verreTeinte`).
+- Appuis élastiques : le bouton s'écrase un peu (plus en hauteur qu'en largeur) et rebondit en revenant (ressorts).
+- Barre d'onglets : une bulle de verre teinté glisse sous l'onglet choisi ; ses deux bords suivent deux ressorts (l'avant vite, l'arrière plus lent) : elle s'étire en chemin et se ramasse en arrivant (`BarreLiquide`, App.kt).
+- Pas de vrai flou d'arrière-plan : les barres ne passent jamais au-dessus du contenu qui défile, seulement au-dessus du fond aurore, déjà flou. « Néon (d'origine) » revient à l'ancien style. Version publique : inchangée.
+
+## Nouveautés v397 (build 926, appli 509) — succès affichés sur la télé pendant les jeux
+- **Bandeau en bas de l'image** pendant ~4 s quand un succès tombe : « 🏆 Succès débloqué ! » et son titre (succès GC Station), ou « RetroAchievements » et son titre (envoyé par l'appli). Les succès déjà obtenus avant la partie ne s'affichent pas. Essayé en 480i, 480p, 576i et trame seule.
+- **Comment** (`source/natres/bandeau.c`, `bandeau.h`) : un petit programme (2 Ko de code, sans aucune donnée : posable à n'importe quelle adresse), posé par GC Station dans la place à part sous Pulse, avec ses données, sa police (DejaVu Sans Mono Bold 10×20, `tools/police_bandeau.py`) et les titres. Pulse l'appelle à chaque image par un code « C0 » mis en tête de la liste des cheats (Pulse savait déjà les exécuter) : **Pulse n'a pas changé**. Il lit l'adresse de l'image affichée dans les registres VI et y dessine directement (sans le cache).
+- **Réglage** : START > Jeux > « Succès sur la télé (Pulse) » (oui par défaut). Non : rien n'est posé, rien n'est pris au jeu. Oui : ~10 Ko (plus 48 octets par succès du jeu) de mémoire en moins pour le jeu (place sous Pulse). Le drapeau « cheats appliqués » envoyé à l'appli (RetroAchievements) ne compte pas ce code.
+- **Appli 509** : chaque succès RetroAchievements est écrit dans le bandeau (lecture de l'en-tête de Pulse + 0x19C → liste des cheats → adresse du bandeau ; écriture « W » de Pulse, permise aussi en hardcore : ce n'est pas la mémoire du jeu). Onglet Pulse : bouton **« Tester la notification sur la télé »** et interrupteur « Succès RetroAchievements sur la télé ». Il faut « Chercheur de codes (appli) » allumé sur la console (comme pour RetroAchievements).
+- Vérifié : banc d'essai du lanceur (`tools/natif-test/run.sh`, émulateur PowerPC) : le vrai code du bandeau, appelé par Pulse, dessine le bandeau quand la fausse appli écrit un texte, et les cheats du jeu marchent toujours derrière lui (nouvel essai `EMU_BANDEAU`). Le banc était cassé depuis la v391 (`lsc_hold` absent de ses bouchons) : réparé. Deux essais échouaient déjà avant (Pulse universel « trap », programme compressé « check_z ») : pas touchés. Simulateur : `ci.sh`.
+- Pas encore vu sur une vraie télé : jeux qui ne refont pas toute l'image à chaque fois (le bandeau pourrait y rester un instant), modes d'image rares.
+
+## Appli privée 508 — la 507 avec la présence Discord
+- Même code que la 507, compilée avec le Social SDK de Discord (`android/app/libs-prive/discord_partner_sdk.aar`, hors du dépôt). Les APK 503 à 507 de la session de compilation locale n'avaient pas le SDK (présence Discord inactive).
+
+## Nouveautés v396 (build 925, appli 507) — télé plus fluide, côté console
+- Compilée avec la v395 (build 924, jamais publiée seule) : le message de lancement (GCSG1) dit aussi si des cheats seront appliqués (9e champ).
+- **Image suivante préparée pendant l'envoi** (`tab_phone.c`, fil `tpe_thread`, priorité 30 comme le serveur) : avant (v295), capture, compression et envoi se suivaient dans le fil du serveur ; maintenant l'image suivante se fait pendant que le serveur attend le réseau. Deux tampons qui s'échangent. Aussi pour `/api/ecran` (images entières). L'encodeur n'est jamais utilisé par deux fils : le serveur attend le fil de l'image (`tpe_attendre`, réponse 503 « occupe » au-delà de 10 s).
+- **JPEG plus rapide** (`ecran_jpeg.c`) : tables de flottants au lieu de conversions entier → flottant pour chaque pixel (le Gekko passe par la mémoire pour ça), coefficients nuls écrits sans conversion flottant → entier. Fichiers produits **identiques octet par octet** (vérifié sur 5 images × 3 qualités × 2 tailles + images partielles) ; 32 % plus rapide sur PC, à mesurer sur la console (X-Ms).
+- **Appli 507** : pendant que tout l'écran bouge, l'appli demande des images entières en **320×240** (`/api/ecran`, quatre fois moins de travail et d'envoi) ; trois images presque pareilles de suite (ou 4 s) : retour aux images partielles en 640, en commençant par une image entière nette. Réglage ⚙ « Image réduite pendant le mouvement ».
+- Simulateur : `tools/pc-sim/ci.sh` passe ; images partielles recollées identiques à l'image entière (écart moyen 1,5 / 255, animations), alternance 320 / 640 bonne. Le test « images partielles » avait trouvé un mélange quand le fil de l'image mettait plus d'1 s : corrigé (attente sans le court-circuiter).
+
+## Appli privée 506 — image de la télé plus fluide
+- Mesure sur la vidéo du propriétaire (carrousel de l'espace Jeux) : environ 15 images par seconde quand tout bouge (une nouvelle image toutes les 67 ms, trous jusqu'à 262 ms) ; la console met 73 ms à refaire l'image entière en JPEG qualité 92 (39 Ko). Les images intermédiaires étaient coupées (liées à l'upscaling, éteint).
+- **Images intermédiaires sans upscaling** (`Upscale.kt`, réglage « fin ») : l'écran du téléphone dessine des images entre celles de la console à chaque rafraîchissement, l'upscaling allumé ou non. L'étiquette dit « → fluide ».
+- **Mouvement en deux niveaux** (`Mouvement.kt`) : recherche large sur l'image réduite (jusqu'à 32 pixels par image ; avant 14), mouvement d'ensemble essayé partout (panoramique, carrousel), puis affinage. Essayé sur deux images de la vidéo : vecteurs tous vers la gauche comme le carrousel, 6 à 10 ms de calcul.
+- **Qualité auto en mouvement** (⚙, allumée) : quand la console renvoie l'image entière, les suivantes sont demandées en qualité 66 (moins de travail pour la console, moins à envoyer) ; trois réponses calmes de suite : une image entière à la qualité choisie remplace le tout. L'étiquette dit « mouvement ».
+- Appli seulement (la console ne change pas) ; gain réel à mesurer sur la télé.
+
+## Appli privée 505 — onglet Télé rangé
+- Sous l'image, une seule ligne : « ● En direct » / « Arrêtée », la qualité (Rapide, Net, Max), puis à droite un bouton ⚙ (Upscaling, Fluide 120 Hz, Tactile, Détails sur l'image, Aide des gestes) et le plein écran. Avant : six pastilles à faire défiler.
+- L'image repart toute seule si elle était en direct la dernière fois (plus besoin de toucher « Afficher la télé » à chaque fois).
+- L'étiquette sur l'image ne montre que les images par seconde ; la toucher affiche les détails (délai de la console, poids, upscaling).
+- L'aide des gestes se masque en la touchant (elle revient par ⚙). La manette (L, Z, R, croix, A B X Y, START) est dans un cadre.
+- Appli privée seulement ; le plein écran en paysage ne change pas. Compilée ; pas encore regardée sur un téléphone.
+
+## Appli privée 504 — l'appli rangée par usage
+- **Barre d'onglets** : Jeux, **Pulse**, Musique, Télé, **Console** (avant : Lecture, Musique, Jeux, Télé, Plus). L'appli s'ouvre sur Jeux. L'écran du lecteur (ancien onglet Lecture) s'ouvre en touchant le lecteur du bas et compte dans Musique ; toucher Musique en revient.
+- **Onglet Pulse** (`EcranPulse`, EcranPlus.kt) : la carte de Pulse (logo animé, partie en cours et temps de jeu), puis « Pendant la partie » (Compagnon, Chercheur de codes, Manette en jeu, Succès) et « Entre amis » (Salon, Regarder un ami, Regarder en 3D, Discord, Mini-jeux, Jeu de cartes). Ces écrans s'ouvrent dans cet onglet (`SOUS_PULSE`).
+- **Console** (ancien Plus) : seulement Fichiers, Photos, Réglages, Cartes mémoire, Outils, Extraire d'un .iso. La **recherche** s'ouvre par une loupe en haut de l'appli.
+- **Fiche d'un jeu** en sous-onglets : Lancer (lancement, boîte, notice, patchs, pastille), Codes, Succès (ceux de ce jeu, nouveau), Sauvegardes, Réglages, Infos (GameTDB, lieux en 3D).
+- **Haut de l'onglet Jeux** : « Tout garder pour hors-ligne » et « Envoyer jaquettes et disques à la console » passent dans un menu ⋮ à côté des deux vues.
+- Appli privée seulement (`Prive.ACTIF`) : l'appli publique garde l'ancienne organisation. Les numéros des écrans (`St.onglet`) ne changent pas ; 5 = Pulse. Compilée (privée et publique) ; pas encore regardée sur un téléphone.
+
+## Appli privée 503 — haut de l'onglet Jeux refait autour de Pulse
+- Onglet Jeux : une grande carte **Pulse** en haut, avec son logo animé (le même que l'écran de chargement de la 502) et le mot « Pulse » à gauche ; à droite le dernier lancement (jeu, résultat, quand, durée, endroit) ; dessous Journal / Partager / Succès. Sans dernier lancement : « Prêt », ou le jeu en cours.
+- Sous la carte : la recherche, les filtres, puis les quatre actions sur deux lignes au lieu de trois (Étagère 3D / Mur de jaquettes, Garder hors-ligne / Envoyer à la console).
+- Appli privée seulement (`EnTeteJeux.kt`, `Prive.ACTIF`) : l'appli publique garde l'ancien haut d'écran. Compilée (privée et publique) ; rendu à regarder sur le téléphone.
+
+## Appli privée 502 — écran de chargement de Pulse au lancement d'un jeu
+- Quand un jeu se lance (vu en direct par l'appli), le téléphone montre l'écran de Pulse comme la console : le logo animé (même dessin que `source/pulse_logo.c` : cube dans l'hexagone néon, battement toutes les 1,1 s), le mot « Pulse », la jaquette et le nom du jeu, une barre de chargement. 4,5 s (un toucher le passe), puis fondu vers « Partie en cours » et le compagnon.
+
+## Appli privée 501 — écran « Choisis ta console » (GameCube / Switch)
+- Au démarrage de l'appli privée : deux cartes, **GameCube** (GC Station, son état : allumée, en jeu, injoignable) et **Switch**. Toucher une carte ouvre son espace ; la flèche retour depuis l'accueil de la GameCube, ou « Changer de console » dans le menu ⚙, ramène au choix.
+- Espace Switch : prêt pour le futur module « Pulse Switch » (Atmosphère, en arrière-plan pendant les jeux). L'appli le cherche sur le réseau toutes les 3 s (UDP 51250, « NXSQ1 » / « NXSA1 » : nom, titre, jeu, temps de jeu, version) ; en attendant, elle dit que la Switch n'est pas encore trouvée.
+
+## Appli privée 500 et console v395 (build 924) — RetroAchievements : mode hardcore préparé
+- **Appli (privée)** : réglage « Mode hardcore » dans Plus → Succès → RetroAchievements. Il s'active au lancement d'un jeu (jamais en cours de partie) et se coupe à tout moment. Pendant une partie hardcore, le téléphone refuse ses aides : écrire ou bloquer une valeur, pause et photos de la mémoire, chercheur de codes, capture qui met le jeu en pause, saut et pilotage automatique du curseur de Tingle. Pas de hardcore avec des cheats appliqués, ni pour une partie commencée avant que l'appli la voie (plus de 90 s). Le mode est annoncé au début de chaque partie.
+- Classements (leaderboards), compteurs, défis et progression des succès mesurés : notifications et carte « En ce moment ».
+- **Console v395** : le message de lancement à l'appli (GCSG1) dit si des cheats seront appliqués au jeu (9e champ). Pas encore compilée.
+- Tant que RetroAchievements n'a pas validé GC Remote, le site compte les succès en mode normal. Dossier de conformité : `docs/RA-HARDCORE.md`.
+
+## Appli privée 499 — spectateurs 3D avec leur propre caméra
+- Wind Waker : dans la vue 3D, **👥 Spectateurs 3D** (sous « 📡 Partager ») donne un code ; les amis vont dans **Plus → En jeu → Regarder en 3D**. Ce n'est pas une vidéo : le joueur envoie l'état rejoué par sa vue (lieu, position et pose de Link, caméra du jeu, curseur du Tingle Tuner, bateau, voile, objets animés), ~30 trames par seconde, compressées, en morceaux de 1100 octets.
+- Chaque spectateur redessine la scène avec **ses propres packs** Wind Waker (rien du jeu ne passe par le réseau) et tourne la caméra comme il veut ; rejeu avec ~110 ms de retard, glissé entre deux trames. Jusqu'à 8 spectateurs ; on peut arriver à tout moment.
+- Même rencontre que le partage vidéo (code de 6 lettres, rendez-vous MQTT public pour les adresses seulement, STUN, perçage UDP), sujet `gcremote/spect3d/v1/<code>`. `Spectateurs.kt` ; `DessinVue3DGL(spectateur = true)` ne demande rien à la console.
+
+## Appli privée 498 — présence Discord
+- **Plus → En jeu → Discord** : pendant une partie, le profil Discord affiche « Joue à GC Station » avec le jeu, ce que tu fais (présence RetroAchievements quand elle existe, sinon « Sur une vraie GameCube »), l'icône du jeu et le temps de jeu.
+- Social SDK de Discord 1.10.19337 (application GC Station, identifiant 1569385821276999721, client public). Le SDK **n'est pas dans le dépôt** (ses conditions ne permettent pas de le redistribuer) : il se met à la main dans `android/app/libs-prive/discord_partner_sdk.aar` (dossier ignoré par git). Sans lui, l'appli se compile quand même et l'écran l'indique.
+- `cpp/discord_jni.c` (bibliothèque `discpont`) ouvre le SDK au moment de l'appel (dlopen). Connexion au compte une seule fois (Discord ou le navigateur s'ouvre) ; seul le jeton de renouvellement est gardé. Permissions vocales et Bluetooth du SDK retirées.
+
+## Appli publique 493 (GC Remote Lite) — RetroAchievements
+
+- RetroAchievements aussi dans l'appli publique (mode normal seulement), avec le texte des données envoyées au site.
+- Onglet Plus regroupé (10 cases), RetroAchievements corrigé (appli privée 492), son coupé à la fermeture (488).
+- Publication : aussi sous un nom fixe, `appli-publique/dernier/gc-remote-lite.apk` (lien court is.gd) ; compilée par
+  CircleCI (branche `appli-compiler`, variables ANDROID_PUBLIC_KEYSTORE_B64 / _PASS du projet CircleCI).
+
+## v394 (build 923) — moins de réglages affichés
+
+- Menu START : les réglages qui ne servent à rien selon un autre réglage sont cachés (`mi_shown`, main.c) : bandes de
+  l'égaliseur (sauf égaliseur Personnalisé), adresse IP / masque / passerelle (avec l'adresse automatique), durée de
+  l'enregistrement programmé (s'il est coupé), style de l'économiseur (économiseur Jamais), Salon par Internet (Salon
+  coupé), carte par région / par jeu (pas de carte mémoire virtuelle), manettes / GBA / micro / chercheur de codes du
+  téléphone (envoi vers l'appli coupé). Ils reviennent dès que le réglage dont ils dépendent est remis. Un sous-titre
+  sans réglage visible est caché aussi. Rien n'est supprimé ni changé dans les réglages enregistrés.
+
+## Appli privée 491 — RetroAchievements (essai)
+
+- Nouvelle tuile « RetroAchievements » (Plus) : connexion au compte retroachievements.org (le mot de passe n'est pas
+  gardé, seulement le jeton rendu par le site), succès du jeu en cours, journal.
+- Pendant une partie lancée par GC Station v393 (empreinte dans `GCSG1`, mémoire ouverte à l'appli) : rcheevos (licence
+  MIT, `cpp/rcheevos`, téléchargé en version figée par `ci/appli.sh` ; pont `cpp/ra_jni.c`) vérifie les succès à chaque
+  image avec la mémoire envoyée par Pulse (le direct). Les morceaux de RetroAchievements passent en premier dans
+  l'abonnement de Pulse, ceux du compagnon / de la vue 3D après (`MemoireJeu`, reassemblage partagé).
+- Rodage : rcheevos lit d'abord la mémoire sans vérifier (adresses à suivre, pointeurs), puis tout recommence ; une adresse
+  nouvelle pas encore reçue met la vérification en pause jusqu'à son arrivée.
+- Mode normal (Softcore) seulement ; nom d'appli envoyé au site : `GCRemote/1.<build>.0`. Notification à chaque succès.
+- Pas encore essayé avec un vrai compte ni une vraie partie.
+
+## v393 (build 922) — RetroAchievements : empreinte du jeu pour l'appli
+
+- Au lancement d'un jeu, quand l'appli peut lire la mémoire du jeu (réglage « Chercheur de codes (appli) »), GC Station
+  calcule l'**empreinte RetroAchievements** du jeu (`source/ra_hash.c`) et la donne à l'appli dans le message de
+  lancement (`GCSG1`, 8e champ). Même calcul que rcheevos (`rc_hash_gamecube`, licence MIT) : MD5 de l'en-tête et de
+  l'apploader, puis des 18 sections de main.dol ; vérifié identique à rcheevos sur deux faux disques. Lu par `gd_read`
+  (.iso, .gcm, .ciso). Gardée dans `SD:/gc-mp3/ra-empreintes.txt` : calculée une seule fois par jeu.
+- La console ne parle jamais à retroachievements.org : c'est l'appli qui le fait (compte, succès, déblocages), avec la
+  mémoire que Pulse lui envoie à chaque image.
+
+## Appli publique 486 (GC Remote Lite) — vue 3D et compagnon
+
+- La vue 3D complète (lieux de Wind Waker, Mario Kart, Rayman 3 en direct, packs installés par la personne : aucun pack
+  fourni) et le compagnon de jeu sont aussi dans l'appli publique. Restent dans la version privée : l'extraction d'un
+  .iso ou d'un fichier du disque, la carte marine lue sur le disque, l'export des packs, la manette / les bongos / le
+  clavier en jeu, le Salon, et le micro du téléphone (pas encore validé).
+- Signée avec la clé de la version publique (créée par le propriétaire, gardée par GitLab).
+
+## Nouveautés v392 (build 921) — sections de l'espace Jeux à L / R, Pac-Man vs. en PAL 60 Hz
+
+- Espace Jeux GameCube (jaquettes en 3D) : **L / R** (ou stick C gauche / droite) passent à la section précédente /
+  suivante (Récents, Tout, Favoris, Plus joués, A à Z, Applis). Avant, la section **Applis** ne lisait plus le stick C :
+  on ne pouvait plus en sortir. Hors de cet écran (après B), L / R changent toujours d'onglet.
+- Pac-Man vs. (version PAL) : réglage vidéo « Comme le jeu » = **PAL 60 Hz**. Le jeu passe l'image en NTSC 60 Hz ;
+  selon l'état laissé par GC Station, les couleurs sortaient inversées (rouge / bleu) et l'écran se brouillait au
+  retour par A+Z+START. En PAL 60 Hz : bon à chaque essai.
+- Première version compilée par CircleCI (les minutes de GitLab ne sont plus utilisées).
+
+## Pac-Man vs. avec la GBA du téléphone (appli 482 à 485)
+
+- Diagnostic (journal du propriétaire, 8 novembre 2026) : programme GBA envoyé et lancé ; le jeu se connecte (Pulse
+  répond tout de suite), mais la GBA émulée par l'appli reste bloquée : « Erreur de connexion ». Deux causes, vérifiées
+  avec le vrai programme GBA (gbademo/packman.bin) dans mGBA face à une GameCube simulée (tools/gba-test) :
+  1. la GBA traite un événement du câble à la fois ; des commandes trop rapprochées (lecture puis mot) : le mot est
+     acquitté sans être lu. gba_jni.c attend désormais JOYCNT & 7 == 0 avant chaque commande et chaque mot ;
+  2. la remise à zéro du jeu, juste après le démarrage, attendait la fin du début du programme (règle du Tingle Tuner),
+     mais l'écho et le port écrits après elle passaient avant : GbaEmu.kt garde maintenant ces mots derrière elle.
+- Pac-Man vs. connecté : les paquets de la GBA sont lus sur place et mis en file (comme le Tingle Tuner).
+
+## Nouveautés v391 (build 920) — écran rouge au lancement, suite
+
+- La v390 n'a pas suffi (même écran rouge avec Pac-Man vs., build 919 : `__dirnext <- readdir <- lsc_thread`) : le fil
+  de la bibliothèque était au milieu d'un long parcours de dossiers (jeux, applis, musiques), `bg_quiesce` ne l'attendait
+  que 5 s, puis la carte SD était démontée sous lui. Maintenant les parcours s'arrêtent tout de suite pendant un
+  lancement (`lsc_hold` testé dans chaque boucle `readdir` des tâches de fond : gclib.c, tools.c, main.c), et
+  `bg_quiesce` attend jusqu'à 15 s.
+
+## Nouveautés v390 (build 919) — onglets de l'onglet Jeux, écran rouge au lancement
+
+- **Onglet Jeux (vue des jaquettes)** : depuis la v386, L / R changent d'onglet principal, et les onglets de la vue
+  (Récents, Tout, Favoris, Plus joués, A à Z, Applis) ne se changeaient plus qu'au stick C haut, dans un seul sens ; les
+  aides montraient encore Z / L / R. Maintenant : **stick C gauche / droite** = onglet précédent / suivant (C haut :
+  suivant, C bas : liste) ; **favori : Y** dans la vue (la croix haut de la fiche ouvre la boîte : plus de favori
+  possible) et **stick C gauche** dans la fiche. Aides du bas et étiquette du haut (« C ») corrigées.
+- **Écran rouge au lancement d'un jeu** (build 918, Pac-Man vs.) : `__dirnext <- readdir <- lsc_thread`. Le fil de la
+  bibliothèque (parcours des jeux, applis, musiques) pouvait lire un dossier pendant que la carte SD était démontée pour
+  le lancement. `bg_quiesce` le met en pause (`lsc_hold`, 30 s au plus) et attend qu'il ait fini (`lsc_busy`).
+
+## Nouveautés v389 (build 918) — avancer dans un morceau, beaucoup plus de succès
+
+- **Aller où on veut dans un morceau** depuis l'appli (478) : toucher ou glisser sur la barre de progression de l'écran de
+  lecture ; la console reçoit `/api/cmd?c=seek&i=<secondes>` (PC_SEEK, `track_seek`). Fichiers seulement (pas la radio).
+- **Succès** : nouveau test « bits à 1 » (`m8(adresse) & 0x07`) pour les drapeaux des jeux (perles, Triforce, chants,
+  Ombres fusionnées...) : GC Station (`sj_term`, bit 25 du terme) et Pulse (`ach_eval` : `v & c` comparé à `c` ; le
+  pointeur est maintenant le bit 24 seul). Banc d'essai `emu_natres.py` : + un succès à bits.
+- **103 succès intégrés** (au lieu de 10), d'après les adresses du compagnon de l'appli : Wind Waker PAL et USA (23
+  chacun : cœurs, rubis, bourses, magie, perles, chants, Triforce, épée, bouclier, bracelets, carquois, bombes),
+  Twilight Princess PAL et USA (15 : cœurs, rubis, bourses, Ombres fusionnées, Miroir, âmes, pêche), Pikmin PAL (8 :
+  pièces du vaisseau, Pikmin nés, troupes), Pikmin 2 PAL et USA (7 : trésors, Pokos). Le fichier d'un jeu est créé sur
+  la carte au 1er lancement (`gc-mp3/succes/<ID>.txt`) ; un fichier déjà là n'est pas remplacé.
+- **Succès en plus** : Super Mario Sunshine PAL et USA (13 chacun : Soleils, pièces bleues, vies ; l'ancien succès USA
+  d'après un code de triche est remplacé), Mario Party 5 PAL et USA (7 chacun : pièces, étoiles, mini-jeux) : 141 en tout.
+  `/api/succes` donne aussi les jeux qui ont des succès fournis mais pas encore de fichier (sans le créer).
+- Appli privée 480 : **compagnon Donkey Konga 2** (GY2E01), d'après deux photos de la mémoire en plein morceau : pointeur
+  fixe 0x80143CD4 → la partie (CLive) ; morceau, nom, mode et difficulté lus dans le nom de la partition ; compteurs du
+  juge des coups montrés tels quels (score, combo, pièces pas encore identifiés : photos prises à 0).
+- Appli privée 479 : écran **Succès** jeu par jeu (obtenus / total, jauge, liste « à faire » puis « obtenus », filtres).
+- Banc d'essai de bout en bout (`emu_e2e.py`) de nouveau vert : le fichier journal de la fausse carte (mkfat.py) avait
+  3 secteurs au lieu de 7 (pas de journal depuis la v268) ; registres de dessin (PE) simulés (lus par le journal d'un
+  plantage) ; un plantage écrit aussi les secteurs suivants (fils du jeu).
+- Appli privée 478 : icône « verre » pour les icônes transparentes de MagicOS 11 (fond translucide, dessin néon avec un
+  halo clair ; variante privée seulement).
+
+## Nouveautés v388 (build 917) — micro de Mario Party 7 : le vrai son tout de suite
+
+- Avec la v387, Mario Party 7 lisait toujours 7744 octets (~0,35 s) puis rendait le micro. Lu dans le jeu (adresses
+  seulement) : le son passe dans un moteur de reconnaissance de la voix qui signale des anomalies (« BAD SNR »,
+  « OVERLOAD », « TOO QUIET », « NO SIGNAL », « GARBLED SOUND », « POOR MIC », table 0x80244F48) puis « STOP LISTEN »,
+  et le micro est démonté (état -3 du pilote : démontage normal, pas un faux retrait du slot B). Sur ces 7744 octets,
+  6956 n'étaient pas du téléphone : l'appli n'envoyait son son qu'après avoir vu le micro allumé (état renvoyé toutes les
+  10 images), soit ~250 ms trop tard.
+- Maintenant l'appli (477) envoie son son **en continu** dès que Pulse répond, à la dernière fréquence vue (11025 Hz au
+  départ) ; à la mise en marche, Pulse donne tout de suite **les ~46 ms les plus récentes** du téléphone. Le souffle qui
+  remplace un son manquant passe à ±255 (en triangle). Banc d'essai `emu_mic.py` : + mise en marche avec du son déjà là.
+- Appli privée 476-477 : boutons **Bongos** et **Clavier** sur l'écran « jeu en cours » (ils n'étaient que dans l'ancien écran).
+
+## Nouveautés v387 (build 916) — Donkey Konga 2 (écran noir) et journal du jeu traduit bien plus vite, micro de Mario Party 7
+
+- **Micro du téléphone dans Mario Party 7 (GP7P01)** : dans l'image mémoire du propriétaire, le jeu avait allumé le micro
+  (735 commandes), lu 7744 octets (~0,35 s à 11025 Hz) dont 4896 de silence parfait, puis l'avait déclaré absent : c'est
+  son test du micro (« NO SIGNAL », « TOO QUIET »...). Le silence venait de la réserve de son de Pulse (v354), refaite
+  dès la mise en marche alors que le son du téléphone n'arrive qu'après ~200 ms. Maintenant : le son du téléphone est
+  donné **dès qu'il arrive** (la réserve ne se refait qu'après un trou), et quand il manque, Pulse donne un **souffle très
+  faible** (±24 sur 32767, inaudible) au lieu de zéros parfaits, comme un vrai micro. Banc d'essai `emu_mic.py` mis à jour.
+
+- Appli privée 475 (gardée par le propriétaire) : dans la lecture d'un fichier texte, le bouton « Retour à la ligne » est
+  remplacé par **Copier** (tout le texte dans le presse-papiers).
+
+- **Écran noir de Donkey Konga 2 (GY2E01)**, trouvé dans l'image mémoire du propriétaire : la table des fichiers du disque
+  (FST, 0x817E17E0) était à zéro. Le bi2.bin du disque contient deux arguments (« Game.elf kurohata ») ; le démarrage du
+  jeu (`__start`, 0x80003244) met alors le haut de l'arène (0x80000034) juste sous ces arguments, à la fin de bi2. Pulse
+  rangeait bi2 AU-DESSUS de la FST : la FST se retrouvait dans l'arène, le jeu l'effaçait en prenant sa mémoire, son
+  `DVDOpen("nus_config_gc.txt")` échouait et `DVDClose` attendait pour toujours (0x800ACC1C). Maintenant : **bi2 sous
+  la FST** (`[ jeu | bi2 | FST | résident ]`), 0x80000034 et la zone réservée (0xEC) commencent à bi2 ; aussi pour le
+  lancement sans Pulse. Banc d'essai de bout en bout (`emu_e2e.py`) : mêmes résultats qu'avant.
+
+- Avec la v386, le démarrage après un jeu est passé de 8,7 s à 4,7 s (carte SD lue à 32 MHz chez le propriétaire), mais
+  « journal : texte » prenait encore 3,5 s. Cause trouvée en rejouant son journal (Donkey Konga 2) dans le simulateur :
+  chaque bout de code du jeu montré dans le journal (~13) rouvrait le disque du jeu, relisait l'en-tête de son .dol et
+  `dernier-lancement.txt` ; chaque endroit du disque coûte à libfat une page de cache de 32 Ko. Le disque est maintenant
+  ouvert une seule fois pour toute la traduction (`na_jdisc`, `source/natif.c`) : 13 ouvertures -> 1, 400 Ko lus -> 115 Ko ;
+  dans le simulateur, 727 ms -> 218 ms. Journal identique (vérifié).
+
+## Nouveautés v386 (build 915) — nouvelle navigation (L / R : onglets, Z : morceau) et démarrage plus rapide après un jeu
+
+- **Navigation** (demande du propriétaire) : **L / R** = onglet précédent / suivant, partout ; **Z** = morceau suivant,
+  deux appuis rapides (0,32 s) = morceau précédent (podcast : +30 s / -15 s). Avant : Z = onglet suivant, L / R = morceau.
+  Ce qui était sur L / R / Z dans les onglets :
+  - JEUX, liste : affichage (jaquettes / liste) = stick C haut / bas (gauche / droite : jeux, applis, cartes, comme avant) ;
+  - JEUX, fiche d'un jeu : favori = croix haut, analyse du jeu = stick C droite ; Z garde « Lancer ce jeu ? » (secours,
+    par Internet), comme dans la fenêtre « Lancer ce jeu ? » ;
+  - JEUX, espace 3D : autre filtre = stick C haut, liste = stick C bas (favori : dans la fiche) ;
+  - PHOTOS : tri par nom / date = stick C gauche / droite ;
+  - WEB : L / R ne vont plus au navigateur (page haut / bas : le stick C fait défiler), sauf clavier ouvert (curseur) ;
+  - clavier GameCube : Tab = onglet suivant (R), Page haut / bas = morceau.
+  Inchangés (écrans par-dessus) : menu START, clavier, cartes mémoire, test de la console, globe, veilleuse, mini-jeux ;
+  soirée et karaoké gardent L / R = morceau. Textes d'aide, badges et boutons à l'écran mis à jour.
+
+- **Démarrage** :
+  - carte SD branchée sur le port série 2 (SD2SP2) lue à **32 MHz** au lieu de 16 (toutes les lectures et écritures de la
+    carte) : essai au démarrage (trois endroits de la carte lus aux deux vitesses, identiques et sans erreur), sinon 16 MHz ;
+    la vitesse est dans `demarrage.txt` (« carte SD (32 MHz) ») ;
+  - plus de fichier d'essai créé puis effacé à chaque démarrage : l'écriture de `demarrage.txt` sert de test d'écriture ;
+  - `demarrage.txt` détaille maintenant chaque partie (réglages lus, retour du lanceur, bibliothèque, listes de lecture,
+    ipl.dol, retour en jeu...) pour la suite.
+- Compilation GitLab : les téléchargements refont toute coupure (`--retry-all-errors`, fichier `.part`, 4 essais) ; deux
+  compilations de suite s'étaient arrêtées sur une coupure. Le clone de Swiss (lanceur) aussi (3 essais).
+- Essai du micro (`tools/natif-test/emu_mic.py`) mis à jour : l'horloge de Pulse est pilotée par l'essai ; vérifie la
+  cadence des paquets (v353), la réserve de ~93 ms, l'ordre des octets, le trou du téléphone (réserve refaite), le
+  rattrapage d'avance et l'absence de rafale après une pause (v354). TOUT OK.
+- Le démarrage de GC Station après un jeu lancé avec Pulse prenait ~5 s de trop : le détail de la v385 a montré que
+  c'était l'écriture du journal traduit (`natif/journal-jeu.txt`, ~30 Ko en centaines de petits morceaux : « journal :
+  texte 5085 ms »). Il est maintenant gardé en mémoire (64 Ko) et écrit d'un coup sur la carte SD. `source/natif.c`.
+
+## Nouveautés v385 (build 914) — temps du démarrage après un jeu
+
+- Après un jeu lancé avec Pulse, le démarrage de GC Station prenait ~6 s de plus (étape « journal Pulse » de
+  `journaux/demarrage.txt` : 5963 ms, 8 novembre). `demarrage.txt` donne maintenant le détail de cette étape
+  (« journal : début, fichier du jeu, texte, réparation, sauvegardes, résumé ») pour trouver la partie lente avant de la
+  corriger. `source/natif.c` (nat_journal_convert), `source/main.c` (bt_txt : 640 -> 1024 caractères).
+
+## Nouveautés v384 (build 913) et appli 474 — clavier du téléphone (Phantasy Star Online)
+
+- **Console (Pulse)** : un port du téléphone peut être un **clavier ASCII de la GameCube** (celui de Phantasy Star Online).
+  Quand l'appli envoie le 3e octet du paquet `GCPD` à 2, Pulse répond au jeu « clavier » (type 0x0820) au lieu de « manette »,
+  et à sa commande 0x54 (et aux lectures du port) comme un vrai clavier : 8 octets, compteur, 3 touches enfoncées, contrôle
+  (le même format que lit `source/gckb.c` sur un vrai clavier). Sans paquet du téléphone, le port reste un clavier sans
+  touche. `source/natres/natres.c` (kb_h, kb_l), champs `kbmask`, `kbcnt` à la fin de `natres_pad_t` ; essai : `emu_pad.py`.
+- **Appli 474 (variante privée)** : écran **Clavier** (bouton « ⌨ Clavier (Phantasy Star Online) ») : ce qui est tapé au
+  clavier du téléphone part lettre par lettre (disposition japonaise JIS du clavier de PSO, Maj ajoutée toute seule, accents
+  retirés) ; touches Entrée, ⌫, Échap, Tab, Espace, Maj, flèches, F1 à F12 ; un clavier Bluetooth ou USB branché au téléphone
+  marche aussi. Prendre un autre port que celui de la manette.
+
+## Nouveautés v383 (build 912) et appli 458 à 473 — bongos du téléphone, plage de Wind Waker, micro débloqué
+
+**Console (Pulse)**
+- **Bongos du téléphone** (Donkey Konga 1 à 3, Donkey Kong Jungle Beat) : quand l'appli envoie le 3e octet du paquet
+  `GCPD` à 1, Pulse ne met plus le bit 0x0080 des touches sur ce port. Les vrais bongos se présentent comme une manette
+  standard (0x0900) sans ce bit : c'est ainsi que le jeu les reconnaît (lu dans Donkey Konga 2 GY2E01, adresses seulement :
+  0x800B0B5C). Le jeu prend alors la gâchette R comme niveau du micro de claquement (0x80068884, seuil comparé en
+  0x8006892C). Une manette du téléphone (octet à 0) ne change pas. `source/natres/natres.c` ; essai : `tools/natif-test/emu_pad.py`.
+
+**Appli (variante privée)**
+- 473 : écran **Bongos** (bouton « 🥁 Bongos (Donkey Konga) » sous « Manette dans le jeu ») : deux tambours (haut / bas :
+  Y / B à gauche, X / A à droite), claquement (touche du milieu ou micro du téléphone) = gâchette R au fond (+ bouton R pour
+  une console plus ancienne), START, port P1 à P4. Un coup bref reste vu 50 ms.
+- 468 : **micro du téléphone** (slot B, Mario Party 6 et 7) de nouveau visible. 467 : le micro n'est que dans la variante privée.
+- 469 à 472 : **plage de Wind Waker** : bandes du rivage dessinées un peu devant le sol ; sable mouillé et nappe de la vague
+  imités le long des vagues (Txa_nami) : la vague monte puis redescend (5,5 s), d'après une vidéo du jeu.
+- 458 à 467 : équipement de Link (épée, bouclier, masque…), vent et arbres qui bougent, écume du rivage sans bande noire,
+  plantage du chrono corrigé ; signature de la version publique corrigée (sa propre clé).
+- Version publique (GC Remote Lite) : inchangée depuis la 467 ; les bongos et le micro n'y sont pas.
+
+## Nouveautés v382 (build 911) — Pulse : direct plus grand pour le mode Détaillé
+
+- Pulse accepte maintenant **96 morceaux** (avant 64) et **16 Ko par image** (avant 10 Ko) dans le direct de l'appli (`MS_MAX`, `MS_TOT`, `source/natres/natres.c`). Seule l'appli en mode « Détaillé » s'en sert ; les autres modes envoient comme avant. Place prise : 192 octets (tableaux des morceaux) ; reste ~736 octets libres dans le Pulse BBA (~2,3 Ko dans le Pulse W5500), sous la limite 0x817FFF00. Banc d'essai de Pulse : le test de la limite (`emu_mem.py`) passe à 16 Ko ; le reste comme avant (les essais de bout en bout échouaient déjà). Simulateur (`tools/pc-sim/ci.sh`) : tous les tests passés.
+
+## Appli build 457 — Détaillé plus riche avec la console 911 ; deux variantes (privée / publique)
+
+- **Mode Détaillé avec la console 911** : jusqu'à 40 objets, articulations jusqu'à 40 m, 7 Ko d'os ; au plus 92 morceaux et 15,8 Ko par image (marge sous les plafonds de Pulse). Avec une console plus ancienne : comme l'appli 456.
+- **Deux variantes de l'appli** (`android/app/build.gradle`, `productFlavors`) : **privée** (« GC Remote », `fr.gcstation.telecommande`, même clé : s'installe par-dessus) et **publique** (« GC Remote Lite », `fr.gcstation.remote`, sa propre clé). Le code privé est dans `src/prive/` et n'est **pas compilé** dans la publique : vue 3D (Wind Waker, Mario Kart, Rayman 3, packs), compagnon, fantôme, équipement, modes du direct, Salon, extraction d'un .iso et d'un fichier du disque, carte marine du jeu. La manette du téléphone reste pour les mini-jeux et les menus de GC Station, sans le mode « en jeu » (Pulse). Le code commun passe par l'objet `Prive` (vide dans la publique).
+- **Version publique, à la place de la vue 3D** (point 12) : « Wind Waker : où est Link », une carte simplifiée faite maison (la Grande Mer en 7 × 7 cases, les îles en ronds avec leur nom, Link en flèche avec sa direction), lue 4 fois par seconde comme le chercheur de codes (seulement sa position). Aucun fichier du jeu.
+- **Mise à jour de la version publique** sans jeton, depuis le paquet générique public `appli-publique` (job manuel `appli-publique` : vérifie l'identifiant, la clé et qu'aucune classe privée n'est dans l'APK, puis publie). Licence de mGBA (MPL 2.0) affichée sur l'écran de la GBA.
+- Job `appli` : ne compile plus que la variante privée (même nom d'APK qu'avant).
+
+## Appli build 456 — fantôme d'un ami, équipement de Link, mode Détaillé, rapport en graphiques ; licences
+
+- **Licences** : l'appli Android (`android/LICENSE`) et la version PC (`pc/LICENSE`) sont « Tous droits réservés » (Anthony / chauvet830) ; la licence MIT (`LICENSE`) ne couvre plus que la console (`source/`, `tools/`). mGBA garde sa licence MPL 2.0, les autres bibliothèques la leur.
+- **Fantôme d'un ami** (Wind Waker, vue 3D, `Fantome.kt`) : sous la vue 3D, « 👻 Fantôme d'un ami » : un code à partager (bouton « Nouveau », « Partager le code ») et un nom. Les deux téléphones se trouvent par Internet via un serveur MQTT public gratuit (broker.hivemq.com:1883, secours test.mosquitto.org:1883 ; sujet `gcstation/fantome/<code>`, ~5 messages par seconde : lieu, salle, position, cap, vitesse, nage, bateau). Le Link de l'ami apparaît en fantôme translucide bleuté (animé d'après sa vitesse), avec son bateau (la coque du pack, tournée de son cap), seulement sur le téléphone, jamais dans la partie. « Aller le voir » : la vue le suit, même dans un autre lieu (sa scène s'affiche si elle est dans les packs) ; « Revenir à mon Link ». Avertissement à l'écran : serveur public, quiconque connaît le code voit les positions, sans garantie.
+- **Équipement de Link** : d'après la copie de la mémoire du propriétaire (7 novembre, GZLP01), l'équipement choisi est en G +0x0E (épée, bouclier, bracelets) et ce que Link porte à l'écran, ce sont des modèles accrochés à son acteur (+0x330 à +0x9B0, +0x2E70 à +0x2F90). L'appli les cherche une fois par lieu, garde ceux que le pack connaît (signature : taille du fichier, nombre d'os) et les suit en direct comme les objets (Optimisé : d'un seul bloc ; Classique et Détaillé : avec leurs os) ; ceux qui sont rangés (laissés à l'origine du monde) ne sont pas dessinés. Interrupteur « Équipement de Link » dans « Ce que la console envoie ». Il faut que le pack contienne ces modèles (journal 🐞 Bug : liste des modèles accrochés et ceux du pack). Sous la vue : vie, épée, bouclier, magie.
+- **Mode du direct retenu par jeu** : le choix revient tout seul quand on relance ce jeu (et reste le choix par défaut des autres).
+- **Quatrième mode, « Détaillé »** (Léger, Optimisé, Classique, Détaillé) : jusqu'à 28 objets, articulations jusqu'à 30 m, équipement articulé, plus d'objets apparus suivis (bombes, projectiles) ; avertissement « Peut ralentir le jeu ». **Classique** suit un peu plus (18 objets, articulations jusqu'à 18 m). Jamais au-delà des plafonds de Pulse (console 910 inchangée : 64 morceaux, 10 Ko par image) : l'appli garde 60 morceaux et 9,6 Ko au plus, en retirant les objets les plus loin.
+- **Connexion faible** : l'appli mesure les envois perdus et le retard (3 dernières secondes) ; au-delà (pertes > 15 % ou retard ≥ 7 images pendant 3 s) : bandeau « 📶 Connexion faible » avec « Passer en Léger » (proposé, jamais automatique) ; quand ça va mieux : « Revenir en … ». Le Léger d'attente n'est pas retenu pour le jeu.
+- **Rapport du direct en graphiques** : temps pris au jeu, Ko par image, images par seconde du téléphone, avec leur moyenne ; « Garder » (10 rapports au plus) et « Comparer deux rapports » (avant / après, gain en %). « Partager le texte » garde l'export d'avant (avec le mode du direct en plus).
+- **Plus de noir au passage en plein écran** de la vue 3D (et au retour) : la dernière image reste affichée, avec « Chargement du lieu… » et une barre, jusqu'à la première image de la nouvelle vue.
+- **Export des réglages complété** : « Exporter les réglages de l'appli » note les packs 3D installés et propose de les exporter aussi (zip à côté, dans Téléchargements/GC Remote) ; « Importer des réglages » propose ensuite de les remettre (choisir les zip : le jeu est reconnu par le nom, windwaker-, mariokart-, rayman3-).
 
 ## Nouveautés v377 (build 906) — liste des applis gardée sur la carte SD
 
@@ -33,6 +406,61 @@ haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « On
 - Aurore : nouvel accueil de l'onglet JEUX : le dernier jeu en grand (jaquette, titre, temps de jeu, date ; A : sa fiche), tuiles Jeux GameCube (nombre, temps total), Applis (nombre, noms ; avant : cachées dans l'espace jeux, touche Z), Cartes mémoire, Mes stats (le récap, le jeu le plus joué), mini-jeux sur une rangée qui défile (celui choisi grossit : description, record). Jaquette, titres et nombres lus en fond. Les autres styles gardent l'accueil d'avant.
 - Applis : la carte SD est lue en fond (avant : dans la boucle de l'écran, environ 25 ms par appli) ; « Lecture des applis… » en attendant. La barre Jeux / Applis / Cartes montre de nouveau Applis (stick C : les trois).
 - A sur un jeu : la fiche d'abord, A encore : jouer (avant : « Lancer ce jeu ? » puis A). Z dans la fiche : « Lancer ce jeu ? » (lanceur de secours, Pulse LAN). Le bouton Jouer de l'accueil et X (relancer le dernier) mènent aussi à la fiche. Pas de lancement de jeu pendant le test des touches.
+
+## Appli build 455 — trois modes du direct : Classique, Optimisé, Léger
+
+- Vue 3D de Wind Waker, « Ce que la console envoie » : « Mode du direct », avec sa description. Classique : tout à chaque image (le plus fluide, le plus lourd pour le jeu). Optimisé (par défaut) : objets une fois sur deux. Léger : le jeu le moins dérangé : une image de la télé sur quatre, les 4 objets les plus proches de Link, sans voile ni vagues, sans recopie (console 909+).
+
+## Nouveautés v381 (build 910) — direct plus rapide dans Pulse
+
+- Le direct se prépare plus vite : les octets (morceaux simples, et les valeurs des morceaux compacts : squelettes de Link et des personnages) vont directement dans la trame tant qu'elle a de la place, au lieu d'un appel avec ses tests pour chaque octet. Mêmes octets envoyés. Rapport du 7 novembre (909, appli 454) : 0,85 ms et 1,9 Ko par image en moyenne ; l'essai « sans recopie » ne gagnait que ~0,04 ms (l'essentiel du temps est dans les morceaux compacts).
+
+## Nouveautés v380 (build 909) — Pulse : objets du direct une fois sur deux ; essai du direct sans recopie
+
+- Pulse « 2 » : l'appli peut demander qu'un morceau du direct ne parte qu'un envoi sur deux (option 3 des morceaux, refusée avant). Wind Waker s'en sert pour les objets et personnages animés : moitié moins de données pour eux, Link, la caméra, le bateau et la voile partent toujours à chaque envoi.
+- Pulse « 3 », 1re étape (essai, coupé par défaut, Broadband Adapter seulement) : quand l'appli le demande, le direct ne recopie plus les octets de la mémoire du jeu un par un dans la trame ; l'adaptateur les lit directement (début et fin en écriture directe, le milieu par blocs de 32 octets par DMA, cache vidé avant). Les morceaux compacts (calculés) restent préparés par Pulse.
+- Le Pulse « par défaut » (banc d'essai, simulateur) est celui du Broadband Adapter ; Pulse LAN ne change pas (même fichier).
+
+## Appli build 454 — objets un envoi sur deux, essai du direct sans recopie
+
+- Vue 3D de Wind Waker, « Ce que la console envoie » : « Objets : un envoi sur deux » (activé par défaut, avec une console 909 ou plus) : les objets arrivent une fois sur deux ; entre deux, leur mouvement est prolongé d'un demi-pas. Avec une console plus ancienne, rien ne change.
+- « Essai : direct sans recopie (Broadband Adapter) » (coupé par défaut) : demande à Pulse (909 et plus) d'envoyer le direct sans recopie. À essayer, puis comparer avec un « Rapport du direct ».
+
+## Appli build 453 — plein écran de la vue 3D depuis la fiche d'un jeu
+
+- Wind Waker (et les autres lieux en 3D de la fiche d'un jeu) : « Plein écran » ramenait à l'accueil de l'appli. La fiche d'un jeu est une feuille, une fenêtre à part au-dessus de l'appli ; le plein écran (build 411) était dessiné par l'appli elle-même, donc dessous : la feuille se refermait et le plein écran disparaissait avec elle. Depuis la fiche, le plein écran est maintenant une fenêtre au-dessus d'elle (comme la boîte en 3D) ; ailleurs, rien ne change. Le retour (✕ ou bouton retour d'Android) ramène à la fiche.
+
+## Nouveautés v379 (build 908) — deux Pulse (Broadband Adapter / W5500) ; jaquette à plat sans Internet
+
+- Pulse existe maintenant en deux versions, compilées à partir du même code : **Pulse BBA** (pilote du Broadband Adapter seul) et **Pulse W5500** (pilote W5500 seul, ETH2SP1 / ETH2GC). Avant de lancer un jeu, GC Station regarde l'adaptateur branché et met le bon (aucun : celui du BBA, comme avant). Chacun garde exactement les mêmes fonctions qu'avant ; le pilote inutile ne prend plus de place : environ 2,7 Ko de libre de plus dans chaque Pulse (avant : environ 320 octets), pour les prochaines améliorations du direct. Pulse LAN ne change pas. Le journal de démarrage note « Pulse : Broadband Adapter » ou « Pulse : W5500 ».
+- Fiche d'un jeu : sans Internet (pas de jaquette complète), seulement l'image de la jaquette, à plat, sans la boîte en 3D.
+- Banc d'essai de Pulse (tools/natif-test) : les deux Pulse essayés (BBA : carte SD, manettes, GBA, micro, chercheur de codes ; W5500 : les trois ports) ; il manquait aussi le fichier de Pulse LAN pour vérifier natif.c (depuis v359).
+
+## Appli build 452 — mise à jour depuis GitLab, réglages exportables, noms des lieux
+
+- « Mettre à jour l'appli » (⚙) marche avec GitLab : coller une fois un jeton GitLab (projet GC-Station-group/GC-Station > Settings > Access tokens : rôle Developer, droit read_api seulement). L'appli trouve le dernier build compilé et l'installe par-dessus. Un jeton GitHub marche encore (si le dépôt GitHub revient).
+- ⚙ > « Exporter les réglages de l'appli » : un fichier dans Téléchargements/GC Remote (gardé si l'appli est désinstallée) ; « Importer des réglages de l'appli » : les remet, puis l'appli redémarre. Le jeton de mise à jour n'est pas dans le fichier (secret).
+- Les fiches des jeux et l'avis « nouveau GC Station » sont lus sur GitLab d'abord (GitHub en secours).
+- Wind Waker, « Les lieux en 3D » : « La Grande Mer — écran titre » et « La Grande Mer — fin du jeu » au lieu de sea_t et sea_e.
+
+## Nouveautés v378 (build 907) — mises à jour depuis GitLab (GitHub gardé)
+
+- La mise à jour en un clic (START > Mise à jour, version normale ou compressée), le retour en jeu, le lanceur de jeux, le catalogue d'applis et les fiches des jeux sont lus sur **GitLab** (gitlab.com/GC-Station-group/GC-Station, paquets publics `console`, `catalogue`, `fiches`), le compte GitHub étant suspendu depuis le 6 novembre 2026. Messages : « GitLab ne répond pas »…
+- Le réglage `maj_depot` choisit l'endroit : `gitlab:gc-station-group/gc-station` (défaut) ou `github:antho13otz/gc-mp3` (comme avant). L'ancienne valeur `antho13otz/gc-mp3`, déjà écrite dans gc-mp3.txt, est lue comme GitLab. Rien de GitHub n'est retiré : voir docs/RETOUR-GITHUB.md.
+- À installer **une fois à la main** (les builds 904 à 906 cherchent sur GitHub) ; ensuite, les mises à jour reviennent toutes seules.
+- Compilation GitLab : la console est publiée seulement si les tests du simulateur passent (job `console-publier`). Catalogue et fiches : jobs à lancer à la main (aucune tâche planifiée). Workflows GitHub gardés à jour : à la main seulement, numéros de build dans `ci/numeros.env`, clé de l'appli dans un secret.
+
+## Appli build 451 — direct de Wind Waker : une image de la télé sur deux ; compilée sur GitLab
+
+- Vue 3D de Wind Waker : le direct ne demande plus qu'une image de la télé sur deux (`MemoireJeu.abonner(l, 2)`). Wind Waker tourne à 30 images par seconde, Pulse envoyait à 60 : un envoi sur deux était une copie du précédent, jetée à l'arrivée. Le temps pris au jeu par le direct est divisé par deux, l'animation est la même. À mesurer avec le « Rapport du direct » (dernier rapport, build 440 : 3,6 Ko par envoi, 1,62 ms).
+- Première appli compilée sur GitLab (le compte GitHub est suspendu depuis le 6 novembre 2026) : nouvelle clé de signature (l'ancienne était dans le cache de GitHub, perdue). **Désinstaller une fois** l'ancienne appli avant d'installer celle-ci (ses réglages sont perdus). La clé est gardée dans une variable protégée de GitLab : les builds suivants s'installeront par-dessus.
+- « Mettre à jour l'appli » (⚙) cherche encore sur GitHub : elle ne trouve plus rien pour l'instant (à refaire pour GitLab).
+
+## Compilations sur GitLab (6 novembre 2026)
+
+- Le projet est sur gitlab.com/GC-Station-group/GC-Station (public ; les compilations, l'APK et l'exe PC sont visibles seulement par les membres). Les anciens workflows `.github/workflows/` restent pour mémoire.
+- `.gitlab-ci.yml` : toutes les compilations sont **manuelles** (Build > Pipelines > bouton ▶) : console (`console-lanceur` puis `console` et `console-compresse`), `simulateur`, `appli`, `pc`. Aucune tâche planifiée, pas de tests longs. Recettes dans `ci/` ; numéros de build dans `ci/numeros.env`.
+- Pas encore repris : le disque de démarrage, l'essai sur un vrai Windows. (Mise à jour de la console, catalogue et fiches : build 907.)
 
 ## Appli build 450
 

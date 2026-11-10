@@ -234,10 +234,16 @@ if TRAP:                                              # (memoire aussi en adress
     mu.mem_map_ptr(0x80000000, 0x01800000, UC_PROT_ALL, ctypes.addressof(ram))
     mu.mem_map_ptr(0x00000000, 0x01800000, UC_PROT_ALL, ctypes.addressof(ram))
     mu.mmio_map(0xCC406000, 0x1000, io_read, None, io_write, None)   # (2e adresse de la page : celle du resident)
+elif os.environ.get('EMU_BANDEAU') == '1':             # v397 : le bandeau ecrit l'image sans le cache (0xC0000000 + adresse)
+    import ctypes
+    ram = ctypes.create_string_buffer(0x01800000)
+    mu.mem_map_ptr(0x80000000, 0x01800000, UC_PROT_ALL, ctypes.addressof(ram))
+    mu.mem_map_ptr(0xC0000000, 0x01800000, UC_PROT_ALL, ctypes.addressof(ram))
 else: mu.mem_map(0x80000000, 0x01800000)
 mu.mmio_map(0xCC006000, 0x1000, io_read, None, io_write, None)
 mu.mmio_map(0xCC003000, 0x1000, pi_read, None, pi_write, None)
 mu.mmio_map(0xCC000000, 0x1000, pi_read, None, lambda *a: None, None)      # (CP : ecritures ignorees)
+mu.mmio_map(0xCC001000, 0x1000, lambda *a: 0, None, lambda *a: None, None)   # (build 918 : PE, lu par le journal d'un plantage depuis v257)
 def dsp_write(uc, off, size, value, data):
     if size == 2: dspr[off] = value & 0xFFFF
     elif size == 4: dspr[off] = (value >> 16) & 0xFFFF; dspr[off + 2] = value & 0xFFFF
@@ -245,7 +251,31 @@ def dsp_read(uc, off, size, data):
     return dspr.get(off, 0) if size == 2 else (dspr.get(off, 0) << 16) | dspr.get(off + 2, 0)
 mu.mmio_map(0xCC005000, 0x1000, dsp_read, None, dsp_write, None)          # (DSP / DMA du son)
 vir = {0x02: 0x0001, 0x6C: 0, 0x6E: 1}                # v99 : ecran (VI) : DCR actif NTSC, 27 MHz, cable numerique
-mu.mmio_map(0xCC002000, 0x1000, lambda uc, off, size, data: vir.get(off, 0) if size == 2 else (vir.get(off, 0) << 16) | vir.get(off + 2, 0), None, lambda *a: None, None)
+BAND = os.environ.get('EMU_BANDEAU') == '1'
+XFB = 0x00700000                                      # v397 : image 640 x 480 entrelacee (deux trames rangees ensemble)
+ban = {'lu': 0, 'd': 0, 'ecrit': False}
+if BAND:
+    vir.update({0x00: 240 << 4, 0x1C: XFB >> 16, 0x1E: XFB & 0xFFFF, 0x24: (XFB + 1280) >> 16, 0x26: (XFB + 1280) & 0xFFFF, 0x48: 40 << 8 | 80})
+def vi_read(uc, off, size, data):
+    if BAND and off == 0x6E:                          # (Pulse le lit a chaque image, avant les cheats : une fois le bandeau en
+        ban['lu'] += 1                                #  route (BAN_O_INIT), l'appli ecrit un succes RetroAchievements)
+        if not ban['d']:
+            ch = struct.unpack('>I', uc.mem_read(0x817EE000 + 0x19C, 4))[0]
+            w = struct.unpack('>8I', uc.mem_read(ch + 4, 32)) if ch else ()
+            if w and w[0] == 0xC0000000: ban['d'] = (w[2] & 0xFFFF) << 16 | (w[3] & 0xFFFF)
+        d = ban['d']
+        if d and not ban['ecrit'] and struct.unpack('>I', uc.mem_read(d + 0x1C, 4))[0] == 1:
+            if True:
+                uc.mem_write(d + 0x60, b'Bravo : 100 %\0')
+                uc.mem_write(d + 0x420, b'Message\0'); uc.mem_write(d + 0x440, struct.pack('>I', 16))   # (v399 : notification : etiquette, icone ; v401 : icone en image, case 0)
+                uc.mem_write(d + 0x480, struct.pack('>I', 0x525A52F0) * 128)                                  # (v401 : case 0 : 16 x 16 points rouges, Y = 82)
+                uc.mem_write(d + 0x24, struct.pack('>I', 4)); uc.mem_write(d + 0x20, struct.pack('>I', 1))
+                ban['ecrit'] = True
+        elif d and ban['ecrit'] and not ban.get('saut') and struct.unpack('>I', uc.mem_read(d + 0x2C, 4))[0] == 219:
+            uc.mem_write(d + 0x2C, struct.pack('>I', 200))   # (v398 : 1re image de l'arrivee dessinee : on saute la fin du
+            ban['saut'] = True                               #  glissement, l'essai ne fait que quelques images)
+    return vir.get(off, 0) if size == 2 else (vir.get(off, 0) << 16) | vir.get(off + 2, 0)
+mu.mmio_map(0xCC002000, 0x1000, vi_read, None, lambda *a: None, None)
 b = open(BOOT, 'rb').read()
 entry, n = struct.unpack_from('>II', b, 0); p = 8
 for i in range(n):
@@ -365,6 +395,17 @@ if MODE in ('swap', 'cheat', 'ws', 'cardb', 'pad', 'video', 'tick', 'trap', 'lan
             print(('OK   ' if good else 'FAUX ') + 'cheat : %08X = %08X (attendu %08X)' % (a, g, v)); ok &= good
         n = u(0x198) >> 16
         print(('OK   ' if n >= 3 else 'FAUX ') + 'cheats appliques a %d images' % n); ok &= n >= 3
+        if BAND:                                        # v397 : le bandeau, devant les cheats
+            d = ban['d']
+            img = bytes(mu.mem_read(0x80000000 + XFB, 640 * 2 * 480))
+            ys = [img[i] for i in range(0, len(img), 2)]
+            bord = sum(1 for y in ys if y == 112); texte = sum(1 for y in ys if y == 235)
+            lignes = sorted({i // 640 for i, y in enumerate(ys) if y == 112})
+            good = ban['ecrit'] and d and rd32(d) == 0x42414E33 and rd32(d + 0x28) == 1 and rd32(d + 0x30) == 4 and rd32(d + 0x464) == 16 and sum(1 for y in ys if y == 82) >= 200 and bord > 200 and texte > 50 and lignes and lignes[-1] < 160   # (v400 : en haut de l'image)
+            print('(bandeau : %d images vues)' % ban['lu'])
+            print(('OK   ' if good else 'FAUX ') + 'bandeau : donnees en %08X, texte du telephone vu (%d), type %d, %d pixels de bord, %d de texte, lignes %s' % (
+                d, rd32(d + 0x28) if d else -1, rd32(d + 0x30) if d else -1, bord, texte, (lignes[0], lignes[-1]) if lignes else '-')); ok &= bool(good)
+            open('bandeau-e2e.yuyv', 'wb').write(img)
     if MODE == 'ws':
         r = [rd32(a) for a in (0x80001F90, 0x80001F94, 0x80001FA0, 0x80001F98, 0x80001F9C, 0x80001D00, 0x80001D08)]
         good = r == [0x3F400000, 0x3EC00000, 0x40000000, 0x3F800000, 0x3E800000, 0x3F800000, 0x3F000000]
@@ -482,15 +523,18 @@ print(('OK   ' if mc else 'FAUX ') + 'carte memoire virtuelle : ID %X, CSR %X, r
     rd32(0x80001F2C), rd32(0x80001F30), r1 == exp, r2 == exp2, f1 == exp, f2 == exp2, cn, exi[1][4], bad0[:3]))
 ok &= bool(mc)
 csecs = {csd(0x2000 >> 9), csd(0x110000 >> 9)}
-if card.writes:                                    # v54 : journal du jeu ecrit sur la carte
-    js = card.writes[-1]; jb = disk[js * 512:js * 512 + 512]; open('journal.bin', 'wb').write(jb)
+jw = [w for w in card.writes if bytes(disk[w * 512:w * 512 + 4]) == b'GCSN']   # (build 918 : le dernier secteur ecrit pouvait etre
+                                                   #  la carte memoire virtuelle (ecrite apres le journal) : on prend le journal)
+if jw:                                             # v54 : journal du jeu ecrit sur la carte
+    js = jw[-1]; jb = disk[js * 512:js * 512 + 512]; open('journal.bin', 'wb').write(jb)
     u = lambda o: struct.unpack_from('>I', jb, o)[0]
     SS = None
     if EXC:                                        # v83 : photo de la memoire (secteurs ecrits avant le journal)
         dd = [w for w in card.writes if bytes(disk[w * 512:w * 512 + 4]) == b'GCSM']
         SS = dd[-1] if dd else None
     snap = set(range(SS, SS + 704)) if SS is not None else set()
-    jok = set(card.writes) - csecs - snap == ({js, js + 1, js + 2} if EXC else {js}) and jb[:4] == b'GCSN' and u(0x4C) == 6 and u(0x90) == 3
+    ecr = set(card.writes) - csecs - snap          # (build 918 : un plantage ecrit aussi les fils du jeu (v243), 4e secteur, etc.)
+    jok = ({js, js + 1, js + 2} <= ecr <= set(range(js, js + 7)) if EXC else ecr == {js}) and jb[:4] == b'GCSN' and u(0x4C) == 6 and u(0x90) == 3
     if EXC:                                        # v79 : details du plantage dans le secteur suivant
         cb = disk[(js + 1) * 512:(js + 2) * 512]; open('journal.bin', 'ab').write(cb)
         cu = lambda o: struct.unpack_from('>I', cb, o)[0]
@@ -523,7 +567,7 @@ if card.writes:                                    # v54 : journal du jeu ecrit 
     print('lectures en fond : %d (%d morceaux)' % (u(0xD0), u(0xD4)))
     jok &= u(0xD0) == 2 + u(0x1E8) and u(0xD4) == 132 + u(0x1E8)   # (v88 : 0x2000 + 0x40000 octets, morceaux de 2 Ko ; v145 : + lectures passees en fond, bus EXI pris)
     jok &= (u(0xB0) == 0x102 and u(0xB4) == 0x80001234 and u(0xB8) == 0x80005678 and u(0x98) == 0) if EXC else (u(0x98) == 1 and u(0xB0) == 0)
-    if EXC: print('plantage note : %X a %08X LR %08X' % (u(0xB0), u(0xB4), u(0xB8)))
+    if EXC: print('plantage note : %X a %08X LR %08X ; secteurs du journal ecrits : %s' % (u(0xB0), u(0xB4), u(0xB8), sorted(w - js for w in ecr)))
     print(('OK   ' if jok else 'FAUX ') + 'journal du jeu : %d ecritures, secteur %X, commandes=%d' % (len(card.writes), js, struct.unpack_from('>I', jb, 0x4C)[0]))
     ok &= jok
 else:

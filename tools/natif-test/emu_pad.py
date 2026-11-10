@@ -141,8 +141,8 @@ arp = b'\xff' * 6 + PH_MAC + b'\x08\x06' + bytes([0, 1, 8, 0, 6, 4, 0, 1]) + PH_
 bba.deliver(arp); call(POLL)
 rep = [f for f in bba.sent if f[12:14] == b'\x08\x06' and f[20:22] == b'\x00\x02']
 check('reponse ARP au telephone', len(rep) == 1 and rep[0][0:6] == PH_MAC and rep[0][28:32] == GC_IP)
-def gcpd(ch, seq, h, l):
-    d = b'GCPD' + bytes([1, ch, 0, 0]) + struct.pack('>III', seq, h, l)
+def gcpd(ch, seq, h, l, f=0):
+    d = b'GCPD' + bytes([1, ch, f, 0]) + struct.pack('>III', seq, h, l)
     udp = struct.pack('>HHHH', 40000, 51237, 8 + len(d), 0) + d
     ip = struct.pack('>BBHHHBBH', 0x45, 0, 20 + len(udp), 0, 0, 64, 17, 0) + PH_IP + GC_IP
     return bytes([0x00, 0x09, 0xBF, 0x01, 0x02, 0x03]) + PH_MAC + b'\x08\x00' + ip + udp
@@ -157,4 +157,22 @@ bba.deliver(gcpd(1, 1, 0x02000000, 0)); call(POLL)
 check('meme numero : ignore', call(SL, 0xCC006410) == 0x018020E0)
 bba.deliver(gcpd(1, 2, 0x02000000 | 0x8080, 0x80800000)); call(POLL)
 check('paquet suivant : B', call(SL, 0xCC006410) == 0x02808080, '%08X' % call(SL, 0xCC006410))
+bba.deliver(gcpd(1, 3, 0x08000000 | 0x8080, 0x808000FF, 1)); call(POLL)   # (v383 : bongos : tambour gauche haut, claquement)
+check('bongos : sans le bit 0x0080, gachette R = micro', call(SL, 0xCC006410) == 0x08008080 and call(SL, 0xCC006414) == 0x808000FF,
+      '%08X %08X' % (call(SL, 0xCC006410), call(SL, 0xCC006414)))
+bba.deliver(gcpd(1, 4, 0x00102A00, 0, 2)); call(POLL)   # (v384 : clavier : A (0x10) et 1 (0x2A))
+h, l = call(SL, 0xCC006410), call(SL, 0xCC006414)
+c = h >> 24
+check('clavier : compteur, touches A et 1, controle', h & 0xF0FFFFFF == 0 and l >> 8 == 0x102A00 and l & 0xFF == (0x10 ^ 0x2A ^ c), '%08X %08X' % (h, l))
+h2 = call(SL, 0xCC006410)
+check('clavier : le compteur avance a chaque lecture', h2 >> 24 == (c + 1) & 15, '%08X' % h2)
+call(SS, 0xCC006480, 0x00000000); call(SS, 0xCC006434, 0x80000000 | (1 << 1) | 1)
+v = call(SL, 0xCC006480)
+check('type du port 2 en clavier : 0820', v == 0x08200000, '%08X' % v)
+call(SS, 0xCC006480, 0x54000000); call(SS, 0xCC006434, 0x80000000 | (1 << 1) | 1)
+v0, v1 = call(SL, 0xCC006480), call(SL, 0xCC006484)
+check('commande 54 du clavier : touches', v1 >> 8 == 0x102A00 and v1 & 0xFF == (0x10 ^ 0x2A ^ v0 >> 24), '%08X %08X' % (v0, v1))
+bba.deliver(gcpd(1, 5, 0x00808080, 0x80800000)); call(POLL)
+call(SS, 0xCC006480, 0x00000000); call(SS, 0xCC006434, 0x80000000 | (1 << 1) | 1)
+check('de nouveau une manette', call(SL, 0xCC006480) == 0x09000000)
 print('TOUT OK' if ok else 'ECHEC')

@@ -106,7 +106,7 @@ object MemoireJeu {
         val p = DatagramPacket(buf, buf.size)
         try { so.receive(p) } catch (e: SocketTimeoutException) { return -1 }
         if (p.length >= 16 && magie(buf, "GCAC")) { annonce?.invoke(g32(buf, 4).toInt(), g32(buf, 8) or (g32(buf, 12) shl 32)); return 0 }
-        if (p.length >= 16 && magie(buf, "GCMS")) { flux?.invoke(buf.copyOf(p.length), p.length); return 0 }
+        if (p.length >= 16 && magie(buf, "GCMS")) { recevoirDirect(p.length); return 0 }
         if (p.length >= 24 && magie(buf, "GCMT")) {
             // (v372 : 28 octets, brut : sommes et pires en tops d'horloge, 40,5 par µs, et le nombre d'images ; v370 : 24, v371 : 32)
             val n28 = if (p.length == 28) g32(buf, 24) else 0L
@@ -121,7 +121,11 @@ object MemoireJeu {
     }
 
     /** I (etat), P (pause : a = 1, reprise : a = 0), W (ecrire c, b octets, en a) ; null : Pulse ne repond pas */
-    @Synchronized fun demande(t: Char, a: Long = 0, b: Long = 0, c: Long = 0): Etat? {
+    @Synchronized fun demande(t: Char, a: Long = 0, b: Long = 0, c: Long = 0, garde: Boolean = true): Etat? {
+        // (build 500 : partie RetroAchievements en hardcore : ni ecriture, ni blocage de valeur, ni pause du jeu)
+        // (build 509 : garde = false seulement pour le bandeau de la tele, Bandeau.kt : il n'ecrit pas dans la memoire du jeu,
+        //  mais dans la zone du bandeau, sous Pulse)
+        if (garde && (t == 'W' || t == 'F' || (t == 'P' && a == 1L)) && RetroSucces.refuseEnHardcore(null, "Mémoire du jeu")) return null
         val h = hote() ?: return null
         try {
             repeat(3) {
@@ -159,7 +163,7 @@ object MemoireJeu {
         try {
             if (!on) { wifiT = 0L; wifiDirect?.takeIf { it.isHeld }?.release(); return }
             val w = wifiDirect ?: run {
-                val c = Compagnon.ctx ?: return
+                val c = Prive.ctxCompagnon() ?: return
                 val wm = c.applicationContext.getSystemService(android.content.Context.WIFI_SERVICE) as android.net.wifi.WifiManager
                 @Suppress("DEPRECATION")
                 val mode = if (android.os.Build.VERSION.SDK_INT >= 29) android.net.wifi.WifiManager.WIFI_MODE_FULL_LOW_LATENCY else android.net.wifi.WifiManager.WIFI_MODE_FULL_HIGH_PERF
@@ -171,17 +175,60 @@ object MemoireJeu {
             if (premier) { wifiH.removeCallbacks(wifiFin); wifiH.postDelayed(wifiFin, 2000) }
         } catch (e: Exception) { }
     }
-    @Synchronized fun abonner(morceaux: List<Pair<Long, Int>>, periode: Int) {
+    @Volatile var maxMorceaux = 64
+    // build 491 : RetroAchievements (RetroSucces) s'abonne aussi au direct. Pulse n'a qu'un abonnement : les morceaux de
+    // RetroAchievements passent EN PREMIER, puis ceux de l'ecran qui s'abonne (compagnon, vue 3D). A l'arrivee, l'image est
+    // reassemblee ici : le debut va a RetroAchievements (fluxRA), le reste repart vers flux comme un paquet en un seul
+    // morceau, tel que l'ecran l'attend. Sans RetroAchievements : rien ne change (paquets passes tels quels).
+    private var compL: List<Pair<Long, Int>> = emptyList(); private var compPer = 1; private var compOpt = 0; private var compT = 0L
+    @Volatile var raL: List<Pair<Long, Int>> = emptyList(); private set
+    @Volatile var raT = 0L; private set                        // (changement de la liste : images ignorees 250 ms)
+    @Volatile var fluxRA: ((Long, ByteArray) -> Unit)? = null
+    @Synchronized fun abonner(morceaux: List<Pair<Long, Int>>, periode: Int, options: Int = 0) {   // (build 454 : options, bit 0 : envoi sans copie, Pulse 909+)
+        compL = morceaux; compPer = periode; compOpt = options; compT = System.nanoTime()
+        envoyerAbo()
+    }
+    @Synchronized fun abonnerRA(morceaux: List<Pair<Long, Int>>) {
+        if (morceaux != raL) { raL = morceaux; raT = System.nanoTime() }
+        envoyerAbo()
+    }
+    private fun envoyerAbo() {
+        val comp = if (compL.isNotEmpty() && System.nanoTime() - compT < 3_500_000_000L) compL else emptyList()
+        val morceaux = raL + comp
+        val periode = if (comp.isNotEmpty()) compPer else 1; val options = if (comp.isNotEmpty()) compOpt else 0
         wifiPendantDirect(morceaux.isNotEmpty())
         val h = hote() ?: return
         try {
-            val n = morceaux.size.coerceAtMost(64)                // (Pulse v328 : 64 ; avant, 48 : le reste est ignore)
+            val n = morceaux.size.coerceAtMost(maxMorceaux)       // (Pulse v328 : 64 ; avant, 48 : le reste est ignore ; build 457 : 96 avec la console 911)
             val d = ByteArray(20 + 8 * n)
             d[0] = 'G'.code.toByte(); d[1] = 'C'.code.toByte(); d[2] = 'M'.code.toByte(); d[3] = 'S'.code.toByte()
-            p32(d, 4, (++seq).toLong()); p32(d, 8, n.toLong()); p32(d, 12, periode.toLong()); p32(d, 16, 0)
+            p32(d, 4, (++seq).toLong()); p32(d, 8, n.toLong()); p32(d, 12, periode.toLong()); p32(d, 16, options.toLong())
             for (i in 0 until n) { p32(d, 20 + 8 * i, morceaux[i].first); p32(d, 24 + 8 * i, morceaux[i].second.toLong()) }
             s().send(DatagramPacket(d, d.size, h, PORT))
         } catch (e: Exception) { fermer() }
+    }
+    private var rImg = -1L; private var rParts: Array<ByteArray?> = arrayOfNulls(0)
+    private fun recevoirDirect(n: Int) {
+        val ra = raL
+        if (ra.isEmpty()) { flux?.invoke(buf.copyOf(n), n); return }
+        val img = g32(buf, 4); val pp = g32(buf, 8); val part = (pp shr 16).toInt(); val parts = (pp and 0xFFFF).toInt(); val tot = g32(buf, 12).toInt()
+        if (parts !in 1..16 || part >= parts || tot < 0 || tot > 65536) return
+        if (img != rImg || rParts.size != parts) { rImg = img; rParts = arrayOfNulls(parts) }
+        rParts[part] = buf.copyOfRange(16, n)
+        if (rParts.any { it == null }) return
+        val d = ByteArray(tot); var o = 0
+        for (q in rParts) { val x = q!!; val k = minOf(x.size, tot - o); System.arraycopy(x, 0, d, o, k); o += k }
+        rParts = arrayOfNulls(0)
+        if (o < tot) return
+        val nRa = ra.take(maxMorceaux).sumOf { it.second }
+        if (tot < nRa) return
+        if (System.nanoTime() - raT > 250_000_000L) fluxRA?.invoke(img, d.copyOf(nRa))
+        val f = flux ?: return
+        val r = ByteArray(16 + tot - nRa)                          // (le reste, en un seul morceau, pour l'ecran abonne)
+        r[0] = 'G'.code.toByte(); r[1] = 'C'.code.toByte(); r[2] = 'M'.code.toByte(); r[3] = 'S'.code.toByte()
+        p32(r, 4, img); p32(r, 8, 1L); p32(r, 12, (tot - nRa).toLong())
+        System.arraycopy(d, nRa, r, 16, tot - nRa)
+        f.invoke(r, r.size)
     }
     /** ecoute le direct pendant ms millisecondes (les paquets "GCMS" vont a flux) */
     @Synchronized fun ecouter(ms: Int) {
@@ -433,6 +480,7 @@ fun photoMemoire(act: StationActivity, scope: kotlinx.coroutines.CoroutineScope,
     val R = Recherche
     if (R.tache.isNotEmpty()) return
     if (android.os.Build.VERSION.SDK_INT < 29) { Lang.toast(act, "Android 10 ou plus est nécessaire", Toast.LENGTH_LONG).show(); return }
+    if (RetroSucces.refuseEnHardcore(act, "Photo de la mémoire")) return          // (build 500)
     R.tache = "Photo de la mémoire (jeu en pause)…"; R.progres = 0f; R.erreur = ""
     scope.launch {
         val jeu = St.jeu?.id ?: "jeu"
@@ -467,6 +515,7 @@ fun photoMemoire(act: StationActivity, scope: kotlinx.coroutines.CoroutineScope,
 fun capturerJeu(act: StationActivity, scope: kotlinx.coroutines.CoroutineScope) {
     val R = Recherche
     if (R.tache.isNotEmpty()) return
+    if (RetroSucces.refuseEnHardcore(act, "Capture (jeu mis en pause)")) return   // (build 500)
     R.tache = "Capture de l'écran (jeu en pause)…"; R.progres = 0f; R.erreur = ""
     scope.launch {
         val jeu = St.jeu?.id ?: ""
@@ -507,6 +556,17 @@ fun EcranChercheur() {
     var attente by remember { mutableStateOf(Attente.liste(act).length()) }
     val R = Recherche
     val g = St.jeu
+    if (RetroSucces.hardcore) {                                   // (build 500 : outil memoire interdit en hardcore)
+        Column(Modifier.fillMaxSize().padding(horizontal = 14.dp)) {
+            Carte(Modifier.fillMaxWidth()) {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Titre("Coupé pendant une partie hardcore")
+                    Doux("RetroAchievements interdit les outils de mémoire en hardcore : recherche, écriture et blocage de valeurs. Ils reviennent à la fin de la partie, ou si tu coupes le mode hardcore (Plus → Succès → RetroAchievements).", taille = 12)
+                }
+            }
+        }
+        return
+    }
 
     fun nombre(s: String): Long? = s.trim().let { if (it.startsWith("0x", true)) it.substring(2).toLongOrNull(16) else it.toLongOrNull() }
 
@@ -761,7 +821,7 @@ private fun DialogueAdresse(act: StationActivity, r: LongArray, jeu: String, t: 
             if (quoi != 0) TextButton({
                 if (quoi == 5) {                                       // (v314 : valeur epinglee au compagnon)
                     if (nom.isBlank()) { Lang.toast(act, "Donne un nom à la valeur", Toast.LENGTH_SHORT).show(); return@TextButton }
-                    Epingles.ajouter(act, jeu, Epingles.E(r[0], t, nom.trim(), nombre(v) ?: 0L))
+                    Prive.epingler(act, jeu, r[0], t, nom.trim(), nombre(v) ?: 0L)
                     Lang.toast(act, "Épinglé : visible dans le compagnon de jeu", Toast.LENGTH_SHORT).show()
                     fermer(); return@TextButton
                 }

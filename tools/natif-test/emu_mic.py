@@ -99,7 +99,15 @@ mu = Uc(UC_ARCH_PPC, UC_MODE_PPC32 | UC_MODE_BIG_ENDIAN)
 mu.mem_map(0x80000000, 0x01800000)
 mu.mmio_map(0xCC006000, 0x1000, io_read, None, io_write, None)
 mu.mem_map(0xCC406000 & ~0xFFF, 0x1000)                 # (adresse de secours de NRO_TRAP : pas utilisee ici)
-mu.mem_write(AT, open(BIN, 'rb').read())
+# (build 915) horloge de Pulse (mftb) pilotee par le test : chaque "mftb rD" devient "lwz rD, 0x100(0)" ; le test ecrit
+# le temps (tops de 1/40,5 MHz) a l'adresse 0x100 (clang l'ecrit "mfspr rD, 268"). Avant, l'horloge ne bougeait pas : la cadence des paquets (v353) et la
+# reserve de son (v354) ne pouvaient pas etre essayees
+img = bytearray(open(BIN, 'rb').read())
+for o in range(0, len(img) - 3, 4):
+    w = struct.unpack_from('>I', img, o)[0]
+    if w & 0xFC1FFFFF in (0x7C0C42E6, 0x7C0C42A6): struct.pack_into('>I', img, o, 0x80000100 | (w & 0x03E00000))   # (mftb / mfspr 268)
+mu.mem_map(0, 0x1000)
+mu.mem_write(AT, bytes(img))
 STOP = 0x80001000
 mu.mem_write(STOP, struct.pack('>I', 0x48000000))
 def rd32(a): return struct.unpack('>I', mu.mem_read(a, 4))[0]
@@ -167,18 +175,55 @@ def gcvo(seq, data):
     udp = struct.pack('>HHHH', 40002, 51237, 8 + len(d), 0) + d
     ip = struct.pack('>BBHHHBBH', 0x45, 0, 20 + len(udp), 0, 0, 64, 17, 0) + PH_IP + GC_IP
     return bytes([0x00, 0x09, 0xBF, 0x01, 0x02, 0x03]) + PH_MAC + b'\x08\x00' + ip + udp
-son = bytes((i * 7 + 3) & 0xFF for i in range(300))
-bba.deliver(gcvo(1, son)); call(POLL)
-check('paquet du telephone recu (300 octets dans l\'anneau)', padw('mnrx') == 1 and padw('mw') - padw('mr') == 300, '%d %d' % (padw('mnrx'), padw('mw') - padw('mr')))
-check('un paquet pret : interruption EXI du slot B', csr() & 2 != 0 and padw('mnirq') == 1, 'CSR %08X irq %d' % (csr(), padw('mnirq')))
-lus = b''; tcs = True
-for i in range(4):
-    st, data, tc = packet(64); lus += data; tcs = tcs and tc != 0
-    if i < 3: check('paquet %d lu ; le suivant annonce aussitot' % (i + 1), csr() & 2 != 0, 'etat %04X CSR %08X' % (st, csr()))
-check('4 paquets lus : octets identiques, dans l\'ordre, fin de DMA signalee', lus == son[:256] and tcs and st == 0xA800)
-check('44 octets restants : pas d\'interruption (paquet incomplet)', not (csr() & 2) and padw('mw') - padw('mr') == 44, '%d' % (padw('mw') - padw('mr')))
+# comportement : un paquet a la cadence de la frequence des la mise en marche (v353) ; v387 : sans son du telephone, un
+# souffle tres faible (pas des zeros parfaits : Mario Party 7 jugeait le micro mort), et le son du telephone des qu'il
+# arrive (pas de reserve a la mise en marche) ; un trou ensuite : du souffle et la reserve de ~93 ms (4096 octets a
+# 22050 Hz) se refait (v354) ; plus de 4 reserves d'avance : on rattrape (latence bornee)
+def souffle(b):
+    ech = [struct.unpack('>h', b[i:i + 2])[0] for i in range(0, len(b) - 1, 2)]
+    return len(b) % 2 == 0 and all(-255 <= e <= 255 for e in ech) and any(ech)
+T = [1000]
+def clock(dt=0): T[0] += dt; wr32(0x100, T[0])
+clock()
+PK = 64 * (40500000 // 22050)                            # (tops par paquet de 64 octets a 22050 Hz : ~2,9 ms)
+cmd(0x80, wr=0x0000); cmd(0x80, wr=0xA800)              # (remise en marche : l'horloge du test compte des maintenant)
+call(POLL)
+check('mis en marche : 1er paquet annonce tout de suite (meme sans son)', csr() & 2 != 0, 'CSR %08X' % csr())
 st, data, tc = packet(64)
-check('telephone en retard : 44 octets puis du silence', data == son[256:300] + bytes(20) and padw('mlow') == 20, '%d' % padw('mlow'))
+check('rien du telephone : un paquet de souffle faible (pas des zeros)', souffle(data) and st == 0xA800 and tc != 0)
+call(POLL)
+check('pas de paquet avant son heure', not (csr() & 2), 'CSR %08X' % csr())
+clock(PK); call(POLL)
+check('paquet suivant a la cadence (64 octets a 22050 Hz)', csr() & 2 != 0, 'CSR %08X' % csr())
+son = bytes((i * 7 + 3) & 0xFF for i in range(5000))
+bba.deliver(gcvo(1, son[:1000])); call(POLL)
+check('paquet du telephone recu (1000 octets dans l\'anneau)', padw('mnrx') == 1 and padw('mw') - padw('mr') == 1000, '%d %d' % (padw('mnrx'), padw('mw') - padw('mr')))
+st, data, tc = packet(64)
+check('mise en marche : le son du telephone tout de suite (pas de reserve)', data == son[:64] and padw('mw') - padw('mr') == 936, data[:8].hex())
+for k in range(1, 5): bba.deliver(gcvo(1 + k, son[k * 1000:(k + 1) * 1000])); call(POLL)
+lus = b''
+for i in range(4):
+    clock(PK); call(POLL)
+    st, data, tc = packet(64); lus += data
+check('la suite du son du telephone, octets identiques et dans l\'ordre', lus == son[64:320], lus[:8].hex())
+reste = padw('mw') - padw('mr')
+for i in range(reste // 64):
+    clock(PK); call(POLL); packet(64)
+clock(PK); call(POLL)
+low0, ref0 = padw('mlow'), padw('mnrefill')
+st, data, tc = packet(64)
+check('telephone en retard : souffle, la reserve se refait', souffle(data[reste % 64:]) and padw('mlow') > low0 and padw('mnrefill') == ref0 + 1,
+      'mlow %d refill %d' % (padw('mlow'), padw('mnrefill')))
+for k in range(6): bba.deliver(gcvo(10 + k, bytes([0x55]) * 1400)); call(POLL)
+clock(PK); call(POLL); packet(64)
+check('trop d\'avance (8400 octets) : rattrape, il reste 2 reserves au plus', padw('mw') - padw('mr') <= 2 * 4096, '%d' % (padw('mw') - padw('mr')))
+for _ in range(60):                                      # (paquets deja dus : lus d'abord, jusqu'a etre a l'heure)
+    if not csr() & 2: break
+    packet(64)
+clock(150 * 40500000 // 1000); call(POLL)                # (150 ms sans lecture)
+check('retard de plus de 100 ms : un seul paquet annonce (pas de rafale)', csr() & 2 != 0)
+packet(64); call(POLL)
+check('... et pas un 2e tout de suite', not (csr() & 2), 'CSR %08X' % csr())
 # etat renvoye au telephone (toutes les 10 images)
 bba.sent.clear()
 for _ in range(10): call(POLL)
@@ -189,6 +234,12 @@ cmd(0x80, wr=0x0000)
 check('arret : etat 0, plus d\'interruption', padw('mstat') == 0 and not (csr() & 2))
 bba.deliver(gcvo(2, son)); call(POLL)
 check('arrete : les echantillons n\'annoncent rien', not (csr() & 2))
+# (v387b : l'appli 477 envoie son son micro eteint) remise en marche : les 1024 octets les plus recents, tout de suite
+for k in range(5): bba.deliver(gcvo(30 + k, son[k * 1000:(k + 1) * 1000])); call(POLL)
+cmd(0x80, wr=0xA800); clock(PK); call(POLL)
+st, data, tc = packet(64)
+check('mise en marche : les ~46 ms les plus recentes du telephone, tout de suite', data == son[-1024:-960], data[:8].hex())
+cmd(0x80, wr=0x0000)
 # canal 0 : vrai materiel, pas touche
 exi[0][4] = 0x12345678
 check('canal 0 (slot A) : vrai materiel', call(XL, 0xCC006810) == 0x12345678)

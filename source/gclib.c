@@ -387,7 +387,7 @@ static void gl_walk(const char *dir, int depth, int *budget) {
     if (!dp) return;
     struct dirent *e;
     char p[NAME_LEN];
-    while ((e = readdir(dp)) != NULL && gl_n < GL_MAX && (*budget)-- > 0) {
+    while (!lsc_hold && (e = readdir(dp)) != NULL && gl_n < GL_MAX && (*budget)-- > 0) {   /* (v391 : !lsc_hold) */
         if (!strcmp(e->d_name, ".") || !strcmp(e->d_name, "..")) continue;
         if (snprintf(p, sizeof(p), "%s/%s", dir, e->d_name) >= (int)sizeof(p)) continue;
         if (is_dir(p, e)) { if (depth < 3 && !gl_skip_dir(e->d_name)) gl_walk(p, depth + 1, budget); continue; }
@@ -927,8 +927,8 @@ static int gl_fx_pump(void) {                            /* 1 : en cours (pas de
         mkdir(GL_UI, 0777);
         gl_fxdl_f = fopen(GL_FX_BIG ".part", "wb");
         if (!gl_fxdl_f) { gl_fxdl_wait = now_ms() + 600000; return 0; }
-        char url[200];
-        snprintf(url, sizeof(url), "https://github.com/%s/releases/download/fiches/fiches-gc.txt", upd_repo);
+        char url[512];
+        upd_pub_url(url, sizeof(url), "fiches", "fiches", "fiches-gc.txt");   /* (build 907 : GitHub ou GitLab, selon maj_depot) */
         gl_fxdl.frame_cap = 16 * 1024;   /* v288 */
         gl_fxdl.maxbytes = 8 * 1024 * 1024; gl_fxdl.image = 0; gl_fxdl.accept = "text/plain,*/*"; gl_fxdl.sink = gl_fxdl_f; gl_fxdl.sink_err = 0;
         hf_start(&gl_fxdl, url, NULL);
@@ -1868,7 +1868,7 @@ static int gl_quick_walk(const char *dir, int depth, int *budget, int *found) {
     struct dirent *e;
     char p[NAME_LEN];
     int ch = 0;
-    while (!ch && (e = readdir(dp)) != NULL && (*budget)-- > 0) {
+    while (!ch && !lsc_hold && (e = readdir(dp)) != NULL && (*budget)-- > 0) {   /* (v391 : !lsc_hold) */
         if (!strcmp(e->d_name, ".") || !strcmp(e->d_name, "..")) continue;
         if (snprintf(p, sizeof(p), "%s/%s", dir, e->d_name) >= (int)sizeof(p)) continue;
         if (is_dir(p, e)) { if (depth < 3 && !gl_skip_dir(e->d_name)) ch = gl_quick_walk(p, depth + 1, budget, found); continue; }
@@ -1913,7 +1913,7 @@ static void gqb_walk(void) {
     if (!d0) { gqb_over = 1; return; }
     st[0].d = d0; snprintf(st[0].path, sizeof(st[0].path), "%s", SD_ROOT); st[0].depth = 0; n = 1;
     while (n > 0) {
-        struct dirent *e = budget-- > 0 ? readdir(st[n - 1].d) : NULL;
+        struct dirent *e = budget-- > 0 && !lsc_hold ? readdir(st[n - 1].d) : NULL;   /* (v391 : !lsc_hold) */
         if (!e) { if (budget < 0) gqb_over = 1; closedir(st[--n].d); continue; }
         if (!strcmp(e->d_name, ".") || !strcmp(e->d_name, "..")) continue;
         if (snprintf(p, sizeof(p), "%s/%s", st[n - 1].path, e->d_name) >= (int)sizeof(p)) continue;
@@ -2102,9 +2102,10 @@ static void gclib_input(u32 down, u32 nav, int fire) {
         if (gl_n && gl[gl_sel].dvd) { if (down & PAD_BUTTON_B) gl_detail = 0; return; }   /* v97 : (case du vrai lecteur) */
         if (down & PAD_BUTTON_X && gl_n) gl_open_cheats(gl_sel);
         if ((down & PAD_BUTTON_Y) && gl_n) indigo_game_open(gl[gl_sel].id, gl[gl_sel].title);   /* v35 : reglages du jeu */
-        if ((down & PAD_TRIGGER_R) && gl_n) nat_run(gl_sel);          /* v50 : analyse native (natif.c) */
+        if (cs_ex > 0 && gl_n) nat_run(gl_sel);                       /* v50 : analyse native (natif.c) ; v386 : stick C droite (avant R) */
         if ((down & PAD_BUTTON_DOWN) && gl_n) { jb_open_game(gl_sel); return; }   /* v207 : musiques du jeu (jukebox.c) */
-        if ((down & PAD_TRIGGER_L) && gl_n) {                         /* v76 : favori */
+        if (((down & PAD_BUTTON_UP) || cs_ex < 0) && gl_n) {          /* v76 : favori ; v386 : croix haut (avant L) ; v390 : aussi stick C
+                                                                         gauche (dans la vue des jaquettes, la croix haut ouvre la boite) */
             gl[gl_sel].fav = !gl[gl_sel].fav;
             gl_note(gl[gl_sel].fav ? "Ajout\xC3\xA9 aux favoris" : "Retir\xC3\xA9 des favoris");
             gl_fav_save();
@@ -2132,9 +2133,10 @@ static void gclib_input(u32 down, u32 nav, int fire) {
         if (gl_sel >= gl_n) gl_sel = gl_n - 1;
         if (gl_sel < 0) gl_sel = 0;
     }
-    if (down & (PAD_TRIGGER_R | PAD_TRIGGER_L)) {          /* v28 : changer d'affichage */
+    if (cs_ey) {                                          /* v28 : changer d'affichage ; v386 : stick C haut / bas (avant L / R,
+                                                             qui changent d'onglet ; stick C gauche / droite : jeux, applis, cartes) */
         if (ui_skin >= 1) gl_view = gl_view == GLV_LIST ? GLV_GRID : GLV_LIST;   /* v103 : styles : jaquettes ou liste */
-        else gl_view = (gl_view + ((down & PAD_TRIGGER_R) ? 1 : GLV_COUNT - 1)) % GLV_COUNT;
+        else gl_view = (gl_view + (cs_ey < 0 ? 1 : GLV_COUNT - 1)) % GLV_COUNT;
         settings_dirty = 1;
         gl_note(gl_view_name());
     }
@@ -2649,7 +2651,7 @@ static void draw_gclib_main(void) {
     }
     if (!gl_post.fp) {                                       /* v139 : a gauche de "R : affichage" (se chevauchaient) */
         f32 rx = 590;
-        if (!gl_detail && gl_n) { snprintf(d, sizeof(d), "R : %s", TR(gl_view_name())); rx = 614 - text_width(F_SMALL, d, 1) - 14; }
+        if (!gl_detail && gl_n) { snprintf(d, sizeof(d), TR("C \xE2\x86\x91 / \xE2\x86\x93 : %s"), TR(gl_view_name())); rx = 614 - text_width(F_SMALL, d, 1) - 14; }
         if (hub_end + 12 < rx - text_width(F_SMALL, TR("(pas de jaquettes)"), 1)) gx_text_r(F_SMALL, rx, 99, TR("(pas de jaquettes)"), RGBA(150, 135, 210, 255));
     }
     /* une banniere a lire par image, quand on ne bouge pas */
@@ -2715,8 +2717,8 @@ static void draw_gclib_main(void) {
         snprintf(buf, sizeof(buf), "%s   %s%s%s%s", g->id, TR(reg), reg[0] ? "   " : "", sz, g->ciso ? "   CISO" : "");
         gx_text1(F_SMALL, rx, y + 4, buf, RGBA(255, 210, 120, 255));
         if (g->disc) { snprintf(buf, sizeof(buf), "Disque %d", g->disc + 1); gx_text_r(F_SMALL, 614, y + 4, buf, RGBA(255, 210, 120, 255)); }
-        if (g->fav) { draw_star1(rx + 7, 120, 7.0f, RGBA(255, 210, 90, 255)); gx_text1(F_SMALL, rx + 18, 124, TR("Favori  (L)"), RGBA(255, 210, 90, 255)); }   /* v76 */
-        else gx_text1(F_SMALL, rx, 124, TR("L : ajouter aux favoris"), RGBA(130, 118, 180, 255));
+        if (g->fav) { draw_star1(rx + 7, 120, 7.0f, RGBA(255, 210, 90, 255)); gx_text1(F_SMALL, rx + 18, 124, TR("Favori  (\xE2\x86\x91)"), RGBA(255, 210, 90, 255)); }   /* v76 */
+        else gx_text1(F_SMALL, rx, 124, TR("\xE2\x86\x91 : ajouter aux favoris"), RGBA(130, 118, 180, 255));
         text_display(g->path, d, sizeof(d));
         fit_text(F_SMALL, d, rw, buf, sizeof(buf));
         gx_text1(F_SMALL, rx, y + 22, buf, RGBA(150, 135, 210, 255));
@@ -2780,9 +2782,9 @@ static void draw_gclib_main(void) {
     fit_text(F_MED, g->dvd ? TR(g->title) : g->title, 420, buf, sizeof(buf));
     if (now_ms() - gl_msg_t < 3500) gx_text1(F_SMALL, 30, 400, gl_msg, RGBA(255, 210, 120, 255));
     else if (gl_view != GLV_CAROUSEL && gl_view != GLV_SHOW && !gl_styled()) { gx_text1(F_MED, 30, 400, buf, RGBA(255, 255, 255, 255)); gx_text_r(F_SMALL, 614, 400, d, RGBA(255, 210, 120, 255)); }
-    snprintf(d, sizeof(d), "R : %s", TR(gl_view_name()));
+    snprintf(d, sizeof(d), TR("C \xE2\x86\x91 / \xE2\x86\x93 : %s"), TR(gl_view_name()));   /* (v386 : stick C haut / bas) */
     gx_text_r(F_SMALL, 614, 99, d, RGBA(170, 160, 220, 255));
-    static const char *const k[] = { "A", "X", "Y", "R", "B" };
+    static const char *const k[] = { "A", "X", "Y", "C", "B" };   /* (v386 : affichage au stick C) */
     static const char *const l[] = { "FICHE", "CHEATS", "OPTIONS", "AFFICHAGE", "RETOUR" };
     draw_legend_keys(k, l, 5);
     if (gl_opt >= 0) {                                         /* v45 : fenetre Options */

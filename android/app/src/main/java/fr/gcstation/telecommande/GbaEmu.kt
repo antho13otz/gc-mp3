@@ -149,7 +149,7 @@ object GbaEmu {
     val reperes = java.util.concurrent.ConcurrentLinkedDeque<String>()
     var nReperes by androidx.compose.runtime.mutableIntStateOf(0)
     private fun heure() = java.text.SimpleDateFormat("HH:mm:ss", java.util.Locale.FRANCE).format(java.util.Date())
-    private fun posTexte(): String = (try { JeuWW.posDirect() } catch (e: Exception) { null })?.let { "%.0f %.0f %.0f".format(it[0], it[1], it[2]) } ?: "pas de direct"
+    private fun posTexte(): String = (try { Prive.posDirectWW() } catch (e: Exception) { null })?.let { "%.0f %.0f %.0f".format(it[0], it[1], it[2]) } ?: "pas de direct"
     private fun ajoute(q: java.util.concurrent.ConcurrentLinkedDeque<String>, t: String, max: Int) { q.addLast(t); while (q.size > max) q.removeFirst() }
     private fun msgRecu(gba: Boolean, idx: Int, d: List<Long>) {
         val m = d.joinToString(" ") { "%08X".format(it) }
@@ -163,6 +163,7 @@ object GbaEmu {
             return
         }
         if (gba) return
+        if (BuildConfig.PRIVE && idx == 3) Saut.jeu3(d)                // (build 490 : position du curseur sur la carte)
         if (idx == 9 && avant != null) { val a = avant.split(" "); if (a.size == d.size && d.size >= 3 && a[0] == "%08X".format(d[0]) && a[2] == "%08X".format(d[2])) return }
         if (idx == 10 || idx == 11) return
         ajoute(histoTT, "  ${heure()} $cle : $m ; Link dans le jeu : ${posTexte()}", 40)
@@ -178,13 +179,19 @@ object GbaEmu {
     private var pilRef: FloatArray? = null; private var pilTx = 0; private var pilTz = 0; private var pilSx = 0; private var pilSz = 0
     private var sensX = 1; private var sensZ = 1; private var vitX = 60f; private var vitZ = 60f
     private var pilBloque = 0
-    fun allerVers(x: Float, z: Float) { cible = floatArrayOf(x, z); pilT0 = System.nanoTime(); pilPhase = 0; pilBloque = 0; pilotageTexte = "Curseur : en route" }
-    fun pilotageDiag(): String = "curseur du jeu : " + (JeuWW.curseurTT()?.let { "%.0f %.0f %.0f".format(it[0], it[1], it[2]) } ?: "pas reçu") +
-        " ; pilotage : ${pilotageTexte.ifEmpty { "aucun" }} ; sens appris x $sensX z $sensZ ; vitesse %.0f / %.0f par image".format(vitX, vitZ)
+    fun allerVers(x: Float, z: Float) {
+        if (RetroSucces.hardcore) { pilotageTexte = "Pilotage coupé en hardcore"; return }   // (build 500 : RetroAchievements)
+        // build 487 (appli privee) : le curseur pose d'un coup quand l'appli sait ou la GBA le range et comment sa carte
+        // correspond au monde ; sinon (ou si le saut n'a pas marche) : le trajet a la croix, qui sert aussi a l'apprendre
+        if (BuildConfig.PRIVE && Saut.pret()) { Saut.demande = floatArrayOf(x, z); cible = null; pilotageTexte = "Curseur : saut…"; return }
+        cible = floatArrayOf(x, z); pilT0 = System.nanoTime(); pilPhase = 0; pilBloque = 0; pilotageTexte = "Curseur : en route" }
+    fun pilotageDiag(): String = "curseur du jeu : " + (Prive.curseurTT()?.let { "%.0f %.0f %.0f".format(it[0], it[1], it[2]) } ?: "pas reçu") +
+        " ; pilotage : ${pilotageTexte.ifEmpty { "aucun" }} ; sens appris x $sensX z $sensZ ; vitesse %.0f / %.0f par image".format(vitX, vitZ) +
+        (if (BuildConfig.PRIVE) " ; saut (build 490) : " + Saut.texte.ifEmpty { "rien appris" } else "")
     // build 421 : bombe de Tingle depuis la vue 3D : B sur la GBA (le Tingle Tuner : « B 💣 ») tenu 8 images ; si le curseur
     // est en route, la bombe part a son arrivee
     @Volatile private var bombeApres = false; private var appuiB = 0
-    fun bombe(): String = if (cible != null) { bombeApres = true; "Bombe : au bout du trajet" } else { appuiB = 8; "Bombe lâchée" }
+    fun bombe(): String = if (RetroSucces.hardcore) "Bombe automatique coupée en hardcore" else if (cible != null) { bombeApres = true; "Bombe : au bout du trajet" } else { appuiB = 8; "Bombe lâchée" }
     private fun appuis(): Int {
         if (bombeApres && cible == null) { bombeApres = false; if (pilotageTexte == "Curseur arrivé") appuiB = 8 }
         if (appuiB > 0) { appuiB--; return 0x02 }
@@ -193,7 +200,7 @@ object GbaEmu {
     fun arreterPilotage() { cible = null; pilotageTexte = "" }
     private fun pilotage(): Int {
         val c = cible ?: return 0
-        val p = JeuWW.curseurTT()
+        val p = Prive.curseurTT() ?: (if (BuildConfig.PRIVE) Saut.monde() else null)   // (build 490 : sinon d'apres la carte)
         if (p == null) { pilotageTexte = "Curseur du jeu pas reçu (positions en direct de la vue 3D ?)"; cible = null; return 0 }
         if (System.nanoTime() - pilT0 > 25_000_000_000L) { pilotageTexte = "Curseur : arrêté (trop long)"; cible = null; return 0 }
         val dx = c[0] - p[0]; val dz = c[1] - p[2]
@@ -293,6 +300,7 @@ object GbaEmu {
     }
 
     fun demarrer(programme: ByteArray) {
+        Saut.raz()                                          // (build 487)
         arreter()
         if (!GbaNatif.pret) { message = "Émulateur GBA absent de cette version de l'appli"; return }
         entrees.clear(); evts.clear(); file.clear(); resetsVus = 0; transId = 0; transVal = 0; luPret = false; drapeaux = 0; tidLuPulse = 0; nRecus = 0; nEnvoyes = 0; nAvales = 0
@@ -364,7 +372,11 @@ object GbaEmu {
                 // recus) : sinon elle les recevait apres et les refusait (erreurs 7 / E4, ecran fige)
                 val ri = resetIdx
                 var avant = 0
-                if (rp != resetsFaits && bootFini) for (w in entrees) { if ((w ushr 32) < ri && avant < mots.size) avant++ else break }
+                // build 482 : compte aussi pendant le debut du programme (avant : seulement apres) : Pac-Man vs. remet a zero juste
+                // apres le demarrage, puis ecrit tout de suite l'echo et le port ; la remise a zero attendait la fin du debut, mais
+                // ces mots, eux, passaient : la GBA les recevait AVANT la remise a zero, puis recommencait la poignee de main que le
+                // jeu avait deja finie (« Erreur de connexion »)
+                if (rp != resetsFaits) for (w in entrees) { if ((w ushr 32) < ri && avant < mots.size) avant++ else break }
                 // build 401 : la remise a zero attend que le programme ecoute le cable (JOYCNT 0x40) : avant, il l'effacait en se
                 // mettant en route (Tingle Tuner : JOYCNT = 0x47) et ne repondait jamais ; au plus 60 images d'attente
                 val razAttend = rp != resetsFaits && bootFini && avant == 0
@@ -392,11 +404,20 @@ object GbaEmu {
                 // build 390 : comme sur une vraie GBA, apres une remise a zero : son identifiant, lu par le jeu (et la GBA l'a
                 // appris : JOYCNT 4 efface), puis seulement le mot du jeu (sinon elle le refusait : « La connexion a echoue »)
                 if (apresReset) nApres++
-                val attendReset = (apresReset && nApres <= 30) || (joycnt and 4 != 0) || razEnAttente   // (build 401 : mots du jeu apres sa remise a zero : pas avant elle)
+                // build 485 : Pac-Man connecte : pas d'attente sur JOYCNT 4 ici ; chaque image finit par la lecture d'un mot de la GBA
+                // (JOYCNT 4 pas encore acquitte par elle a ce moment) : les mots du jeu n'etaient jamais donnes (4968 en attente).
+                // L'emulateur attend de toute facon JOYCNT & 7 == 0 avant chaque mot (gba_jni.c)
+                val pacLien = (codeJeu and 0xFFFFFFL) == 0x4A5250L && bootFini && (r[0] and 0x30) == 0x30
+                val attendReset = (apresReset && nApres <= 30) || (joycnt and 4 != 0 && !pacLien) || razEnAttente   // (build 401 : mots du jeu apres sa remise a zero : pas avant elle)
+                    || (rp != resetsFaits && avant == 0)            // (build 482 : aussi quand la remise a zero attend la fin du debut)
                 if (avant > 0) for (w in entrees) { if (n >= avant) break; mots[n++] = w.toInt() }
                 else if (!retenir && !attendReset) for (w in entrees) { if (n >= mots.size) break; mots[n++] = w.toInt() }
                 // build 405 : Tingle Tuner connecte : ses mots lus pendant l'image meme (toute une suite d'un coup, pour la file)
-                val rafale = (codeJeu and 0xFFFFFFL) == 0x4C5A47L && etatTT >= 0 && etatTT and 0x0E == 0x08 && !attenteLu && file.size < 64
+                // build 482 : Pac-Man vs. (code PRJ.) connecte (drapeaux 0x30) : la GBA envoie ses paquets en continu (en-tete puis
+                // jusqu'a 64 mots, lus un par un par le jeu des que JOYSTAT dit 0x08) : meme lecture sur place et meme file que le
+                // Tingle Tuner (un aller-retour par le Wi-Fi par mot : bien trop lent)
+                val pacman = (codeJeu and 0xFFFFFFL) == 0x4A5250L && bootFini && (r[0] and 0x30) == 0x30
+                val rafale = ((codeJeu and 0xFFFFFFL) == 0x4C5A47L && etatTT >= 0 && etatTT and 0x0E == 0x08 || pacman) && !attenteLu && file.size < (if (pacman) 32 else 64)   // (build 484 : Pac-Man : 32, la file de Pulse)
                 GbaNatif.lectureAuto(rafale)
                 var auto = 0                                // (build 410 : recherche du curseur : touches appuyees par l'appli)
                 if (chercheDemande) { chercheDemande = false; ch = 0; chImg = 0; chercheEnCours = true; chercheTexte = "recherche en cours…" }
@@ -410,6 +431,10 @@ object GbaEmu {
                             if (ch == 5) { chercheTexte = analyseCurseur(snaps); ch = -1; chercheEnCours = false }
                         }
                     }
+                }
+                if (BuildConfig.PRIVE && ch < 0) Saut.image()?.let { r ->   // (build 487 : curseur instantane)
+                    pilotageTexte = r.first
+                    r.second?.let { c -> cible = c; pilT0 = System.nanoTime(); pilPhase = 0; pilBloque = 0 }   // (repli : la croix)
                 }
                 if (ch < 0) auto = auto or pilotage() or appuis()   // (build 417 : curseur envoye depuis la vue 3D ; 421 : bombe)
                 GbaNatif.image(touches or auto, px, son, mots, n, res)
@@ -489,12 +514,19 @@ object GbaEmu {
                 } else if (!attenteLu && js and 0x08 != 0 && aAvaler.remove(tv)) {   // (build 381 : deja donne au jeu par Pulse)
                     GbaNatif.joy(0x14, d); nAvales++
                     if (tv == codeJeu) { codeLu = true; GbaNatif.regs(r); joycnt = r[3] }   // (build 386 : JOYCNT relu apres la lecture : 4)
-                } else if (!attenteLu && js and 0x08 != 0 && drap == 0x30 && (codeJeu and 0xFFFFFFL) == 0x4C5A47L && etatTT >= 0 && etatTT and 0x0E == 0x08 && file.size < 32) {
+                } else if (!attenteLu && js and 0x08 != 0 && drap == 0x30 && ((codeJeu and 0xFFFFFFL) == 0x4C5A47L && etatTT >= 0 && etatTT and 0x0E == 0x08 || pacman) && file.size < 32) {
+                    // build 483 : Pac-Man vs. aussi : un mot ecrit juste apres un mot de la rafale (pas lu pendant l'image) passait
+                    // par l'autre chemin (JOY_TRANS seul) en meme temps que la file ; Pulse donnait la tete de la file et croyait ce
+                    // mot-la deja lu : il ne venait jamais, le jeu attendait (JOYSTAT 30), la GBA aussi (JOYSTAT 38)
                     // build 403 : Tingle Tuner connecte : lu ici tout de suite (la GBA passe au mot suivant), envoye a la file de Pulse
                     numero = numero % 255 + 1
                     file.add(numero.toLong() shl 32 or tv); GbaNatif.joy(0x14, d); nEnvoyes++
                     trace("GBA écrit %08X (file : %d)".format(tv, file.size)); GbaNatif.regs(r); joycnt = r[3]
                     msgGba.mot(tv)
+                } else if (pacman && js and 0x08 != 0 && drap == 0x30) {
+                    // build 484 : Pac-Man connecte, file pleine (le jeu lit moins vite que la GBA n'ecrit) : le mot attend ici, la GBA
+                    // aussi (comme sur le vrai cable) ; avant, il passait par le chemin du JOY_TRANS seul, que Pulse ignorait pendant
+                    // la file (numero deja vu) : le jeu ne le recevait jamais et renvoyait son paquet de 12 mots sans fin
                 } else if (!attenteLu && js and 0x08 != 0 && drap != 0) {      // (la GBA a ecrit JOY_TRANS : pour le jeu)
                     transVal = tv
                     numero = numero % 255 + 1; transId = numero
@@ -630,5 +662,138 @@ private fun ToucheGba(nom: String, bit: Int, modifier: Modifier = Modifier.size(
                 })
             }, contentAlignment = Alignment.Center) {
         Text(nom, color = C.Texte, fontSize = if (nom.length > 2) 11.sp else 18.sp)
+    }
+}
+
+/** build 487 (appli privee seulement : BuildConfig.PRIVE) : curseur du Tingle Tuner pose d'un coup a l'endroit touche dans la
+ *  vue 3D. Builds 487-489 : appris sur le message 4 de la GBA ; les rapports du 9 novembre (2 h 33, 2 h 38) montrent que ce
+ *  message ne donne pas la position sur la carte (la carte defile : une moitie reste a 0 pendant que le curseur du jeu
+ *  avance de 3000 unites). Build 490 : la position vient du message 3 du JEU (ce qu'il renvoie a la GBA pour l'affichage) :
+ *  l'entree dont le 2e mot commence par 0x0380 (x = moitie haute du mot d'avant, y = moitie basse) ; elle a bouge de ~40
+ *  sur les deux axes pendant les trajets en diagonale et sur un seul axe pendant le trajet droit. L'appli apprend
+ *  carte -> monde (droite par axe, d'apres des reperes pris curseur immobile), cherche dans la memoire de la GBA les
+ *  demi-mots egaux a x et a y (gardes s'ils suivent chaque arret du curseur), et le saut les ecrit ; verifie ~0,5 s plus
+ *  tard dans le message 3 ; sinon trajet a la croix ; 2 echecs de suite : saut coupe pour la partie. */
+object Saut {
+    @Volatile var demande: FloatArray? = null
+    @Volatile var texte = ""
+    @Volatile private var carte: IntArray? = null                 // x, y (message 3 du jeu, entree 0x0380)
+    @Volatile private var carteVue = false; private var tCarte = 0L
+    private val cands = arrayOfNulls<IntArray>(2)                 // par axe (0 : x, 1 : y) : adresses de demi-mots
+    private val nSuivi = IntArray(2); private val tScan = LongArray(2); private val valSuivie = intArrayOf(-1, -1)
+    private val paires = ArrayList<FloatArray>()                   // cx, cy, monde x, monde z
+    private var echecs = 0; private var nSauts = 0; private var nReussis = 0
+    private var verif: IntArray? = null; private var verifCible: FloatArray? = null; private var verifImg = 0
+    @Volatile private var fit = false
+    private var kx = 0; private var ax = 0f; private var bx = 0f; private var kz = 1; private var az = 0f; private var bz = 0f
+
+    fun raz() { for (k in 0..1) { cands[k] = null; nSuivi[k] = 0; tScan[k] = 0L; valSuivie[k] = -1 }; paires.clear(); echecs = 0
+        nSauts = 0; nReussis = 0; verif = null; verifCible = null; fit = false; demande = null; carte = null; carteVue = false; texte = "" }
+    fun pret(): Boolean {
+        if (!fit || echecs >= 2 || carte == null) return false
+        for (k in 0..1) { val c = cands[k] ?: return false; if (c.size !in 1..16 || nSuivi[k] < 3) return false }
+        return true
+    }
+    /** (fil de l'emulateur) le message 3 du jeu a change */
+    fun jeu3(d: List<Long>) {
+        if (RetroSucces.hardcore) return                              // (build 500 : pas d'ecriture dans la GBA en hardcore)
+        carteVue = true
+        var p: IntArray? = null
+        for (i in 1 until d.size) if (((d[i] ushr 16) and 0xFFFF) == 0x0380L) { p = intArrayOf(((d[i - 1] ushr 16) and 0xFFFF).toInt(), (d[i] and 0xFFFF).toInt()); break }
+        val a = carte
+        if (p == null || a == null || a[0] != p[0] || a[1] != p[1]) tCarte = System.nanoTime()
+        carte = p
+        majTexte()
+    }
+    /** position du curseur dans le monde d'apres la carte (quand la vue 3D ne la donne pas) */
+    fun monde(): FloatArray? { val c = carte ?: return null; if (!fit) return null
+        return floatArrayOf(ax * c[kx] + bx, 0f, az * c[kz] + bz) }
+    private fun zones() = sequenceOf(0x03000000 until 0x03008000 step 4, 0x02000000 until 0x02040000 step 4).flatten()
+    private fun lire16(a: Int): Int { val w = GbaNatif.mem32(a and 3.inv()); return if (a and 2 != 0) (w ushr 16) and 0xFFFF else w and 0xFFFF }
+    /** curseur immobile sur la valeur v (axe k) : on garde les demi-mots de la GBA qui la contiennent */
+    private fun suivre(k: Int, v: Int) {
+        if (v == valSuivie[k]) return
+        val c = cands[k]
+        if (c == null) {
+            val t = System.nanoTime(); if (t - tScan[k] < 1_000_000_000L) return; tScan[k] = t
+            val l = ArrayList<Int>()
+            for (a in zones()) { val w = GbaNatif.mem32(a); if (w and 0xFFFF == v) l.add(a); if ((w ushr 16) and 0xFFFF == v) l.add(a + 2); if (l.size > 4096) break }
+            cands[k] = if (l.size in 1..4096) l.toIntArray() else null; nSuivi[k] = 0
+        } else {
+            val f = c.filter { lire16(it) == v }.toIntArray()
+            if (f.isEmpty()) { cands[k] = null; nSuivi[k] = 0 } else { cands[k] = f; nSuivi[k]++ }
+        }
+        valSuivie[k] = v
+    }
+    private fun majTexte() {
+        val c = carte
+        val n = arrayOf("x", "y")
+        texte = (if (!carteVue) "message 3 du jeu pas encore vu" else if (c == null) "curseur absent du message 3 (carte pas affichée ?)" else "carte %d, %d".format(c[0], c[1])) +
+            ", emplacements ${cands[0]?.size ?: 0} / ${cands[1]?.size ?: 0} (suivis ${nSuivi[0]} / ${nSuivi[1]} fois), ${paires.size} repère(s)" +
+            (if (fit) ", carte apprise (monde x : carte ${n[kx]} × %.1f, monde z : carte ${n[kz]} × %.1f)".format(ax, az) else "") +
+            (if (nSauts > 0) ", sauts $nReussis / $nSauts" else "") + (if (echecs >= 2) ", saut coupé" else "")
+    }
+    /** (fil de l'emulateur, chaque image) : reperes, saut demande, verification. Rend (texte, repli) ou null */
+    fun image(): Pair<String, FloatArray?>? {
+        val c = carte
+        val immobile = c != null && System.nanoTime() - tCarte > 500_000_000L
+        val v = verif
+        if (v != null) {
+            if (++verifImg < 30 && !(c != null && Math.abs(c[0] - v[0]) <= 2 && Math.abs(c[1] - v[1]) <= 2)) return null
+            verif = null; val cib = verifCible; verifCible = null
+            val ok = c != null && Math.abs(c[0] - v[0]) <= 2 && Math.abs(c[1] - v[1]) <= 2
+            if (ok) { echecs = 0; nReussis++; majTexte(); return "Curseur posé (saut)" to null }
+            echecs++; majTexte()
+            return (if (echecs >= 2) "Saut coupé (2 échecs) : trajet à la croix" else "Saut pas suivi par le jeu : trajet à la croix") to cib
+        }
+        if (immobile && c != null) {
+            suivre(0, c[0]); suivre(1, c[1])
+            val jeu = Prive.curseurTT()
+            if (jeu != null) {
+                val der = paires.lastOrNull()
+                if (der == null || der[0].toInt() != c[0] || der[1].toInt() != c[1]) {
+                    paires.add(floatArrayOf(c[0].toFloat(), c[1].toFloat(), jeu[0], jeu[2])); if (paires.size > 16) paires.removeAt(0); ajuster()
+                }
+            }
+            majTexte()
+        }
+        val d = demande ?: return null
+        demande = null
+        if (!pret() || c == null) return "Curseur : saut pas prêt" to d
+        val tx = Math.round((d[0] - bx) / ax); val tz = Math.round((d[1] - bz) / az)
+        val cible = IntArray(2); cible[kx] = tx; cible[kz] = tz
+        if (cible[0] !in 0..0xFFFF || cible[1] !in 0..0xFFFF) return "Curseur : hors de la carte, trajet à la croix" to d
+        for (k in 0..1) ecrire(k, cible[k])
+        verif = cible; verifCible = d; verifImg = 0; nSauts++; majTexte()
+        return "Curseur : saut (carte ${cible[0]}, ${cible[1]})" to null
+    }
+    private fun ecrire(k: Int, v: Int) {
+        val c = cands[k] ?: return
+        for (a in c) { GbaNatif.ecr8(a, v and 0xFF); GbaNatif.ecr8(a + 1, (v ushr 8) and 0xFF) }
+        valSuivie[k] = -1
+    }
+    /** monde x puis monde z : l'axe de la carte qui suit le mieux (droite, ecart faible par rapport a l'etendue) */
+    private fun ajuster() {
+        if (paires.size < 3) return
+        fun droite(k: Int, w: Int): Triple<Float, Float, Float>? {
+            val xs = paires.map { it[k] }; val ys = paires.map { it[2 + w] }
+            val n = xs.size; val mx = xs.average().toFloat(); val my = ys.average().toFloat()
+            var sxx = 0f; var sxy = 0f; var syy = 0f
+            for (i in 0 until n) { sxx += (xs[i] - mx) * (xs[i] - mx); sxy += (xs[i] - mx) * (ys[i] - my); syy += (ys[i] - my) * (ys[i] - my) }
+            if (sxx < 16f || syy < 1e4f) return null
+            val a = sxy / sxx; val b = my - a * mx
+            var err = 0f; for (i in 0 until n) { val e = ys[i] - (a * xs[i] + b); err += e * e }
+            return Triple(a, b, err / syy)
+        }
+        var best: Triple<Int, Triple<Float, Float, Float>, Triple<Float, Float, Float>>? = null; var bestErr = 1e9f
+        for (k in 0..1) {                                              // (x de la carte -> monde x, ou bien -> monde z)
+            val tx = droite(k, 0) ?: continue; val tz = droite(1 - k, 1) ?: continue
+            val e = tx.third + tz.third
+            if (tx.third < 0.05f && tz.third < 0.05f && e < bestErr) { bestErr = e; best = Triple(k, tx, tz) }
+        }
+        val b0 = best ?: run { fit = false; return }
+        kx = b0.first; ax = b0.second.first; bx = b0.second.second
+        kz = 1 - b0.first; az = b0.third.first; bz = b0.third.second
+        fit = Math.abs(ax) > 1e-3f && Math.abs(az) > 1e-3f
     }
 }

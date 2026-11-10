@@ -64,6 +64,22 @@ fun pleinEcran(w: Window) {
 // build 411 : le plein ecran pour de bon. Une fenetre de dialogue reste limitee par certains telephones a la zone de l'appli
 // (en largeur : une bande a droite et en bas, meme apres le build 407). Le plein ecran est maintenant une couche dessinee par
 // l'activite elle-meme, par-dessus toute l'appli (HotePleinEcranAfficher, a la racine), barres d'Android cachees, sous l'encoche.
+/** build 453 : vrai si l'on est dans une feuille (ModalBottomSheet : la fiche d'un jeu). Une feuille est une fenetre a part,
+ *  au-dessus de l'activite : la couche plein ecran de l'activite (HotePleinEcranAfficher) passait dessous ; la feuille se
+ *  refermait alors et le plein ecran disparaissait avec elle (retour a l'accueil de l'appli, video du 7 novembre 2026). */
+val DansFeuille = androidx.compose.runtime.staticCompositionLocalOf { false }
+
+/** build 453 : le plein ecran au bon endroit : dans une feuille, une fenetre plein ecran au-dessus d'elle (comme la boite
+ *  en 3D) ; ailleurs, la couche de l'activite (build 411) */
+@Composable
+fun CouchePleinEcran(fermer: () -> Unit, contenu: @Composable () -> Unit) {
+    if (DansFeuille.current) androidx.compose.ui.window.Dialog(onDismissRequest = fermer,
+        properties = androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false)) {
+        FenetrePleinEcran()
+        contenu()
+    } else PleinEcranCouche(fermer, contenu)
+}
+
 object HotePleinEcran {
     var contenu by androidx.compose.runtime.mutableStateOf<(@Composable () -> Unit)?>(null)
     var fermer: (() -> Unit)? = null

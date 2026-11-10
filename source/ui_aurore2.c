@@ -136,8 +136,8 @@ static void au_player(void) {
     int on = (src == SRC_FILE && playing && !paused) || (src == SRC_RADIO && state == ST_PLAY);
     if (on) { gx_rrect_fill(cx - 6.5f, bcy - 7, 4.5f, 14, 1.5f, w, w); gx_rrect_fill(cx + 2, bcy - 7, 4.5f, 14, 1.5f, w, w); }
     else gx_tri(cx - 4.5f, bcy - 8, cx - 4.5f, bcy + 8, cx + 8, bcy, w);
-    gp_zone(cx - 75, bcy - 17, 34, 34, NULL, PAD_TRIGGER_L, GPZ_KEY);
+    gp_zone(cx - 75, bcy - 17, 34, 34, NULL, -1, GPZ_STEP);   /* (v386 : morceau precedent ; L / R changent d'onglet) */
     gp_zone(cx - 20, bcy - 20, 40, 40, NULL, PAD_BUTTON_Y, GPZ_KEY);
-    gp_zone(cx + 41, bcy - 17, 34, 34, NULL, PAD_TRIGGER_R, GPZ_KEY);
+    gp_zone(cx + 41, bcy - 17, 34, 34, NULL, 1, GPZ_STEP);    /* (v386 : morceau suivant) */
     nv_raw = 0;
 }

@@ -10,6 +10,7 @@ import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -46,6 +47,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.SolidColor
@@ -63,12 +65,17 @@ import androidx.compose.ui.unit.sp
 
 /** une ambiance de l'appli (les couleurs de tous les ecrans) */
 class Palette(val rose: Color, val violet: Color, val bleu: Color, val cyan: Color, val fond: Color, val fond2: Color,
-              val texte: Color, val doux: Color, val pale: Color, val surface: Color)
+              val texte: Color, val doux: Color, val pale: Color, val surface: Color,
+              val eclat: Float = 1f, val taches: Float = 1f)   // (build 515 : force des rubans et des taches de couleur du fond)
 
 object Ambiances {
-    val NOMS = listOf("Néon", "Sombre sobre", "GameCube indigo", "Couleurs du jeu")
-    val NEON = Palette(Color(0xFFFF2FD0), Color(0xFFB03CFF), Color(0xFF5A5CFF), Color(0xFF21E8FF), Color(0xFF07020F), Color(0xFF120624),
-        Color(0xFFF4EEFF), Color(0xFFB7A8D8), Color(0xFF6E6290), Color(0xFF140A26))
+    // build 515 : « Aurore » (appli privee d'abord) : le fond de la console (ui_aurore.c : presque noir, rubans rose -> violet ->
+    // bleu -> cyan a 40 / 34 / 22 sur 255, pas de taches de couleur) ; le neon un peu plus sombre (fond, rubans, taches)
+    val NOMS: List<String> get() = listOf("Néon", "Sombre sobre", "GameCube indigo", "Couleurs du jeu") + (if (Prive.ACTIF) listOf("Aurore") else emptyList())
+    val NEON = Palette(Color(0xFFFF2FD0), Color(0xFFB03CFF), Color(0xFF5A5CFF), Color(0xFF21E8FF), Color(0xFF040109), Color(0xFF0B0319),
+        Color(0xFFF4EEFF), Color(0xFFB7A8D8), Color(0xFF6E6290), Color(0xFF10081F), eclat = 0.78f, taches = 0.62f)
+    val AURORE = Palette(Color(0xFFFF46AA), Color(0xFFA050FF), Color(0xFF466EFF), Color(0xFF28D2FF), Color(0xFF030306), Color(0xFF07060E),
+        Color(0xFFF0F0FA), Color(0xFFA6A6BC), Color(0xFF6E6E84), Color(0xFF0E0D16), eclat = 0.55f, taches = 0f)
     val SOBRE = Palette(Color(0xFF7FA7FF), Color(0xFF9294B0), Color(0xFF6C8CFF), Color(0xFFA6CCFF), Color(0xFF0A0A0C), Color(0xFF17171B),
         Color(0xFFEDEDF0), Color(0xFFA9A9B4), Color(0xFF6B6B77), Color(0xFF161619))
     val INDIGO = Palette(Color(0xFF9A8CFF), Color(0xFF6656D0), Color(0xFF4B3F99), Color(0xFFC3BCFF), Color(0xFF090720), Color(0xFF1A1550),
@@ -110,7 +117,11 @@ object C {
     var duJeu by androidx.compose.runtime.mutableStateOf<Palette?>(null)  // (couleurs du jeu en cours / du dernier ouvert)
     var texte by androidx.compose.runtime.mutableFloatStateOf(1f)         // (taille du texte : 0,9 / 1 / 1,15 / 1,3)
     var vibrations = true                                                 // (petite vibration des boutons)
-    val p: Palette get() = when (ambiance) { 1 -> Ambiances.SOBRE; 2 -> Ambiances.INDIGO; 3 -> duJeu ?: Ambiances.NEON; else -> Ambiances.NEON }
+    // build 510 (appli privee) : style « Verre liquide » (comme iOS 26 / MagicOS) : verre plus transparent avec reflets de lumiere
+    // sur les bords, boutons en verre teinte au lieu du degrade plein, appuis qui s'ecrasent comme une goutte, bulle de la barre
+    // d'onglets qui s'etire en glissant. Version publique : le style neon d'origine.
+    var liquide by androidx.compose.runtime.mutableStateOf(false)
+    val p: Palette get() = when (ambiance) { 1 -> Ambiances.SOBRE; 2 -> Ambiances.INDIGO; 3 -> duJeu ?: Ambiances.NEON; 4 -> Ambiances.AURORE; else -> Ambiances.NEON }
     val Rose: Color get() = p.rose
     val Violet: Color get() = p.violet
     val Bleu: Color get() = p.bleu
@@ -136,8 +147,9 @@ object C {
     /** les choix gardes (appele au demarrage) */
     fun lire(c: android.content.Context) {
         val pr = c.getSharedPreferences("gcs", 0)
-        ambiance = pr.getInt("ambiance", 0).coerceIn(0, 3); texte = pr.getFloat("taille_texte", 1f).coerceIn(0.8f, 1.4f)
+        ambiance = pr.getInt("ambiance", 0).coerceIn(0, if (Prive.ACTIF) 4 else 3); texte = pr.getFloat("taille_texte", 1f).coerceIn(0.8f, 1.4f)
         idJeu = pr.getString("ambiance_jeu", "") ?: ""; vibrations = pr.getBoolean("vibrations", true)
+        liquide = Prive.ACTIF && pr.getBoolean("style_liquide", true)
     }
 }
 
@@ -177,25 +189,34 @@ fun FondAurore(modifier: Modifier = Modifier, actif: Boolean = true) {
         val t0 = System.nanoTime() - (value * 1e9f).toLong()
         while (true) androidx.compose.runtime.withFrameNanos { value = (System.nanoTime() - t0) / 1e9f }
     }
-    Canvas(modifier.fillMaxSize()) {
+    // build 514 : le vrai verre (LiquideGL.kt) recalcule ce fond chez lui : il lui faut le meme temps, les memes taches et
+    // la taille de l'ecran ; et le reflet de son bord suit l'inclinaison du telephone (capteur de gravite)
+    androidx.compose.runtime.SideEffect { Liquide.temps = temps; Liquide.k = k }
+    val ctxA = androidx.compose.ui.platform.LocalContext.current
+    androidx.compose.runtime.DisposableEffect(C.liquide, actif) {
+        val fin = if (C.liquide && actif) Liquide.capteur(ctxA) else ({ })
+        onDispose { fin() }
+    }
+    Canvas(modifier.fillMaxSize().onSizeChanged { Liquide.ecranW = it.width.toFloat(); Liquide.ecranH = it.height.toFloat() }) {
         drawRect(Brush.verticalGradient(listOf(C.Fond2, C.Fond)))
-        drawRect(Brush.radialGradient(listOf(C.Violet.copy(alpha = 0.28f), Color.Transparent),
+        drawRect(Brush.radialGradient(listOf(C.Violet.copy(alpha = 0.28f * C.p.taches), Color.Transparent),
             center = Offset(size.width * (0.15f + 0.5f * k), size.height * 0.12f), radius = size.width * 0.9f))
-        drawRect(Brush.radialGradient(listOf(C.Rose.copy(alpha = 0.16f), Color.Transparent),
+        drawRect(Brush.radialGradient(listOf(C.Rose.copy(alpha = 0.16f * C.p.taches), Color.Transparent),
             center = Offset(size.width * (0.95f - 0.5f * k), size.height * 0.75f), radius = size.width * 0.8f))
         val sh = rubansGpu
         if (sh != null && android.os.Build.VERSION.SDK_INT >= 33) {
             // (calcules point par point par la puce graphique, a la definition de l'ecran : aucun escalier)
             sh.setFloatUniform("taille", size.width, size.height)
             sh.setFloatUniform("t", temps)
+            sh.setFloatUniform("eclat", C.p.eclat)
             sh.setColorUniform("c1", android.graphics.Color.valueOf(C.Rose.red, C.Rose.green, C.Rose.blue, 1f).toArgb())
             sh.setColorUniform("c2", android.graphics.Color.valueOf(C.Violet.red, C.Violet.green, C.Violet.blue, 1f).toArgb())
             sh.setColorUniform("c3", android.graphics.Color.valueOf(C.Cyan.red, C.Cyan.green, C.Cyan.blue, 1f).toArgb())
             drawRect(androidx.compose.ui.graphics.ShaderBrush(sh))
         } else {
-            ruban(118f, 16f, 70f, temps, 0.35f, 0.0f, 0.30f)
-            ruban(430f, 22f, 110f, temps, 0.25f, 2.1f, 0.26f)
-            ruban(460f, 12f, 60f, temps, 0.42f, 4.0f, 0.18f)
+            ruban(118f, 16f, 70f, temps, 0.35f, 0.0f, 0.30f * C.p.eclat)
+            ruban(430f, 22f, 110f, temps, 0.25f, 2.1f, 0.26f * C.p.eclat)
+            ruban(460f, 12f, 60f, temps, 0.42f, 4.0f, 0.18f * C.p.eclat)
         }
     }
 }
@@ -205,6 +226,7 @@ fun FondAurore(modifier: Modifier = Modifier, actif: Boolean = true) {
 private const val AGSL_RUBANS = """
 uniform float2 taille;
 uniform float t;
+uniform float eclat;
 layout(color) uniform half4 c1;
 layout(color) uniform half4 c2;
 layout(color) uniform half4 c3;
@@ -214,7 +236,7 @@ half4 ruban(float x, float y, float base, float amp, float ep, float vit, float 
     float k = d < 0.0 ? clamp(1.0 + d / ep, 0.0, 1.0) : clamp(1.0 - d / (ep * 0.35), 0.0, 1.0);
     float f = clamp((x + 10.0) / 660.0, 0.0, 1.0);
     half4 c = f < 0.5 ? mix(c1, c2, half(f * 2.0)) : mix(c2, c3, half((f - 0.5) * 2.0));
-    half al = half(a * k * k * (3.0 - 2.0 * k));
+    half al = half(a * eclat * k * k * (3.0 - 2.0 * k));
     return half4(c.rgb * al, al);
 }
 half4 main(float2 p) {
@@ -258,7 +280,26 @@ private fun androidx.compose.ui.graphics.drawscope.DrawScope.ruban(base: Float, 
 }
 
 fun Modifier.verre(shape: Shape = RoundedCornerShape(22.dp), bord: Color = C.Bord, fond: Color = C.Verre): Modifier =
-    this.clip(shape).background(fond, shape).border(1.dp, bord, shape)
+    if (C.liquide) (if (Liquide.actif) (if (bord != C.Bord) this.verreGL(shape, bord.copy(alpha = 0.22f)) else this.verreGL(shape))   // (build 514 : vrai verre)
+                    else this.verreLiquide(shape, bord, fond))
+    else this.clip(shape).background(fond, shape).border(1.dp, bord, shape)
+
+/** build 510 : verre liquide : un voile clair en haut qui s'efface vers le bas (la lumiere vient d'en haut), un reflet vif sur
+ *  le bord du haut et de gauche, plus doux en bas a droite ; teinte par la couleur du bord si elle est choisie (selection) */
+private val REFLET = Brush.linearGradient(listOf(Color(0x8CFFFFFF), Color(0x26FFFFFF), Color(0x0DFFFFFF), Color(0x40FFFFFF)))
+fun Modifier.verreLiquide(shape: Shape, bord: Color = C.Bord, fond: Color = C.Verre): Modifier {
+    val teinte = bord != C.Bord
+    val voile = if (teinte) Brush.verticalGradient(listOf(bord.copy(alpha = 0.22f), bord.copy(alpha = 0.06f)))
+                else Brush.verticalGradient(listOf(fond.copy(alpha = (fond.alpha * 1.4f).coerceAtMost(1f)), fond.copy(alpha = fond.alpha * 0.35f)))
+    val rim = if (teinte) Brush.linearGradient(listOf(Color(0xA6FFFFFF), bord.copy(alpha = 0.55f), bord.copy(alpha = 0.18f), Color(0x4DFFFFFF))) else REFLET
+    return this.clip(shape).background(voile, shape).border(1.dp, rim, shape)
+}
+/** verre teinte (bouton principal, puce choisie) a la place du degrade plein */
+fun Modifier.verreTeinte(shape: Shape): Modifier =
+    if (Liquide.actif) this.verreGL(shape, C.Rose.copy(alpha = 0.50f), C.Cyan.copy(alpha = 0.42f), force = 16f) else   // (build 514)
+    this.clip(shape).background(Brush.linearGradient(listOf(C.Rose.copy(alpha = 0.62f), C.Violet.copy(alpha = 0.48f), C.Cyan.copy(alpha = 0.42f))), shape)
+        .background(Brush.verticalGradient(listOf(Color(0x40FFFFFF), Color(0x00FFFFFF))), shape)
+        .border(1.dp, Brush.linearGradient(listOf(Color(0xCCFFFFFF), Color(0x33FFFFFF), Color(0x14FFFFFF), Color(0x66FFFFFF))), shape)
 
 /** petite vibration d'un bouton */
 @Composable
@@ -272,8 +313,17 @@ fun vibre(): () -> Unit {
 fun Modifier.appui(onClick: () -> Unit): Modifier {
     val src = remember { MutableInteractionSource() }
     val pressed by src.collectIsPressedAsState()
-    val s by animateFloatAsState(if (pressed) 0.94f else 1f, tween(120), label = "appui")
     val buzz = vibre()
+    if (C.liquide) {   // (build 510 : ressort : s'ecrase un peu en largeur, plus en hauteur, et rebondit en revenant)
+        // (build 514 : gelee : a l'appui, s'etale en largeur et s'ecrase en hauteur (le volume reste), vite ; au lacher, rebondit
+        //  plusieurs fois avant de se poser, la largeur et la hauteur en decale : elle tremble comme une goutte)
+        val sx by animateFloatAsState(if (pressed) 1.035f else 1f, if (pressed) androidx.compose.animation.core.spring(dampingRatio = 0.55f, stiffness = 1500f)
+            else androidx.compose.animation.core.spring(dampingRatio = 0.24f, stiffness = 330f), label = "appuiX")
+        val sy by animateFloatAsState(if (pressed) 0.90f else 1f, if (pressed) androidx.compose.animation.core.spring(dampingRatio = 0.55f, stiffness = 1500f)
+            else androidx.compose.animation.core.spring(dampingRatio = 0.20f, stiffness = 260f), label = "appuiY")
+        return this.graphicsLayer { scaleX = sx; scaleY = sy }.clickable(interactionSource = src, indication = null) { buzz(); onClick() }
+    }
+    val s by animateFloatAsState(if (pressed) 0.94f else 1f, tween(120), label = "appui")
     return this.scale(s).clickable(interactionSource = src, indication = null) { buzz(); onClick() }
 }
 
@@ -297,7 +347,7 @@ fun Doux(t: String, modifier: Modifier = Modifier, taille: Int = 13, couleur: Co
 fun Bouton(t: String, modifier: Modifier = Modifier, plein: Boolean = false, icone: ImageVector? = null, couleur: Color = C.Texte,
            hauteur: Dp = 46.dp, actif: Boolean = true, onClick: () -> Unit) {
     val sh = RoundedCornerShape(16.dp)
-    val m = if (plein) modifier.clip(sh).background(C.Neon, sh) else modifier.verre(sh, if (actif) C.Rose.copy(alpha = 0.45f) else C.Bord)
+    val m = if (plein) (if (C.liquide) modifier.verreTeinte(sh) else modifier.clip(sh).background(C.Neon, sh)) else modifier.verre(sh, if (actif) C.Rose.copy(alpha = 0.45f) else C.Bord)
     Row(m.then(if (actif) Modifier.appui(onClick) else Modifier).height(hauteur).padding(horizontal = 16.dp),
         verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.Center) {
         if (icone != null) { Icon(icone, null, tint = if (plein) Color.White else couleur, modifier = Modifier.size(18.dp)); if (t.isNotEmpty()) Box(Modifier.size(8.dp)) }
@@ -308,7 +358,7 @@ fun Bouton(t: String, modifier: Modifier = Modifier, plein: Boolean = false, ico
 /** bouton rond (commandes de lecture) */
 @Composable
 fun Rond(icone: ImageVector, taille: Dp, plein: Boolean = false, onClick: () -> Unit) {
-    val m = if (plein) Modifier.size(taille).clip(CircleShape).background(C.Neon, CircleShape)
+    val m = if (plein) (if (C.liquide) Modifier.size(taille).verreTeinte(CircleShape) else Modifier.size(taille).clip(CircleShape).background(C.Neon, CircleShape))
             else Modifier.size(taille).verre(CircleShape, C.Rose.copy(alpha = 0.5f))
     Box(m.appui(onClick), contentAlignment = Alignment.Center) {
         Icon(icone, null, tint = Color.White, modifier = Modifier.size(taille * 0.42f))
@@ -318,7 +368,7 @@ fun Rond(icone: ImageVector, taille: Dp, plein: Boolean = false, onClick: () -> 
 @Composable
 fun Puce(t: String, choisie: Boolean, onClick: () -> Unit) {
     val sh = RoundedCornerShape(50)
-    val m = if (choisie) Modifier.clip(sh).background(C.Neon, sh) else Modifier.verre(sh)
+    val m = if (choisie) (if (C.liquide) Modifier.verreTeinte(sh) else Modifier.clip(sh).background(C.Neon, sh)) else Modifier.verre(sh)
     Box(m.appui(onClick).padding(horizontal = 16.dp, vertical = 9.dp)) {
         Text(t, color = if (choisie) Color.White else C.Doux, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
     }
@@ -371,6 +421,9 @@ object Ic {
     private fun v(nom: String, d: String) = ImageVector.Builder(nom, 24.dp, 24.dp, 24f, 24f)
         .addPath(addPathNodes(d), fill = SolidColor(Color.White)).build()
     val Lecture = v("lecture", "M8,5v14l11,-7z")
+    // (build 504 : dessines pour l'appli : l'hexagone et le cube du logo de Pulse ; les trois points d'un menu)
+    val Pulse = v("pulse", "M12,2L20.66,7L20.66,17L12,22L3.34,17L3.34,7zM12,5.2L6.11,8.6L6.11,15.4L12,18.8L17.89,15.4L17.89,8.6zM12,8.6L14.94,10.3L14.94,13.7L12,15.4L9.06,13.7L9.06,10.3z")
+    val Points = v("points", "M12,8c1.1,0 2,-0.9 2,-2s-0.9,-2 -2,-2 -2,0.9 -2,2 0.9,2 2,2zM12,10c-1.1,0 -2,0.9 -2,2s0.9,2 2,2 2,-0.9 2,-2 -0.9,-2 -2,-2zM12,16c-1.1,0 -2,0.9 -2,2s0.9,2 2,2 2,-0.9 2,-2 -0.9,-2 -2,-2z")
     val Pause = v("pause", "M6,19h4L10,5L6,5v14zM14,5v14h4L18,5h-4z")
     val Suivant = v("suivant", "M6,18l8.5,-6L6,6v12zM16,6v12h2L18,6h-2z")
     val Precedent = v("precedent", "M6,6h2v12L6,18zM9.5,12l8.5,6L18,6z")

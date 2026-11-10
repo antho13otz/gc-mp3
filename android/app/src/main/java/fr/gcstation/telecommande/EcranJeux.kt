@@ -160,6 +160,8 @@ fun EcranJeux() {
     var fiche by remember { mutableStateOf<Jeu?>(null) }
     var recharge by remember { mutableIntStateOf(0) }
     val dernier = remember { LastLaunch(act) { id -> jeux?.firstOrNull { it.id == id }?.let { fiche = it } } }
+    var dernierVu by remember { mutableIntStateOf(0) }       // (build 503 : compte les lectures du dernier lancement, pour la carte Pulse)
+    remember(dernier) { dernier.change = Runnable { dernierVu++ }; 0 }
     var garde by remember { mutableLongStateOf(0L) }           // (hors-ligne : date de la liste gardee ; 0 : liste de la console)
     var tout by remember { mutableStateOf<String?>(null) }    // (« Tout garder pour hors-ligne » en cours : ce qu'il fait)
     var toutAnnule by remember { mutableStateOf(false) }
@@ -197,6 +199,23 @@ fun EcranJeux() {
         horizontalArrangement = Arrangement.spacedBy(10.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         item(span = { GridItemSpan(maxLineSpan) }) {
             Column {
+              if (Rangee.ACTIF) {
+                // (build 503, appli privee : le haut de l'onglet refait autour de Pulse : EnTeteJeux.kt)
+                EnTeteJeuxPulse(act, dernier, dernierVu, q, { q = it }, filtre, { filtre = it }, vus.isNotEmpty(), St.connecte && l != null && l.isNotEmpty(),
+                    { etagere = true }, { mur = true }, {
+                        val ll = l
+                        if (ll != null) {
+                            toutAnnule = false; tout = "Préparation…"
+                            scope.launch {
+                                val n = Hors.toutGarder(act, ll, { toutAnnule }) { k, t, nom -> tout = if (nom.isEmpty()) null else "Jeu " + (k + 1) + " / " + t + " : " + nom }
+                                tout = null
+                                Lang.toast(act, if (toutAnnule) "Arrêté : ce qui est déjà gardé reste" else "Tout est gardé pour hors-ligne (" + ll.size + " jeux, " + n + " pages de notices)", Toast.LENGTH_LONG).show()
+                            }
+                        }
+                    }, { choixEnvoi = true })
+                if (garde > 0L) Doux("Hors-ligne · liste gardée le " + java.text.SimpleDateFormat("d/M à HH:mm", java.util.Locale.FRANCE).format(java.util.Date(garde)) + " · jaquettes, boîtes et notices gardées",
+                    Modifier.padding(start = 4.dp, top = 8.dp), 12, C.Cyan)
+              } else {
                 Champ(q, { q = it }, "Chercher un jeu", icone = Ic.Chercher)
                 Spacer(Modifier.height(8.dp))
                 RangeeDePuces {
@@ -221,6 +240,7 @@ fun EcranJeux() {
                     }
                 }
                 if (St.connecte && l != null && l.isNotEmpty()) Bouton("Envoyer jaquettes et disques à la console", Modifier.fillMaxWidth().padding(top = 8.dp), hauteur = 40.dp) { choixEnvoi = true }
+              }
                 Doux(if (l == null) msg else if (l.isEmpty()) "Aucun jeu (onglet JEUX de la GameCube)" else vus.size.toString() + " jeu" + (if (vus.size > 1) "x" else "") + " · toucher pour la fiche",
                     Modifier.padding(start = 4.dp, top = 8.dp), 12)
             }
@@ -326,6 +346,10 @@ private fun FicheJeu(act: StationActivity, g: Jeu, compat: MutableMap<String, In
     var menuCheat by remember { mutableIntStateOf(-1) }
     var renomme by remember { mutableIntStateOf(-1) }
     var sauvegardes by remember { mutableStateOf(false) }
+    // build 504 (appli privee) : la fiche en sous-onglets au lieu d'une longue page : 0 Lancer, 1 Codes, 2 Succes, 3 Sauvegardes,
+    // 4 Reglages, 5 Infos. -1 : tout a la suite, comme avant (version publique).
+    var partie by remember { mutableIntStateOf(if (Rangee.ACTIF) 0 else -1) }
+    fun montre(n: Int) = partie < 0 || partie == n
     var boite by remember { mutableStateOf(false) }                     // (la boite en 3D, en plein ecran)
     var notice by remember { mutableIntStateOf(0) }                     // (pages de la notice sur la console ; 0 : pas de notice)
     var noticeOuverte by remember { mutableStateOf(false) }
@@ -378,6 +402,7 @@ private fun FicheJeu(act: StationActivity, g: Jeu, compat: MutableMap<String, In
     LaunchedEffect(masque, masqueSale) { if (masqueSale) { delay(600); envoyerMasque() } }
 
     ModalBottomSheet(onDismissRequest = { scope.launch { envoyerMasque() }; fermer() }, sheetState = etat, containerColor = Color(0xFF120824)) {
+        androidx.compose.runtime.CompositionLocalProvider(DansFeuille provides true) {   // (build 453 : plein ecran de la vue 3D au-dessus de la fiche)
         Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = 20.dp).padding(bottom = 30.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 var img by remember { mutableStateOf<ImageBitmap?>(Jaquettes.mem.get(g.id)) }
@@ -415,7 +440,21 @@ private fun FicheJeu(act: StationActivity, g: Jeu, compat: MutableMap<String, In
                     }
                 }
             }
-            APropos(act, g)
+            if (partie >= 0) {
+                Spacer(Modifier.height(14.dp))
+                Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    listOf("Lancer", "Codes", "Succès", "Sauvegardes", "Réglages", "Infos").forEachIndexed { k, nom ->
+                        Puce(nom, partie == k) {
+                            partie = k
+                            if (k == 3) sauvegardes = true
+                            if (k == 4 && !cfgOuvert) { cfgOuvert = true; chargerCfg(-1, 0) }
+                        }
+                    }
+                }
+            }
+            if (montre(5)) APropos(act, g)
+            if (montre(2) && partie >= 0) SuccesDuJeu(g.id)
+            if (montre(0)) {
             Spacer(Modifier.height(18.dp))
             Bouton("Lancer avec Pulse", Modifier.fillMaxWidth(), plein = true, icone = Ic.Lecture, hauteur = 52.dp) { lancer(1) }
             Spacer(Modifier.height(8.dp))
@@ -432,9 +471,9 @@ private fun FicheJeu(act: StationActivity, g: Jeu, compat: MutableMap<String, In
             var extraire by remember { mutableStateOf(false) }
             var cheminChoisi by remember { mutableStateOf("/main.dol") }
             val ouEnregistrer = androidx.activity.compose.rememberLauncherForActivityResult(androidx.activity.result.contract.ActivityResultContracts.CreateDocument("application/octet-stream")) { u ->
-                if (u != null) ExtraireFichier.versUri(act, g.id, cheminChoisi, u)                   // (build 199 : dans tes fichiers)
+                if (u != null) Prive.extraireVersUri(act, g.id, cheminChoisi, u)                   // (build 199 : dans tes fichiers)
             }
-            Bouton("Extraire un fichier du jeu (main.dol…)", Modifier.fillMaxWidth()) { extraire = true }
+            if (Prive.ACTIF) Bouton("Extraire un fichier du jeu (main.dol…)", Modifier.fillMaxWidth()) { extraire = true }   // (build 457 : pas dans la version publique)
             if (extraire) {
                 var chemin by remember { mutableStateOf("/main.dol") }
                 androidx.compose.material3.AlertDialog(onDismissRequest = { extraire = false }, containerColor = C.Fond2,
@@ -444,7 +483,7 @@ private fun FicheJeu(act: StationActivity, g: Jeu, compat: MutableMap<String, In
                         Doux("/main.dol : le programme du jeu. Autre fichier : son chemin dans le disque (ex. /rel/aaa.rel). " +
                              "Extraire : dans Téléchargements/GC Remote, puis tu peux l'envoyer. Choisir où : dans le dossier de ton choix (tes fichiers, Drive…). Hors partie.", taille = 11, couleur = C.Pale)
                     } },
-                    confirmButton = { androidx.compose.material3.TextButton({ extraire = false; ExtraireFichier.lancer(act, g.id, chemin) }) { Text("Extraire", color = C.Rose) } },
+                    confirmButton = { androidx.compose.material3.TextButton({ extraire = false; Prive.extraireLancer(act, g.id, chemin) }) { Text("Extraire", color = C.Rose) } },
                     dismissButton = { Row {
                         androidx.compose.material3.TextButton({ extraire = false }) { Text("Annuler", color = C.Doux) }
                         androidx.compose.material3.TextButton({ extraire = false; cheminChoisi = "/" + chemin.trim().trimStart('/')
@@ -452,7 +491,9 @@ private fun FicheJeu(act: StationActivity, g: Jeu, compat: MutableMap<String, In
                     } })
             }
 
+            }
             // ---- cheats ----
+            if (montre(1)) {
             Spacer(Modifier.height(22.dp))
             val cl = cheats
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -479,7 +520,9 @@ private fun FicheJeu(act: StationActivity, g: Jeu, compat: MutableMap<String, In
                 }
             }
 
+            }
             // ---- pastille ----
+            if (montre(0)) {
             Spacer(Modifier.height(22.dp))
             Titre("Pastille")
             Spacer(Modifier.height(8.dp))
@@ -493,7 +536,9 @@ private fun FicheJeu(act: StationActivity, g: Jeu, compat: MutableMap<String, In
                 Text(CP_NOM[if (cv < CP_NOM.size) cv else 0], color = if (cv == 0) C.Pale else CP_COL[cv], fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
             }
 
+            }
             // ---- reglages du jeu ----
+            if (montre(4)) {
             Spacer(Modifier.height(22.dp))
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Titre("Réglages du jeu", Modifier.weight(1f))
@@ -524,31 +569,10 @@ private fun FicheJeu(act: StationActivity, g: Jeu, compat: MutableMap<String, In
                 }
             }
 
-            // ---- build 227 : Rayman 3 : progression (sauvegarde) et cartes des niveaux, aussi hors ligne ----
-            if (g.id.startsWith("GRH")) {
-                Spacer(Modifier.height(22.dp))
-                Titre("Rayman 3 : progression et cartes")
-                Spacer(Modifier.height(8.dp))
-                SectionRayman3(act)
-                ExportPackJeu(act, "cartes-r3")                          // (build 361 : exporter le pack installe, en zips)
             }
-            // ---- build 336 : Zelda The Wind Waker : les lieux en 3D, aussi hors ligne ----
-            if (g.id.startsWith("GZL")) {
-                Spacer(Modifier.height(22.dp))
-                Titre("Wind Waker : les lieux en 3D")
-                Spacer(Modifier.height(8.dp))
-                SectionWW(act)
-                ExportPackJeu(act, "cartes-ww")                          // (build 361 : exporter le pack installe, en zips)
-            }
-            // ---- build 266 : Mario Kart Double Dash : les circuits en 3D, aussi hors ligne ----
-            if (g.id.startsWith("GM4")) {
-                Spacer(Modifier.height(22.dp))
-                Titre("Mario Kart : circuits en 3D")
-                Spacer(Modifier.height(8.dp))
-                SectionMKDD(act)
-                ExportPackJeu(act, "cartes-mk")                          // (build 361 : exporter le pack installe, en zips)
-            }
+            if (montre(5)) Prive.SectionsJeu(act, g.id)                   // (build 457 : packs 3D, variante privee seulement)
             // ---- sauvegardes (carte virtuelle) : l'ecran des cartes memoire, partage ----
+            if (montre(3)) {
             Spacer(Modifier.height(22.dp))
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Titre("Sauvegardes (carte virtuelle)", Modifier.weight(1f))
@@ -556,6 +580,8 @@ private fun FicheJeu(act: StationActivity, g: Jeu, compat: MutableMap<String, In
             }
             if (sauvegardes) AndroidView({ c -> LinearLayout(c).apply { orientation = LinearLayout.VERTICAL; CardsTab.gameSaves(act, g.id, this) } }, Modifier.fillMaxWidth().padding(top = 6.dp))
             EnvoiSauvegarde(act, g.id) { }   // (la liste se relit en la rouvrant)
+            }
+        }
         }
     }
 
@@ -677,6 +703,39 @@ private fun raccourci(a: Activity, g: Jeu) {
     try { sm.requestPinShortcut(si, null) } catch (e: Exception) { Lang.toast(a, "Raccourci impossible", Toast.LENGTH_SHORT).show() }
 }
 
+
+/** build 504 : fiche du jeu, sous-onglet Succes : les succes GC Station de ce jeu (/api/succes : [id, titre, description, obtenu]) */
+@Composable
+private fun SuccesDuJeu(id: String) {
+    var l by remember(id) { mutableStateOf<List<Triple<String, String, Boolean>>?>(null) }
+    var msg by remember(id) { mutableStateOf("Lecture des succès…") }
+    LaunchedEffect(id) {
+        val r = lire("/api/succes")
+        val j = try { if (r != null) JSONArray(r) else null } catch (e: Exception) { null }
+        if (j == null) { msg = "Pas de réponse de la console (GC Station v268 et plus)"; return@LaunchedEffect }
+        val x = ArrayList<Triple<String, String, Boolean>>()
+        for (k in 0 until j.length()) { val e = j.optJSONArray(k) ?: continue; if (e.optString(0) == id) x.add(Triple(e.optString(1), e.optString(2), e.optInt(3) != 0)) }
+        l = x.sortedBy { it.third }                            // (ceux qui restent d'abord)
+        msg = if (x.isEmpty()) "Pas de succès GC Station pour ce jeu (fichier SD:/gc-mp3/succes/$id.txt)." else ""
+    }
+    Spacer(Modifier.height(18.dp))
+    val ll = l
+    Titre(if (ll.isNullOrEmpty()) "Succès" else "Succès · " + ll.count { it.third } + " / " + ll.size)
+    if (msg.isNotEmpty()) Doux(msg, Modifier.padding(top = 6.dp), 12)
+    ll?.forEach { s ->
+        Spacer(Modifier.height(8.dp))
+        Row(Modifier.fillMaxWidth().verre(RoundedCornerShape(16.dp), if (s.third) C.Orange.copy(alpha = 0.55f) else C.Bord).padding(horizontal = 14.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
+            Text(if (s.third) "🏆" else "○", fontSize = 18.sp, color = C.Pale)
+            Spacer(Modifier.width(12.dp))
+            Column(Modifier.weight(1f)) {
+                Text(s.first, color = if (s.third) C.Texte else C.Doux, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+                if (s.second.isNotEmpty()) Doux(s.second, taille = 12)
+            }
+        }
+    }
+    Spacer(Modifier.height(10.dp))
+    Doux("Les succès RetroAchievements sont dans l'onglet Pulse > Succès.", taille = 11, couleur = C.Pale)
+}
 
 /** fiche du jeu : ce que dit GameTDB (genre, joueurs, classification, editeur, developpeur, annee, resume) */
 @Composable

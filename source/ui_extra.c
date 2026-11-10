@@ -501,7 +501,7 @@ static void draw_list_wide(void) {
 
 static void draw_layout_hint(void) {
     legend_box(11, 271);
-    gx_text1(F_SMALL, 24, 436, "A : pause    L / R : morceau", RGBA(208, 198, 240, 255));
+    gx_text1(F_SMALL, 24, 436, "A : pause    Z : morceau", RGBA(208, 198, 240, 255));
     gx_text1(F_SMALL, 24, 452, "Stick C bas : disposition", RGBA(150, 135, 210, 255));
 }
 
@@ -511,7 +511,7 @@ static void draw_legend_keys(const char *const *keys, const char *const *labels,
     const char *K[8], *L[8];
     int cnt = 0;
     for (int i = 0; i < n && cnt < 6; i++) { K[cnt] = keys[i]; L[cnt] = labels[i]; cnt++; }
-    K[cnt] = "Z"; L[cnt] = "ONGLET"; cnt++;
+    K[cnt] = "R"; L[cnt] = "ONGLET"; cnt++;                 /* (v386 : L / R changent d'onglet) */
     K[cnt] = "ST"; L[cnt] = "MENU"; cnt++;
     const f32 x0 = 11, w = 618, cy = 438.5f;
     legend_box(x0, w);

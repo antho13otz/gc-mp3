@@ -37,6 +37,19 @@ static int lecture_auto = 0;
 static uint32_t sorties[96];
 static int nsorties = 0;
 
+/* build 482 : la GBA traite un evenement du cable a la fois. Son gestionnaire d'interruption lit JOYCNT, traite un drapeau
+   et les acquitte tous : un mot du jeu (JOY_RECV, drapeau 2) arrive alors que la lecture precedente (JOY_TRANS, drapeau 4)
+   n'est pas encore traitee, il est acquitte sans etre lu, et la GBA attend pour toujours. Verifie avec le programme GBA de
+   Pac-Man vs. dans mGBA (banc d'essai, 8 novembre 2026) : poignee de main bloquee a JOYSTAT 0x22 si les commandes se suivent
+   a moins de ~20000 cycles ; toujours bonne en attendant JOYCNT & 7 == 0 avant chaque commande. Sur une vraie console, les
+   commandes du bus des manettes sont assez espacees ; par le Wi-Fi, l'appli en donne plusieurs d'affilee. */
+static void attendre_gba(void) {                         /* (au plus une image : la GBA a fini avec l'evenement precedent) */
+	if (!core) return;
+	struct GBA* gba = core->board;
+	int32_t t0 = mTimingCurrentTime(&gba->timing);
+	while ((gba->memory.io[REG_JOYCNT >> 1] & 7) && mTimingCurrentTime(&gba->timing) - t0 < VIDEO_TOTAL_LENGTH) ARMRunLoop(core->cpu);
+}
+
 static void fin(void) {
 	if (core) { core->deinit(core); core = NULL; }
 	free(ecran); ecran = NULL;
@@ -101,15 +114,15 @@ JNIEXPORT jint JNICALL Java_fr_gcstation_telecommande_GbaNatif_image(JNIEnv* env
 		   mot donne pendant que son gestionnaire tournait encore etait acquitte sans etre lu : la GBA ne le lisait jamais
 		   (JOYSTAT 32, les mots suivants en attente pour toujours) */
 		int32_t tc = mTimingCurrentTime(&gba->timing);
-		if (m && donnes < nmots && !(gba->memory.io[REG_JOYSTAT >> 1] & JOYSTAT_RECV) && !(gba->memory.io[REG_JOYCNT >> 1] & JOYCNT_RECV)
-		    && tc - tmot >= 3000) {
+		if (m && donnes < nmots && !(gba->memory.io[REG_JOYSTAT >> 1] & JOYSTAT_RECV) && !(gba->memory.io[REG_JOYCNT >> 1] & 7)   /* (build 482 : & 7) */
+		    && tc - tmot >= 3000 && tc - tlu >= 3000) {
 			tmot = tc;
 			uint32_t w = (uint32_t) m[donnes++];
 			uint8_t d[8] = { (uint8_t) w, (uint8_t) (w >> 8), (uint8_t) (w >> 16), (uint8_t) (w >> 24) };
 			GBASIOJOYSendCommand(&joy, JOY_RECV, d);
 		}
 		if (lecture_auto && nsorties < 96 && (gba->memory.io[REG_JOYSTAT >> 1] & 0x38) == 0x38
-		    && !(gba->memory.io[REG_JOYCNT >> 1] & JOYCNT_TRANS) && tc - tlu >= 3000) {
+		    && !(gba->memory.io[REG_JOYCNT >> 1] & 7) && tc - tlu >= 3000 && tc - tmot >= 3000) {   /* (build 482 : & 7, et apres un mot) */
 			tlu = tc;
 			uint8_t d[8] = { 0 };
 			GBASIOJOYSendCommand(&joy, JOY_TRANS, d);
@@ -173,6 +186,7 @@ JNIEXPORT jint JNICALL Java_fr_gcstation_telecommande_GbaNatif_joy(JNIEnv* env, 
 	jsize n = (*env)->GetArrayLength(env, data);
 	if (n > 8) n = 8;
 	(*env)->GetByteArrayRegion(env, data, 0, n, (jbyte*) d);
+	if (cmd != 0x00) attendre_gba();                    /* (build 482 : un evenement a la fois, voir plus haut) */
 	int r = GBASIOJOYSendCommand(&joy, (enum GBASIOJOYCommand) cmd, d);
 	(*env)->SetByteArrayRegion(env, data, 0, n, (const jbyte*) d);
 	return r;

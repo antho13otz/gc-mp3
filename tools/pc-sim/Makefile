@@ -28,6 +28,13 @@ WRAP     := -Wl,--wrap=malloc,--wrap=free,--wrap=calloc,--wrap=realloc,--wrap=me
 BIN    ?= gcstation                                   # (v158 : asan.sh -> gcstation-asan, objets a part)
 all: $(BIN)
 
+$(W)/gen/bandeau_bin.h: $(R)/source/natres/bandeau.c $(R)/source/natres/bandeau.h $(R)/tools/bandeau.ld
+	@mkdir -p $(W)/gen
+	clang --target=powerpc-none-eabi -mcpu=750 -Os -ffreestanding -fno-builtin -nostdlib -fno-pic -msoft-float -fno-jump-tables -fno-asynchronous-unwind-tables -c $< -o $(W)/gen/bandeau.o
+	ld.lld -T $(R)/tools/bandeau.ld $(W)/gen/bandeau.o -o $(W)/gen/bandeau.elf
+	llvm-objcopy -O binary $(W)/gen/bandeau.elf $(W)/gen/bandeau.bin
+	python3 $(R)/tools/bin2h.py $(W)/gen/bandeau.bin $@ bandeau_bin
+
 $(W)/gen/natret_bin.h: $(R)/source/natres/natret.c $(R)/tools/natret.ld
 	@mkdir -p $(W)/gen
 	clang --target=powerpc-none-eabi -mcpu=750 -Os -ffreestanding -fno-builtin -nostdlib -fno-pic -msoft-float -c $< -o $(W)/gen/natret.o
@@ -89,7 +96,7 @@ $(O)/pcsim_limits.o: pcsim_limits.c pcsim.h
 $(O)/pcsim_new.o: pcsim_new.cpp
 	@mkdir -p $(O)
 	$(CXX) -fno-pie -O2 -g -Wall -c $< -o $@
-$(O)/main.o: $(wildcard $(R)/source/*.c $(R)/source/*.h $(R)/source/natres/*.h) $(W)/gen/natres_bin.h $(W)/gen/natres_lan_bin.h $(W)/gen/natret_bin.h $(wildcard include/*.h)
+$(O)/main.o: $(wildcard $(R)/source/*.c $(R)/source/*.h $(R)/source/natres/*.h) $(W)/gen/natres_bin.h $(W)/gen/natres_lan_bin.h $(W)/gen/natret_bin.h $(W)/gen/bandeau_bin.h $(wildcard include/*.h)
 	@mkdir -p $(O)
 	$(CC) $(CFLAGS) -w -c $(R)/source/main.c -o $@
 

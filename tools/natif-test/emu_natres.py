@@ -173,10 +173,12 @@ if ACH:
     mu.mem_write(0x80500003, b'\x03'); wr32(0x80500010, 0x80600000); mu.mem_write(0x80600020, b'\x00\x05')
     blk_ = 0x80700000
     words = [0]                                        # (aucun cheat)
-    words += [0x41434831, 2, 0, 0, 0, 0]               # (etats : 2 x {etat, image})
+    words += [0x41434831, 3, 0, 0, 0, 0, 0, 0]         # (etats : 3 x {etat, image})
     words += [1, 3, 0, (1 << 16) | (6 << 8), 0x80500003, 0, 10]              # vies >= 10 (masque 6), 3 images
     words += [2, 1, 0, (1 << 24) | (2 << 16) | (6 << 8), 0x80500010, 0x20, 100,  # pieces (pointeur) >= 100
                        (4 << 16) | (5 << 8), 0x80500010, 0, 0]                          # et pointeur != 0 (masque 5)
+    words += [1, 2, 0, (1 << 25) | (1 << 16) | (2 << 8), 0x80500005, 0, 5]   # v389 : bits 0x05 a 1 (drapeaux), 2 images
+    mu.mem_write(0x80500005, b'\x04')
     for i, w_ in enumerate(words): wr32(blk_ + i * 4, w_)
     import re                                          # (place de chts dans l'en-tete : lue dans natres.h)
     hs = open(os.environ['NATRES_H'], encoding='latin-1').read()
@@ -203,8 +205,15 @@ if ACH:
     assert st(0, 3) == 3 and st(0, 4) == 403, ('vies obtenu', st(0, 3), st(0, 4))
     assert LOG + 5 in card.writes, 'secteur GCSA ecrit'
     sec = disk[(LOG + 5) * 512:(LOG + 6) * 512]
-    assert struct.unpack('>4I', sec[:16]) == (0x41434831, 2, 3, 403), struct.unpack('>4I', sec[:16])
+    assert struct.unpack('>4I', sec[:16]) == (0x41434831, 3, 3, 403), struct.unpack('>4I', sec[:16])
     mu.mem_write(0x80600020, b'\x00\x64'); frame(1)
     assert st(1, 3) == 3, 'pieces par pointeur'
-    print('succes : OK (arme, 3 images, pointeur, secteur ACH1)')
+    assert st(2, 3) == 1, ('bits : arme', st(2, 3))
+    mu.mem_write(0x80500005, b'\x0c'); frame(3)
+    assert st(2, 3) == 1, 'bits 0x05 pas tous a 1 (0x0C)'
+    mu.mem_write(0x80500005, b'\x0d'); frame(1)
+    assert st(2, 3) == 1, 'bits : pas avant 2 images'
+    frame(1)
+    assert st(2, 3) == 3, ('bits 0x05 a 1 (0x0D) : obtenu', st(2, 3))
+    print('succes : OK (arme, 3 images, pointeur, bits, secteur ACH1)')
 print('TOUT OK')

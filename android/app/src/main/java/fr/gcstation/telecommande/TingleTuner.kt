@@ -288,7 +288,7 @@ object GbaTel {
     }
     private val TYPES = mapOf("GRHP41" to 0x80235868L, "G4SP01" to 0x804B5218L)   // (Rayman 3, Four Swords PAL : Type[4] ; Si.chan en -0x14)
     private fun lireType() {
-        val id = Compagnon.jeuReel.ifEmpty { Compagnon.jeu }
+        val id = Prive.jeuEnCours()
         val a = TYPES[id] ?: run { typeJeu = null; return }
         val now = System.currentTimeMillis()
         if (now - tType < 1500) return
@@ -321,7 +321,7 @@ object GbaTel {
             append("Programme annoncé ${e.annonce} octets, reçus par Pulse ${e.recus} ; commandes du jeu : 00/FF ${e.n00}, 14 ${e.n14}, 15 ${e.n15}\n")
             append("Programme : ${e.programme ?: "pas encore"}\n")
             append(detail())
-            append("Émulateur GBA : ${if (GbaEmu.marche) "en marche" else "arrêté"} ${GbaEmu.message} ; mots du jeu donnés ${GbaEmu.nRecus}, mots de la GBA lus par le jeu ${GbaEmu.nEnvoyes} (+ ${GbaEmu.nAvales} déjà donnés par Pulse ; ${GbaEmu.nRedonnes} redonnés), en attente ${GbaEmu.entrees.size}${if (GbaEmu.retenus) " (retenus : la GBA n'a pas encore donné son code)" else ""}\nÉvénements de la GBA (build 392) :\n${GbaEmu.evts.joinToString("\n").ifEmpty { "aucun" }}\nCâble vu par la GBA : ${GbaEmu.regsVus} ; remises à zéro : dites par Pulse ${GbaEmu.resetsPulse}, traitées ${GbaEmu.resetsVus}\nRecherche du curseur (build 410) : ${GbaEmu.chercheTexte.ifEmpty { "pas faite" }}\nMessages du Tingle Tuner (build 415) :\n${GbaEmu.messagesTexte()}\nCurseur dans la vue 3D (build 417) : ${GbaEmu.pilotageDiag()}\nObjets apparus en jeu (build 427) : ${JeuWW.diagObjets()}\nDerniers échanges avec la GBA (build 401) :\n${GbaEmu.traceTexte.ifEmpty { "aucun" }}\n\nJournal :\n")
+            append("Émulateur GBA : ${if (GbaEmu.marche) "en marche" else "arrêté"} ${GbaEmu.message} ; mots du jeu donnés ${GbaEmu.nRecus}, mots de la GBA lus par le jeu ${GbaEmu.nEnvoyes} (+ ${GbaEmu.nAvales} déjà donnés par Pulse ; ${GbaEmu.nRedonnes} redonnés), en attente ${GbaEmu.entrees.size}${if (GbaEmu.retenus) " (retenus : la GBA n'a pas encore donné son code)" else ""}\nÉvénements de la GBA (build 392) :\n${GbaEmu.evts.joinToString("\n").ifEmpty { "aucun" }}\nCâble vu par la GBA : ${GbaEmu.regsVus} ; remises à zéro : dites par Pulse ${GbaEmu.resetsPulse}, traitées ${GbaEmu.resetsVus}\nRecherche du curseur (build 410) : ${GbaEmu.chercheTexte.ifEmpty { "pas faite" }}\nMessages du Tingle Tuner (build 415) :\n${GbaEmu.messagesTexte()}\nCurseur dans la vue 3D (build 417) : ${GbaEmu.pilotageDiag()}\nObjets apparus en jeu (build 427) : ${Prive.diagObjetsWW()}\nDerniers échanges avec la GBA (build 401) :\n${GbaEmu.traceTexte.ifEmpty { "aucun" }}\n\nJournal :\n")
             e.journal.forEach { append(it).append('\n') }
         }
     }
@@ -339,6 +339,8 @@ fun TingleTunerWW(ww: Boolean = true) {
                  "Brancher ici la GBA avant d'utiliser le Tingle Tuner dans le jeu."
                  else "Dans les réglages de GC Station : « GBA du téléphone » sur le port voulu (Rayman 3, Pac-Man Vs. : port 2 ; Four Swords seul : port 1), " +
                  "puis lancer le jeu par Pulse. Brancher ici la GBA, puis choisir dans le jeu le mode avec GBA : son programme tourne ici.", taille = 12)
+            // (build 457 : licence de l'emulateur, demandee pour la version publique ; vraie pour les deux)
+            Doux("Émulateur GBA : mGBA 0.10.5 (Jeffrey Pfau et contributeurs), licence Mozilla Public License 2.0. Code source : github.com/mgba-emu/mgba (fichiers repris tels quels). Aucun BIOS ni jeu fourni.", taille = 10, couleur = C.Pale)
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Bouton(if (e.marche) "Débrancher" else "Brancher la GBA", Modifier.weight(1f), plein = !e.marche) {
                     if (e.marche) GbaTel.debrancher() else GbaTel.brancher(ctx)
@@ -361,7 +363,7 @@ fun TingleTunerWW(ww: Boolean = true) {
                                           actif = !GbaEmu.chercheEnCours) { GbaEmu.chercheDemande = true }
                 if (GbaEmu.marche && GbaEmu.curseurTexte.isNotEmpty()) Doux(GbaEmu.curseurTexte, taille = 12, couleur = Color(0xFF9BE15D))
                 if (GbaEmu.marche && GbaEmu.pilotageTexte.isNotEmpty()) Doux(GbaEmu.pilotageTexte, taille = 12, couleur = Color(0xFFFFC857))
-                if (GbaEmu.marche) JeuWW.curseurTT()?.let { Doux("Curseur dans le jeu (vue 3D) : %.0f, %.0f".format(it[0], it[2]), taille = 11, couleur = C.Pale) }
+                if (GbaEmu.marche) Prive.curseurTT()?.let { Doux("Curseur dans le jeu (vue 3D) : %.0f, %.0f".format(it[0], it[2]), taille = 11, couleur = C.Pale) }
                 if (GbaEmu.marche && GbaEmu.curseurTexte.isNotEmpty()) Bouton("Curseur posé sur Link : noter ce repère (${GbaEmu.nReperes})", Modifier.fillMaxWidth()) { GbaEmu.noterRepere() }
                 if (GbaEmu.message.isNotEmpty()) Doux(GbaEmu.message + " · mots du jeu ${GbaEmu.nRecus} · de la GBA ${GbaEmu.nEnvoyes}", taille = 11, couleur = C.Pale)
                 if (GbaTel.aProgramme && !GbaEmu.marche) Bouton("Relancer la GBA", Modifier.fillMaxWidth()) { GbaTel.relancerEmu() }

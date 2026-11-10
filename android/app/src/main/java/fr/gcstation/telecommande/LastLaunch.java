@@ -102,6 +102,13 @@ final class LastLaunch {
     private final OpenGame open;
     long pj = -1;
     private String gameId = "";
+    // build 503 : le meme contenu pour la carte Pulse de l'onglet Jeux (EnTeteJeux.kt) ; change : appele apres chaque lecture
+    boolean present;
+    String nom = "", verdictTxt = "", detail = "";
+    int couleur = Neon.DIM;
+    Runnable change;
+    String jeuId() { return gameId; }
+    void ouvrir() { if (!gameId.isEmpty() && open != null) open.open(gameId); }
 
     LastLaunch(Activity a, OpenGame open) {
         this.a = a;
@@ -131,7 +138,7 @@ final class LastLaunch {
         Api.get("/api/pulse", r -> {
             JSONObject j = null;
             try { if (r != null) j = new JSONObject(r); } catch (Exception e) { }
-            if (j == null || j.optString("id").isEmpty()) { view.setVisibility(View.GONE); return; }
+            if (j == null || j.optString("id").isEmpty()) { view.setVisibility(View.GONE); present = false; if (change != null) change.run(); return; }
             pj = j.optLong("quand");
             gameId = j.optString("id");
             int v = j.optInt("r");
@@ -147,6 +154,9 @@ final class LastLaunch {
             if ((v == 1 || v == 2 || v == 0) && !pc.isEmpty() && !pc.equals("00000000")) d += " · endroit : " + pc;
             sub.setText(Lang.t(d));
             view.setVisibility(View.VISIBLE);
+            nom = Lang.t(j.optString("nom", gameId).trim()); verdictTxt = Lang.t(verdict(v)); couleur = color(v); detail = Lang.t(d);
+            present = true;
+            if (change != null) change.run();
         });
     }
 

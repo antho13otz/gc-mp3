@@ -76,49 +76,171 @@ import org.json.JSONObject
 
 private class Tuile(val nom: String, val desc: String, val ic: ImageVector, val couleur: Color, val faire: (StationActivity) -> Unit)
 
-private val TUILES get() = listOf(
+/** build 457 : tuiles des fonctions gardees par le proprietaire (absentes de la version publique) */
+private val TUILES_PRIVEES = setOf("Salon", "Extraire d'un .iso", "Manette en jeu", "Regarder un ami", "Regarder en 3D", "Discord")   // (build 493 : RetroAchievements aussi dans la version publique, mode normal)   // (build 486 : le compagnon et la vue 3D aussi dans la version publique)
+// build 492 : 21 cases ramenees a 11 : les cases voisines sont regroupees (une case de groupe ouvre ses cases a elle),
+// Apparence et Mettre a jour passent dans le menu ⚙ en haut a droite (reglages de l'appli, pas de la console)
+private val TOUTES get() = listOf(
     Tuile("Fichiers", "La carte SD", Ic.Dossier, C.Rose) { St.sous = "Fichiers" },
     Tuile("Photos", "Sur la télé", Ic.Photo, C.Cyan) { St.sous = "Photos" },
     Tuile("Réglages", "De GC Station", Ic.Reglages, C.Violet) { St.sous = "Réglages" },
-    Tuile("Apparence", "Ambiance, langue, texte, 120 Hz", Ic.Photo, C.Rose) { St.sous = "Apparence" },
-    Tuile("Cartes mémoire", "Sauvegardes", Ic.Carte, C.Bleu) { St.sous = "Cartes mémoire" },
-    Tuile("Vraies cartes", "Slots A et B de la console", Ic.Carte, C.Cyan) { St.sous = "Vraies cartes mémoire" },
-    Tuile("Recherche", "Musique, radios, jeux", Ic.Chercher, C.Rose) { St.sous = "Recherche" },
+    Tuile("Cartes mémoire", "Virtuelles, vraies, copies", Ic.Carte, C.Bleu) { St.sous = "Cartes mémoire" },
+    Tuile("Succès", "GC Station, RetroAchievements, stats", Ic.Trophee, C.Orange) { St.sous = "Succès" },
+    Tuile("En jeu", "Compagnon, codes, manette", Ic.Jeux, C.Vert) { St.sous = "En jeu" },
+    Tuile("Mini-jeux", "Duels, jeu de cartes", Ic.Cartes, C.Cyan) { St.sous = "Mini-jeux" },
+    Tuile("Recherche", "Musique, radios, jeux, globe", Ic.Chercher, C.Rose) { St.sous = "Recherche" },
     Tuile("Salon", "Les autres consoles", Ic.Salon, C.Cyan) { St.sous = "Salon" },
-    Tuile("Outils", "Mémoire, capture, rapport", Ic.Outils, C.Violet) { St.sous = "Outils" },
-    Tuile("Copies", "Cartes et réglages gardés", Ic.Copies, C.Bleu) { St.sous = "Copies" },
-    Tuile("Succès", "Débloqués dans les jeux", Ic.Trophee, C.Orange) { a -> LastLaunch.showAch(a) },
-    Tuile("Chercheur de codes", "Tes cheats et succès, en jeu", Ic.Chercher, C.Cyan) { St.sous = "Chercheur de codes" },
-    Tuile("Compagnon de jeu", "Jauges, carte, chrono en direct", Ic.Jeux, C.Vert) { St.sous = "Compagnon de jeu" },
-    Tuile("Statistiques de jeu", "Temps par jeu et par semaine", Ic.Trophee, C.Orange) { St.sous = "Statistiques de jeu" },
-    Tuile("Extraire d'un .iso", "main.dol d'un jeu du téléphone", Ic.Copies, C.Cyan) { St.sous = "Extraire d'un jeu du téléphone" },
-    Tuile("Jeu de cartes", "8 américain entre potes", Ic.Cartes, C.Rose) { a -> CartesActivity.open(a) },
-    Tuile("Mini-jeux", "Duels, téléphone = manette", Ic.Jeux, C.Cyan) { a -> MiniJeuxActivity.open(a) },
-    Tuile("Manette en jeu", "Pulse : ports 2 à 4", Ic.Manette, C.Violet) { a -> a.manetteEnJeu() },
-    Tuile("Globe des radios", "Les radios du monde", Ic.Globe, C.Bleu) { a -> a.startActivity(android.content.Intent(a, GlobeActivity::class.java)) },
-    Tuile("Mettre à jour", "Nouvelle version de l'appli", Ic.Maj, C.Rose) { a -> AppUpdate.open(a) })
+    Tuile("Outils", "Mémoire, capture, rapport", Ic.Outils, C.Violet) { St.sous = "Outils" }).filter { Prive.ACTIF || it.nom !in TUILES_PRIVEES }
+
+// Build 504 (appli privee) : cet onglet s'appelle « Console » et ne garde que ce qui touche a la console (fichiers, photos,
+// reglages, cartes memoire, outils, extraction). Ce qui sert pendant une partie et ce qui se fait entre amis passe dans
+// l'onglet Pulse (EcranPulse, plus bas) ; la recherche s'ouvre par la loupe du haut de l'appli. Build 512 : publique aussi (sans l'extraction).
+private val HORS_CONSOLE = setOf("Succès", "En jeu", "Mini-jeux", "Recherche", "Salon")
+private val TUILES get() = if (!Rangee.ACTIF) TOUTES else TOUTES.filter { it.nom !in HORS_CONSOLE } +
+    listOf(Tuile("Extraire d'un .iso", "main.dol d'un jeu du téléphone", Ic.Copies, C.Cyan) { St.sous = "Extraire d'un jeu du téléphone" }).filter { Prive.ACTIF }   // (build 512 : jamais dans la version publique)
+/** les ecrans qui s'ouvrent dans l'onglet Pulse (appli privee) */
+val SOUS_PULSE = setOf("Compagnon de jeu", "Chercheur de codes", "Regarder un ami", "Regarder en 3D", "Discord", "Salon",
+    "Succès", "Succès GC Station", "RetroAchievements", "Statistiques de jeu", "Mini-jeux")
+
+/** cases des groupes ; un ecran d'un groupe revient au groupe (fleche retour) */
+private val GROUPES: Map<String, List<Tuile>> get() = mapOf(
+    "Cartes mémoire" to listOf(
+        Tuile("Cartes virtuelles", "Sauvegardes", Ic.Carte, C.Bleu) { St.sous = "Cartes virtuelles" },
+        Tuile("Vraies cartes", "Slots A et B de la console", Ic.Carte, C.Cyan) { St.sous = "Vraies cartes mémoire" },
+        Tuile("Copies", "Cartes et réglages gardés", Ic.Copies, C.Bleu) { St.sous = "Copies" }),
+    "Succès" to listOf(
+        Tuile("Succès GC Station", "Débloqués dans les jeux", Ic.Trophee, C.Orange) { a -> if (Prive.ACTIF) { St.sous = "Succès GC Station" } else { LastLaunch.showAch(a) } },   // (build 479 : liste par jeu)
+        Tuile("RetroAchievements", "Succès du site, en jeu", Ic.Trophee, C.Orange) { St.sous = "RetroAchievements" },
+        Tuile("Statistiques de jeu", "Temps par jeu et par semaine", Ic.Trophee, C.Orange) { St.sous = "Statistiques de jeu" }),
+    "En jeu" to listOf(
+        Tuile("Compagnon de jeu", "Jauges, carte, chrono en direct", Ic.Jeux, C.Vert) { St.sous = "Compagnon de jeu" },
+        Tuile("Chercheur de codes", "Tes cheats et succès, en jeu", Ic.Chercher, C.Cyan) { St.sous = "Chercheur de codes" },
+        Tuile("Manette en jeu", "Pulse : ports 2 à 4", Ic.Manette, C.Violet) { a -> a.manetteEnJeu() },
+        Tuile("Extraire d'un .iso", "main.dol d'un jeu du téléphone", Ic.Copies, C.Cyan) { St.sous = "Extraire d'un jeu du téléphone" },
+        Tuile("Regarder un ami", "Sa vue 3D en direct, par Internet", Ic.Tele, C.Rose) { St.sous = "Regarder un ami" },   // (build 495)
+        Tuile("Regarder en 3D", "Un ami joue, ta caméra", Ic.Tele, C.Cyan) { St.sous = "Regarder en 3D" },   // (build 499)
+        Tuile("Discord", "Ton jeu sur ton profil Discord", Ic.Jeux, C.Violet) { St.sous = "Discord" }),   // (build 498)
+    "Mini-jeux" to listOf(
+        Tuile("Mini-jeux", "Duels, téléphone = manette", Ic.Jeux, C.Cyan) { a -> MiniJeuxActivity.open(a) },
+        Tuile("Jeu de cartes", "8 américain entre potes", Ic.Cartes, C.Rose) { a -> CartesActivity.open(a) }),
+    "Recherche" to listOf(
+        Tuile("Rechercher", "Musique, radios, jeux", Ic.Chercher, C.Rose) { St.sous = "Rechercher" },
+        Tuile("Globe des radios", "Les radios du monde", Ic.Globe, C.Bleu) { a -> a.startActivity(android.content.Intent(a, GlobeActivity::class.java)) }))
+    .mapValues { (_, l) -> l.filter { Prive.ACTIF || it.nom !in TUILES_PRIVEES } }
+/** le groupe d'un ecran (fleche retour) ; "" : la grille de Plus */
+fun parentPlus(sous: String): String = when (sous) {
+    "Cartes virtuelles", "Vraies cartes mémoire", "Copies" -> "Cartes mémoire"
+    "Succès GC Station", "RetroAchievements", "Statistiques de jeu" -> "Succès"
+    "Compagnon de jeu", "Chercheur de codes", "Extraire d'un jeu du téléphone", "Regarder un ami", "Regarder en 3D", "Discord" -> if (Rangee.ACTIF) "" else "En jeu"   // (build 504 : plus de groupe « En jeu » dans l'appli privee)
+    "Rechercher" -> "Recherche"
+    else -> ""
+}
+
+@Composable
+private fun Case(t: Tuile, act: StationActivity) {
+    Column(Modifier.verre(RoundedCornerShape(24.dp)).appui { t.faire(act) }.padding(16.dp)) {
+        Pastille(t.ic, t.couleur, 42.dp)
+        Spacer(Modifier.height(12.dp))
+        Text(t.nom, color = C.Texte, fontSize = 15.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        Doux(t.desc, taille = 11, lignes = 1)
+    }
+}
+
+/** Build 504 (appli privee) : l'onglet Pulse. En haut la carte de Pulse (logo anime, partie en cours et temps de jeu, ou
+ *  « aucun jeu en cours ») ; puis « Pendant la partie » (compagnon, codes, manette, succes) et « Entre amis » (Salon,
+ *  regarder un ami, Discord, mini-jeux). Les ecrans s'ouvrent dans cet onglet (SOUS_PULSE), fleche retour : ici. */
+@Composable
+fun EcranPulse() {
+    val act = LocalContext.current as StationActivity
+    val g = St.jeu
+    @Suppress("UNUSED_VARIABLE") val tic = St.seconde          // (le temps de jeu avance)
+    val enJeu = GROUPES["En jeu"] ?: emptyList()
+    fun de(l: List<Tuile>, vararg noms: String) = noms.mapNotNull { n -> l.firstOrNull { it.nom == n } }
+    val partie = de(enJeu, "Compagnon de jeu", "Chercheur de codes", "Manette en jeu") + de(TOUTES, "Succès")
+    val amis = de(TOUTES, "Salon") + de(enJeu, "Regarder un ami", "Regarder en 3D", "Discord") + de(GROUPES["Mini-jeux"] ?: emptyList(), "Mini-jeux", "Jeu de cartes")
+    val large: androidx.compose.foundation.lazy.grid.LazyGridItemSpanScope.() -> androidx.compose.foundation.lazy.grid.GridItemSpan = { androidx.compose.foundation.lazy.grid.GridItemSpan(maxLineSpan) }
+    LazyVerticalGrid(GridCells.Adaptive(150.dp), Modifier.fillMaxSize().padding(horizontal = 14.dp), contentPadding = PaddingValues(bottom = 14.dp),
+        horizontalArrangement = Arrangement.spacedBy(10.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        item(span = large) {
+            Column(Modifier.fillMaxWidth().verre(RoundedCornerShape(26.dp), C.Rose.copy(alpha = 0.40f)).padding(14.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Box(Modifier.size(104.dp), contentAlignment = Alignment.Center) { Prive.LogoPulse(Modifier.size(104.dp)) }
+                        Text("Pulse", style = androidx.compose.ui.text.TextStyle(brush = androidx.compose.ui.graphics.Brush.verticalGradient(listOf(Color(255, 150, 215), Color(130, 150, 255)))),
+                            fontSize = 22.sp, fontWeight = FontWeight.Black)
+                    }
+                    Spacer(Modifier.width(14.dp))
+                    Column(Modifier.weight(1f)) {
+                        Titre(if (g != null) "Partie en cours" else "Pulse")
+                        Spacer(Modifier.height(4.dp))
+                        Text(if (g != null) g.name.ifEmpty { g.id } else "Aucun jeu en cours", color = C.Texte, fontSize = 17.sp, fontWeight = FontWeight.Bold, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                        if (g != null) {
+                            val t = g.playedSec()
+                            Text((t / 3600).toString() + ":" + String.format(java.util.Locale.FRANCE, "%02d:%02d", t % 3600 / 60, t % 60),
+                                style = androidx.compose.ui.text.TextStyle(brush = C.Neon), fontSize = 26.sp, fontWeight = FontWeight.Black)
+                            Doux("temps de jeu · " + g.id, taille = 11)
+                        } else Doux(if (St.connecte) "Lance un jeu depuis l'onglet Jeux : Pulse reste en mémoire pendant la partie et ses outils marchent ici."
+                                    else "Console pas connectée.", taille = 12)
+                    }
+                }
+                if (g != null && St.jeuMasque) {
+                    Spacer(Modifier.height(12.dp))
+                    Bouton("Écran de la partie", Modifier.fillMaxWidth(), plein = true, hauteur = 40.dp) { St.jeuMasque = false }
+                }
+                // build 509 (console v397) : le bandeau des succes sur la tele : essai, et succes RetroAchievements oui / non
+                // (build 521 : aussi dans la version publique : la console v397+ publique a le bandeau)
+                BandeauPulse(act)
+            }
+        }
+        item(span = large) { Titre("Pendant la partie", Modifier.padding(start = 4.dp, top = 8.dp)) }
+        items(partie) { t -> Case(t, act) }
+        item(span = large) { Titre("Entre amis", Modifier.padding(start = 4.dp, top = 8.dp)) }
+        items(amis) { t -> Case(t, act) }
+    }
+}
+
+@Composable
+private fun BandeauPulse(act: StationActivity) {
+            run {
+                val sc = androidx.compose.runtime.rememberCoroutineScope()
+                var raTele by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(Bandeau.raSurTele(act)) }
+                Spacer(Modifier.height(12.dp))
+                Bouton("Tester la notification sur la télé", Modifier.fillMaxWidth(), hauteur = 40.dp, icone = Ic.Trophee) {
+                    sc.launch {
+                        val err = withContext(Dispatchers.IO) { Bandeau.envoyer(3, "Ceci est un essai de GC Remote") }
+                        Lang.toast(act, err ?: "Bandeau envoyé : regarde la télé", Toast.LENGTH_LONG).show()
+                    }
+                }
+                Row(Modifier.fillMaxWidth().padding(top = 8.dp).appui { raTele = !raTele; Bandeau.raSurTele(act, raTele) }, verticalAlignment = Alignment.CenterVertically) {
+                    Doux("Succès RetroAchievements sur la télé", Modifier.weight(1f), 13, C.Texte)
+                    androidx.compose.material3.Switch(raTele, { raTele = it; Bandeau.raSurTele(act, it) },
+                        colors = androidx.compose.material3.SwitchDefaults.colors(checkedTrackColor = C.Rose, checkedThumbColor = Color.White))
+                }
+                Doux("Le bandeau se coupe aussi sur la console : START > Jeux > « Succès sur la télé (Pulse) ».", taille = 11, couleur = C.Pale)
+                Prive.NotifTeleReglages(act)                   // (build 522 : message et notifications du telephone sur la tele)
+            }
+}
 
 @Composable
 fun EcranPlus() {
     val act = LocalContext.current as StationActivity
     val sous = St.sous
-    if (sous.isEmpty()) {
+    val groupe = GROUPES[sous]
+    if (sous.isEmpty() || groupe != null) Column(Modifier.fillMaxSize()) {
+        if (groupe != null) Row(Modifier.padding(start = 10.dp, bottom = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+            Box(Modifier.size(40.dp).appui { St.sous = parentPlus(sous) }, contentAlignment = Alignment.Center) { Icon(Ic.Retour, null, tint = C.Texte) }
+            Spacer(Modifier.width(6.dp))
+            Text(sous, color = C.Texte, fontSize = 20.sp, fontWeight = FontWeight.Bold)
+        }
         LazyVerticalGrid(GridCells.Adaptive(150.dp), Modifier.fillMaxSize().padding(horizontal = 14.dp), contentPadding = PaddingValues(bottom = 14.dp),
             horizontalArrangement = Arrangement.spacedBy(10.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            items(TUILES) { t ->
-                Column(Modifier.verre(RoundedCornerShape(24.dp)).appui { t.faire(act) }.padding(16.dp)) {
-                    Pastille(t.ic, t.couleur, 42.dp)
-                    Spacer(Modifier.height(12.dp))
-                    Text(t.nom, color = C.Texte, fontSize = 15.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                    Doux(t.desc, taille = 11, lignes = 1)
-                }
-            }
+            items(groupe ?: TUILES) { t -> Case(t, act) }
         }
-        return
     }
+    if (sous.isEmpty() || groupe != null) return
     Column(Modifier.fillMaxSize()) {
         Row(Modifier.padding(start = 10.dp, bottom = 6.dp), verticalAlignment = Alignment.CenterVertically) {
-            Box(Modifier.size(40.dp).appui { St.sous = "" }, contentAlignment = Alignment.Center) { Icon(Ic.Retour, null, tint = C.Texte) }
+            Box(Modifier.size(40.dp).appui { St.sous = parentPlus(sous) }, contentAlignment = Alignment.Center) { Icon(Ic.Retour, null, tint = C.Texte) }
             Spacer(Modifier.width(6.dp))
             Text(sous, color = C.Texte, fontSize = 20.sp, fontWeight = FontWeight.Bold)
         }
@@ -127,18 +249,20 @@ fun EcranPlus() {
                 "Fichiers" -> EcranFichiers()
                 "Apparence" -> EcranApparence()
                 "Chercheur de codes" -> EcranChercheur()
-                "Compagnon de jeu" -> EcranCompagnon()
+                "RetroAchievements" -> EcranRetro()
+                "Regarder un ami" -> EcranRegarder()
+                "Regarder en 3D" -> if (BuildConfig.PRIVE) EcranRegarder3D()   // (build 499)
                 "Statistiques de jeu" -> EcranStatsJeux()
-                "Extraire d'un jeu du téléphone" -> EcranIsoTel()
-                "Rayman 3 : progression" -> EcranRayman3()
+                "Succès GC Station" -> EcranSucces()
                 "Vraies cartes mémoire" -> EcranVraiesCartes()
                 "Photos" -> EcranPhotos()
                 "Réglages" -> Ancien(sous) { SettingsTab(it) }
-                "Cartes mémoire" -> Ancien(sous) { CardsTab(it) }
+                "Cartes virtuelles" -> Ancien(sous) { CardsTab(it) }
                 "Salon" -> Ancien(sous) { SalonTab(it) }
                 "Outils" -> Ancien(sous) { ToolsTab(it) }
-                "Recherche" -> Ancien(sous) { SearchTab(it) }
+                "Rechercher" -> Ancien(sous) { SearchTab(it) }
                 "Copies" -> Ancien(sous) { CopiesTab(it) }
+                else -> Prive.Ecran(sous)                                  // (build 457 : ecrans de la variante privee)
             }
         }
     }
@@ -283,19 +407,21 @@ fun EcranFichiers() {
             dismissButton = { TextButton({ demande = null }) { Text("Annuler", color = C.Doux) } })
     }
     texte?.let { (nom, t) ->
-        var retour by remember { mutableStateOf(true) }
+        val ctx = LocalContext.current
         val vs = rememberScrollState()
-        val hs = rememberScrollState()
         ModalBottomSheet(onDismissRequest = { texte = null }, containerColor = Color(0xFF0E0618)) {
             Column(Modifier.padding(horizontal = 16.dp).padding(bottom = 20.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(nom, Modifier.weight(1f), color = C.Texte, fontSize = 16.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                    Puce(if (retour) "Retour à la ligne" else "Sans retour", retour) { retour = !retour }
+                    Puce("Copier", true) {
+                        val cm = ctx.getSystemService(android.content.Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
+                        try { cm.setPrimaryClip(android.content.ClipData.newPlainText(nom, t)); Toast.makeText(ctx, "Texte copié", Toast.LENGTH_SHORT).show() }
+                        catch (e: Exception) { Toast.makeText(ctx, "Texte trop long pour être copié", Toast.LENGTH_SHORT).show() }
+                    }
                 }
                 Spacer(Modifier.height(8.dp))
-                Box(Modifier.fillMaxWidth().heightIn(max = 520.dp).verre(RoundedCornerShape(14.dp)).verticalScroll(vs)
-                    .then(if (retour) Modifier else Modifier.horizontalScroll(hs)).padding(10.dp)) {
-                    SelectionContainer { Text(t, color = C.Texte, fontSize = 12.sp, fontFamily = FontFamily.Monospace, softWrap = retour) }
+                Box(Modifier.fillMaxWidth().heightIn(max = 520.dp).verre(RoundedCornerShape(14.dp)).verticalScroll(vs).padding(10.dp)) {
+                    SelectionContainer { Text(t, color = C.Texte, fontSize = 12.sp, fontFamily = FontFamily.Monospace) }
                 }
             }
         }

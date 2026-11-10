@@ -20,7 +20,9 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
-This license covers the code written for GC Station (source/, tools/).
+This license covers ONLY the GameCube console program of GC Station (source/, tools/).
+It does NOT cover the Android app (android/) nor the PC version (pc/): those are
+proprietary, all rights reserved (see android/LICENSE and pc/LICENSE).
 Third-party components keep their own licenses: see CREDITS.md.
 The backup launcher (gc-mp3-loader.bin, gc-mp3-igr.img) is built from Swiss
 (GPL-2.0) and is distributed under the GPL-2.0: see CREDITS.md.

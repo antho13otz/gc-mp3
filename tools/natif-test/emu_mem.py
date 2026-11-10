@@ -251,8 +251,9 @@ bba.deliver(gcms(35, [(0x80400000, 8), (0x80410000, 0x40000000 | 48), (0x8041003
 wr32(H('vi_count'), 40); call(POLL); p0 = [struct.unpack('>I', x[1][12:16])[0] for x in udp_out()]
 wr32(H('vi_count'), 41); call(POLL); p1 = [x[1][16 + 8:16 + 8 + 48] for x in udp_out()]
 check('GCMS v328 : paires / impaires', p0 == [56] and p1 == [bytes(mu.mem_read(0x80410030, 48))], '%s %d' % (p0, len(p1)))
-bba.deliver(gcms(36, [(0x80400000, 4608), (0x80410000, 4608), (0x80420000, 4608)])); wr32(H('vi_count'), 50); call(POLL); o = udp_out()
-check('GCMS v328 : 10 Ko au plus (2 morceaux de 4,5 Ko gardes)', len(o) == 7 and struct.unpack('>I', o[0][1][12:16])[0] == 9216, str(len(o)))
+# (build 911 : 16 Ko au plus (avant 10 Ko) : sur 4 morceaux de 4,5 Ko, 3 gardes, 13 824 octets en 10 paquets)
+bba.deliver(gcms(36, [(0x80400000, 4608), (0x80410000, 4608), (0x80420000, 4608), (0x80430000, 4608)])); wr32(H('vi_count'), 50); call(POLL); o = udp_out()
+check('GCMS build 911 : 16 Ko au plus (3 morceaux de 4,5 Ko gardes)', len(o) == 10 and struct.unpack('>I', o[0][1][12:16])[0] == 13824, str(len(o)))
 bba.deliver(gcms(33, [])); call(POLL); udp_out()
 # succes obtenu : annonce
 wr32(blk + 4 + PN.index('mach') * 4, 3)

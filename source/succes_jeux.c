@@ -2,7 +2,7 @@
    Un fichier par jeu : SD:/gc-mp3/succes/<ID>.txt, une ligne par succes :
        Titre | Description | condition [| images]
    condition : m8(adresse), m16(adresse) ou m32(adresse) compare a une valeur (== != >= <= > <), plusieurs reunies
-   par && ; pointeur : m16(p32(0x80xxxxxx)+0x10) ; images : la condition doit rester vraie N images de suite (30 par
+   par && ; pointeur : m16(p32(0x80xxxxxx)+0x10) ; v389 : m8(adresse) & 0x04 = ces bits a 1 (drapeaux) ; images : la condition doit rester vraie N images de suite (30 par
    defaut). Pulse verifie les conditions une fois par image pendant le jeu (natres.c, ach_run) ; un succes n'est
    obtenu qu'apres avoir vu sa condition fausse au moins une fois (pas d'un coup au demarrage).
    Quelques jeux ont des succes fournis (sj_builtin) : ecrits d'apres des adresses connues des codes de triche,
@@ -17,25 +17,178 @@ typedef struct { char title[48], desc[96]; u32 need; int nt; u32 t[SJ_TERMS][4];
 static const char sj_head[] =
     "# Succes GC Station pour ce jeu. Une ligne par succes :  Titre | Description | condition [| images]\n"
     "# condition : m8(adresse), m16(adresse) ou m32(adresse) compare (== != >= <= > <) a une valeur ; plusieurs : &&\n"
-    "#   pointeur : m16(p32(0x80xxxxxx)+0x10) ; images : vraie N images de suite (30 par defaut, 60 = 1 s)\n"
+    "#   pointeur : m16(p32(0x80xxxxxx)+0x10) ; bits a 1 : m8(adresse) & 0x04 ; images : vraie N images de suite (30 par defaut, 60 = 1 s)\n"
     "# Pulse les verifie pendant le jeu ; un succes n'est obtenu qu'apres avoir vu sa condition fausse une fois.\n";
 static const struct { const char *id, *text; } sj_builtin[] = {
+    { "GZLP01",
+      "# The Legend of Zelda : The Wind Waker (PAL). Adresses du compagnon de l'appli (dSv_info_c en 0x803CC530), v389.\n"
+      "Coeur vaillant | Avoir 5 coeurs | m16(0x803CC530) >= 20 && m16(0x803CC530) <= 80\n"
+      "Coeur de heros | Avoir 10 coeurs | m16(0x803CC530) >= 40 && m16(0x803CC530) <= 80\n"
+      "Coeur legendaire | Avoir 20 coeurs | m16(0x803CC530) == 80\n"
+      "Bourse bien garnie | Avoir 200 rubis | m16(0x803CC534) >= 200 && m16(0x803CC534) <= 5000\n"
+      "Fortune | Avoir 1000 rubis | m16(0x803CC534) >= 1000 && m16(0x803CC534) <= 5000\n"
+      "Tresor de pirate | Avoir 5000 rubis | m16(0x803CC534) == 5000\n"
+      "Grand portefeuille | Obtenir la bourse de 1000 rubis | m8(0x803CC542) >= 1 && m8(0x803CC542) <= 2\n"
+      "Portefeuille geant | Obtenir la bourse de 5000 rubis | m8(0x803CC542) == 2\n"
+      "Magicien | Obtenir la magie | m8(0x803CC543) >= 16 && m8(0x803CC543) <= 32\n"
+      "Double magie | Doubler sa jauge de magie | m8(0x803CC543) == 32\n"
+      "Perle de Nayru | Obtenir la perle de Nayru | m8(0x803CC5EF) & 0x01\n"
+      "Perle de Din | Obtenir la perle de Din | m8(0x803CC5EF) & 0x02\n"
+      "Perle de Farore | Obtenir la perle de Farore | m8(0x803CC5EF) & 0x04\n"
+      "Les trois perles | Reunir les trois perles des deesses | m8(0x803CC5EF) & 0x07\n"
+      "Premier chant | Apprendre un chant de la Baguette du Vent | m8(0x803CC5ED) != 0 && m8(0x803CC5ED) <= 0x3F\n"
+      "Chef d'orchestre | Apprendre les 6 chants | m8(0x803CC5ED) & 0x3F\n"
+      "Fragment de Triforce | Trouver un fragment de la Triforce | m8(0x803CC5EE) != 0\n"
+      "Triforce du courage | Reunir les 8 fragments de la Triforce | m8(0x803CC5EE) == 0xFF\n"
+      "Epee de legende | Rendre toute sa puissance a l'Epee de legende | m8(0x803CC53E) == 0x3E\n"
+      "Bouclier miroir | Obtenir le Bouclier miroir | m8(0x803CC53F) == 0x3C\n"
+      "Force herculeenne | Obtenir les Bracelets de force | m8(0x803CC540) == 0x28\n"
+      "Carquois de 99 | Pouvoir porter 99 fleches | m8(0x803CC59F) == 99\n"
+      "Artificier | Pouvoir porter 99 bombes | m8(0x803CC5A0) == 99\n"},
     { "GZLE01",
-      "# The Legend of Zelda : The Wind Waker (USA). Adresses des codes de triche connus : PAS ENCORE VERIFIE SUR CONSOLE.\n"
-      "Bourse bien garnie | Avoir 200 rubis | m16(0x803C4C0C) >= 200\n"
-      "Grand portefeuille | Obtenir le portefeuille de 1000 rubis | m8(0x803C4C1A) >= 1\n"
-      "Fortune | Avoir 1000 rubis | m16(0x803C4C0C) >= 1000\n"
-      "Coeur vaillant | Avoir 4 coeurs | m8(0x803C4C09) >= 16\n"
-      "Coeur de heros | Avoir 10 coeurs | m8(0x803C4C09) >= 40\n" },
+      "# The Legend of Zelda : The Wind Waker (USA). Adresses du compagnon de l'appli (dSv_info_c en 0x803C4C08), v389.\n"
+      "Coeur vaillant | Avoir 5 coeurs | m16(0x803C4C08) >= 20 && m16(0x803C4C08) <= 80\n"
+      "Coeur de heros | Avoir 10 coeurs | m16(0x803C4C08) >= 40 && m16(0x803C4C08) <= 80\n"
+      "Coeur legendaire | Avoir 20 coeurs | m16(0x803C4C08) == 80\n"
+      "Bourse bien garnie | Avoir 200 rubis | m16(0x803C4C0C) >= 200 && m16(0x803C4C0C) <= 5000\n"
+      "Fortune | Avoir 1000 rubis | m16(0x803C4C0C) >= 1000 && m16(0x803C4C0C) <= 5000\n"
+      "Tresor de pirate | Avoir 5000 rubis | m16(0x803C4C0C) == 5000\n"
+      "Grand portefeuille | Obtenir la bourse de 1000 rubis | m8(0x803C4C1A) >= 1 && m8(0x803C4C1A) <= 2\n"
+      "Portefeuille geant | Obtenir la bourse de 5000 rubis | m8(0x803C4C1A) == 2\n"
+      "Magicien | Obtenir la magie | m8(0x803C4C1B) >= 16 && m8(0x803C4C1B) <= 32\n"
+      "Double magie | Doubler sa jauge de magie | m8(0x803C4C1B) == 32\n"
+      "Perle de Nayru | Obtenir la perle de Nayru | m8(0x803C4CC7) & 0x01\n"
+      "Perle de Din | Obtenir la perle de Din | m8(0x803C4CC7) & 0x02\n"
+      "Perle de Farore | Obtenir la perle de Farore | m8(0x803C4CC7) & 0x04\n"
+      "Les trois perles | Reunir les trois perles des deesses | m8(0x803C4CC7) & 0x07\n"
+      "Premier chant | Apprendre un chant de la Baguette du Vent | m8(0x803C4CC5) != 0 && m8(0x803C4CC5) <= 0x3F\n"
+      "Chef d'orchestre | Apprendre les 6 chants | m8(0x803C4CC5) & 0x3F\n"
+      "Fragment de Triforce | Trouver un fragment de la Triforce | m8(0x803C4CC6) != 0\n"
+      "Triforce du courage | Reunir les 8 fragments de la Triforce | m8(0x803C4CC6) == 0xFF\n"
+      "Epee de legende | Rendre toute sa puissance a l'Epee de legende | m8(0x803C4C16) == 0x3E\n"
+      "Bouclier miroir | Obtenir le Bouclier miroir | m8(0x803C4C17) == 0x3C\n"
+      "Force herculeenne | Obtenir les Bracelets de force | m8(0x803C4C18) == 0x28\n"
+      "Carquois de 99 | Pouvoir porter 99 fleches | m8(0x803C4C77) == 99\n"
+      "Artificier | Pouvoir porter 99 bombes | m8(0x803C4C78) == 99\n"},
+    { "GZ2P01",
+      "# The Legend of Zelda : Twilight Princess (PAL). Adresses du compagnon de l'appli (g_dComIfG_gameInfo en 0x80408160), v389.\n"
+      "Coeur solide | Avoir 5 coeurs | m16(0x80408160) >= 25 && m16(0x80408160) <= 100\n"
+      "Coeur de heros | Avoir 10 coeurs | m16(0x80408160) >= 50 && m16(0x80408160) <= 100\n"
+      "Coeur legendaire | Avoir 20 coeurs | m16(0x80408160) == 100\n"
+      "Economies | Avoir 300 rubis | m16(0x80408164) >= 300 && m16(0x80408164) <= 1000\n"
+      "Fortune | Avoir 1000 rubis | m16(0x80408164) == 1000\n"
+      "Bourse moyenne | Obtenir la bourse de 600 rubis | m8(0x80408179) >= 1 && m8(0x80408179) <= 2\n"
+      "Grande bourse | Obtenir la bourse de 1000 rubis | m8(0x80408179) == 2\n"
+      "Premiere ombre | Trouver une Ombre fusionnee | m8(0x80408269) != 0 && m8(0x80408269) <= 7\n"
+      "Ombres fusionnees | Reunir les 3 Ombres fusionnees | m8(0x80408269) & 0x07\n"
+      "Eclat du miroir | Trouver un eclat du Miroir des Ombres | m8(0x8040826A) != 0 && m8(0x8040826A) <= 15\n"
+      "Miroir des Ombres | Reunir les 4 eclats du miroir | m8(0x8040826A) & 0x0F\n"
+      "Chasseur d'esprits | Recuperer 10 ames d'Esprits | m8(0x8040826C) >= 10 && m8(0x8040826C) <= 60\n"
+      "Exorciste | Recuperer 30 ames d'Esprits | m8(0x8040826C) >= 30 && m8(0x8040826C) <= 60\n"
+      "Ame en paix | Recuperer les 60 ames d'Esprits | m8(0x8040826C) == 60\n"
+      "Pecheur | Pecher un premier poisson | m16(0x804082CC) >= 1 && m16(0x804082CC) <= 9999\n"},
+    { "GZ2E01",
+      "# The Legend of Zelda : Twilight Princess (USA). Adresses du compagnon de l'appli (g_dComIfG_gameInfo en 0x804061C0), v389.\n"
+      "Coeur solide | Avoir 5 coeurs | m16(0x804061C0) >= 25 && m16(0x804061C0) <= 100\n"
+      "Coeur de heros | Avoir 10 coeurs | m16(0x804061C0) >= 50 && m16(0x804061C0) <= 100\n"
+      "Coeur legendaire | Avoir 20 coeurs | m16(0x804061C0) == 100\n"
+      "Economies | Avoir 300 rubis | m16(0x804061C4) >= 300 && m16(0x804061C4) <= 1000\n"
+      "Fortune | Avoir 1000 rubis | m16(0x804061C4) == 1000\n"
+      "Bourse moyenne | Obtenir la bourse de 600 rubis | m8(0x804061D9) >= 1 && m8(0x804061D9) <= 2\n"
+      "Grande bourse | Obtenir la bourse de 1000 rubis | m8(0x804061D9) == 2\n"
+      "Premiere ombre | Trouver une Ombre fusionnee | m8(0x804062C9) != 0 && m8(0x804062C9) <= 7\n"
+      "Ombres fusionnees | Reunir les 3 Ombres fusionnees | m8(0x804062C9) & 0x07\n"
+      "Eclat du miroir | Trouver un eclat du Miroir des Ombres | m8(0x804062CA) != 0 && m8(0x804062CA) <= 15\n"
+      "Miroir des Ombres | Reunir les 4 eclats du miroir | m8(0x804062CA) & 0x0F\n"
+      "Chasseur d'esprits | Recuperer 10 ames d'Esprits | m8(0x804062CC) >= 10 && m8(0x804062CC) <= 60\n"
+      "Exorciste | Recuperer 30 ames d'Esprits | m8(0x804062CC) >= 30 && m8(0x804062CC) <= 60\n"
+      "Ame en paix | Recuperer les 60 ames d'Esprits | m8(0x804062CC) == 60\n"
+      "Pecheur | Pecher un premier poisson | m16(0x8040632C) >= 1 && m16(0x8040632C) <= 9999\n"},
+    { "GPIP01",
+      "# Pikmin (PAL). Adresses du compagnon de l'appli, v389.\n"
+      "Premiere piece | Retrouver une piece du vaisseau | m32(p32(0x803ECB4C)+0x17C) >= 1 && m32(p32(0x803ECB4C)+0x17C) <= 30\n"
+      "Mecanicien | Retrouver 10 pieces du vaisseau | m32(p32(0x803ECB4C)+0x17C) >= 10 && m32(p32(0x803ECB4C)+0x17C) <= 30\n"
+      "Presque pret | Retrouver 25 pieces du vaisseau | m32(p32(0x803ECB4C)+0x17C) >= 25 && m32(p32(0x803ECB4C)+0x17C) <= 30\n"
+      "Retour sur Hocotate | Retrouver les 30 pieces du vaisseau | m32(p32(0x803ECB4C)+0x17C) == 30\n"
+      "Pepiniere | 100 Pikmin nes | m32(p32(0x803ECB4C)+0x1A4) >= 100 && m32(p32(0x803ECB4C)+0x1A4) <= 999999\n"
+      "Grande famille | 1000 Pikmin nes | m32(p32(0x803ECB4C)+0x1A4) >= 1000 && m32(p32(0x803ECB4C)+0x1A4) <= 999999\n"
+      "Armee rouge | 50 Pikmin rouges sur la carte | m32(0x803D6D48) >= 50 && m32(0x803D6D48) <= 9999\n"
+      "Grande troupe | 100 Pikmin bleus sur la carte | m32(0x803D6D44) >= 100 && m32(0x803D6D44) <= 9999\n"},
+    { "GPVP01",
+      "# Pikmin 2 (PAL). Adresses du compagnon de l'appli, v389.\n"
+      "Premier tresor | Ramasser un tresor | m32(p32(0x80516810)+0xBC) >= 1 && m32(p32(0x80516810)+0xBC) <= 999\n"
+      "Collectionneur | Ramasser 50 tresors | m32(p32(0x80516810)+0xBC) >= 50 && m32(p32(0x80516810)+0xBC) <= 999\n"
+      "Antiquaire | Ramasser 100 tresors | m32(p32(0x80516810)+0xBC) >= 100 && m32(p32(0x80516810)+0xBC) <= 999\n"
+      "Tout le tresor | Ramasser les 201 tresors | m32(p32(0x80516810)+0xBC) >= 201 && m32(p32(0x80516810)+0xBC) <= 999\n"
+      "Premiers Pokos | Avoir 1000 Pokos | m32(p32(0x80516810)+0xE8) >= 1000 && m32(p32(0x80516810)+0xE8) <= 9999999\n"
+      "Dette remboursee | Avoir 10100 Pokos (la dette de Hocotate Fret) | m32(p32(0x80516810)+0xE8) >= 10100 && m32(p32(0x80516810)+0xE8) <= 9999999\n"
+      "Magnat | Avoir 30000 Pokos | m32(p32(0x80516810)+0xE8) >= 30000 && m32(p32(0x80516810)+0xE8) <= 9999999\n"},
+    { "GPVE01",
+      "# Pikmin 2 (USA). Adresses du compagnon de l'appli, v389.\n"
+      "Premier tresor | Ramasser un tresor | m32(p32(0x80515B10)+0xBC) >= 1 && m32(p32(0x80515B10)+0xBC) <= 999\n"
+      "Collectionneur | Ramasser 50 tresors | m32(p32(0x80515B10)+0xBC) >= 50 && m32(p32(0x80515B10)+0xBC) <= 999\n"
+      "Antiquaire | Ramasser 100 tresors | m32(p32(0x80515B10)+0xBC) >= 100 && m32(p32(0x80515B10)+0xBC) <= 999\n"
+      "Tout le tresor | Ramasser les 201 tresors | m32(p32(0x80515B10)+0xBC) >= 201 && m32(p32(0x80515B10)+0xBC) <= 999\n"
+      "Premiers Pokos | Avoir 1000 Pokos | m32(p32(0x80515B10)+0xE8) >= 1000 && m32(p32(0x80515B10)+0xE8) <= 9999999\n"
+      "Dette remboursee | Avoir 10100 Pokos (la dette de Hocotate Fret) | m32(p32(0x80515B10)+0xE8) >= 10100 && m32(p32(0x80515B10)+0xE8) <= 9999999\n"
+      "Magnat | Avoir 30000 Pokos | m32(p32(0x80515B10)+0xE8) >= 30000 && m32(p32(0x80515B10)+0xE8) <= 9999999\n"},
     { "GMPE01",
       "# Mario Party 4 (USA). Adresses des codes de triche connus : PAS ENCORE VERIFIE SUR CONSOLE.\n"
       "Tirelire | Joueur 1 : avoir 50 pieces | m16(0x8018FC54) >= 50\n"
       "Premiere etoile | Joueur 1 : obtenir une etoile | m16(0x8018FC62) >= 1 && m16(0x8018FC62) <= 99\n"
       "Superstar | Joueur 1 : avoir 5 etoiles | m16(0x8018FC62) >= 5 && m16(0x8018FC62) <= 99\n" },
+    { "GMSP01",
+      "# Super Mario Sunshine (PAL). Adresses du compagnon de l'appli (TFlagManager en 0x80405828), v389.\n"
+      "Premier Soleil | Recuperer un Soleil | m32(p32(0x80405828)+0xD0) >= 1 && m32(p32(0x80405828)+0xD0) <= 120\n"
+      "Dix Soleils | Recuperer 10 Soleils | m32(p32(0x80405828)+0xD0) >= 10 && m32(p32(0x80405828)+0xD0) <= 120\n"
+      "Isle Delfino s'eclaire | Recuperer 30 Soleils | m32(p32(0x80405828)+0xD0) >= 30 && m32(p32(0x80405828)+0xD0) <= 120\n"
+      "Soleil radieux | Recuperer 50 Soleils | m32(p32(0x80405828)+0xD0) >= 50 && m32(p32(0x80405828)+0xD0) <= 120\n"
+      "Grand nettoyage | Recuperer 70 Soleils | m32(p32(0x80405828)+0xD0) >= 70 && m32(p32(0x80405828)+0xD0) <= 120\n"
+      "Centenaire | Recuperer 100 Soleils | m32(p32(0x80405828)+0xD0) >= 100 && m32(p32(0x80405828)+0xD0) <= 120\n"
+      "Isle Delfino brille | Recuperer les 120 Soleils | m32(p32(0x80405828)+0xD0) == 120\n"
+      "Piece bleue | Trouver une piece bleue | m32(p32(0x80405828)+0xD4) >= 1 && m32(p32(0x80405828)+0xD4) <= 240\n"
+      "Chasseur de bleues | Trouver 50 pieces bleues | m32(p32(0x80405828)+0xD4) >= 50 && m32(p32(0x80405828)+0xD4) <= 240\n"
+      "Collection bleue | Trouver 100 pieces bleues | m32(p32(0x80405828)+0xD4) >= 100 && m32(p32(0x80405828)+0xD4) <= 240\n"
+      "Toutes les bleues | Trouver les 240 pieces bleues | m32(p32(0x80405828)+0xD4) == 240\n"
+      "Increvable | Avoir 30 vies | m32(p32(0x80405828)+0x7C) >= 30 && m32(p32(0x80405828)+0x7C) <= 99\n"
+      "Chat a neuf vies | Avoir 99 vies | m32(p32(0x80405828)+0x7C) == 99\n"
+    },
     { "GMSE01",
-      "# Super Mario Sunshine (USA). Adresse du code de triche des vies : PAS ENCORE VERIFIE SUR CONSOLE.\n"
-      "Vies de rechange | Avoir 10 vies | m32(0x80578A04) >= 10 && m32(0x80578A04) <= 99\n"
-      "Collection de vies | Avoir 30 vies | m32(0x80578A04) >= 30 && m32(0x80578A04) <= 99\n" },
+      "# Super Mario Sunshine (USA). Adresses du compagnon de l'appli (TFlagManager en 0x8040E160), v389.\n"
+      "Premier Soleil | Recuperer un Soleil | m32(p32(0x8040E160)+0xD0) >= 1 && m32(p32(0x8040E160)+0xD0) <= 120\n"
+      "Dix Soleils | Recuperer 10 Soleils | m32(p32(0x8040E160)+0xD0) >= 10 && m32(p32(0x8040E160)+0xD0) <= 120\n"
+      "Isle Delfino s'eclaire | Recuperer 30 Soleils | m32(p32(0x8040E160)+0xD0) >= 30 && m32(p32(0x8040E160)+0xD0) <= 120\n"
+      "Soleil radieux | Recuperer 50 Soleils | m32(p32(0x8040E160)+0xD0) >= 50 && m32(p32(0x8040E160)+0xD0) <= 120\n"
+      "Grand nettoyage | Recuperer 70 Soleils | m32(p32(0x8040E160)+0xD0) >= 70 && m32(p32(0x8040E160)+0xD0) <= 120\n"
+      "Centenaire | Recuperer 100 Soleils | m32(p32(0x8040E160)+0xD0) >= 100 && m32(p32(0x8040E160)+0xD0) <= 120\n"
+      "Isle Delfino brille | Recuperer les 120 Soleils | m32(p32(0x8040E160)+0xD0) == 120\n"
+      "Piece bleue | Trouver une piece bleue | m32(p32(0x8040E160)+0xD4) >= 1 && m32(p32(0x8040E160)+0xD4) <= 240\n"
+      "Chasseur de bleues | Trouver 50 pieces bleues | m32(p32(0x8040E160)+0xD4) >= 50 && m32(p32(0x8040E160)+0xD4) <= 240\n"
+      "Collection bleue | Trouver 100 pieces bleues | m32(p32(0x8040E160)+0xD4) >= 100 && m32(p32(0x8040E160)+0xD4) <= 240\n"
+      "Toutes les bleues | Trouver les 240 pieces bleues | m32(p32(0x8040E160)+0xD4) == 240\n"
+      "Increvable | Avoir 30 vies | m32(p32(0x8040E160)+0x7C) >= 30 && m32(p32(0x8040E160)+0x7C) <= 99\n"
+      "Chat a neuf vies | Avoir 99 vies | m32(p32(0x8040E160)+0x7C) == 99\n"
+    },
+    { "GP5P01",
+      "# Mario Party 5 (PAL). Adresses du compagnon de l'appli (joueur 1 en 0x80248DB0), v389.\n"
+      "Tirelire | Joueur 1 : avoir 50 pieces | m16(0x80248DD0) >= 50 && m16(0x80248DD0) <= 999\n"
+      "Coffre-fort | Joueur 1 : avoir 100 pieces | m16(0x80248DD0) >= 100 && m16(0x80248DD0) <= 999\n"
+      "Premiere etoile | Joueur 1 : obtenir une etoile | m16(0x80248DE4) >= 1 && m16(0x80248DE4) <= 99\n"
+      "Collection d'etoiles | Joueur 1 : avoir 5 etoiles | m16(0x80248DE4) >= 5 && m16(0x80248DE4) <= 99\n"
+      "Superstar | Joueur 1 : avoir 10 etoiles | m16(0x80248DE4) >= 10 && m16(0x80248DE4) <= 99\n"
+      "As des mini-jeux | Joueur 1 : gagner 100 pieces en mini-jeux dans une partie | m16(0x80248DD2) >= 100 && m16(0x80248DD2) <= 9999\n"
+      "Banquier | Joueur 1 : 200 pieces gagnees dans une partie | m16(0x80248DD4) >= 200 && m16(0x80248DD4) <= 9999\n"
+    },
+    { "GP5E01",
+      "# Mario Party 5 (USA). Adresses du compagnon de l'appli (joueur 1 en 0x8022A070), v389.\n"
+      "Tirelire | Joueur 1 : avoir 50 pieces | m16(0x8022A090) >= 50 && m16(0x8022A090) <= 999\n"
+      "Coffre-fort | Joueur 1 : avoir 100 pieces | m16(0x8022A090) >= 100 && m16(0x8022A090) <= 999\n"
+      "Premiere etoile | Joueur 1 : obtenir une etoile | m16(0x8022A0A4) >= 1 && m16(0x8022A0A4) <= 99\n"
+      "Collection d'etoiles | Joueur 1 : avoir 5 etoiles | m16(0x8022A0A4) >= 5 && m16(0x8022A0A4) <= 99\n"
+      "Superstar | Joueur 1 : avoir 10 etoiles | m16(0x8022A0A4) >= 10 && m16(0x8022A0A4) <= 99\n"
+      "As des mini-jeux | Joueur 1 : gagner 100 pieces en mini-jeux dans une partie | m16(0x8022A092) >= 100 && m16(0x8022A092) <= 9999\n"
+      "Banquier | Joueur 1 : 200 pieces gagnees dans une partie | m16(0x8022A094) >= 200 && m16(0x8022A094) <= 9999\n"
+    },
 };
 #define SJ_NB ((int)(sizeof(sj_builtin) / sizeof(sj_builtin[0])))
 
@@ -73,14 +226,17 @@ static int sj_term(const char *s, u32 *t) {
     } else if (!sj_num(&s, &ad)) return 0;
     if (!sj_lit(&s, ")")) return 0;
     /* (pour Pulse : masque des resultats qui rendent le terme vrai : bit 0 plus petit, bit 1 egal, bit 2 plus grand) */
-    if (sj_lit(&s, "==")) cmp = 2; else if (sj_lit(&s, "!=")) cmp = 5; else if (sj_lit(&s, ">=")) cmp = 6;
+    u32 bits = 0;
+    if (sj_lit(&s, "&")) { bits = 1; cmp = 2; }         /* v389 : m8(a) & 0x04 : ces bits a 1 (drapeaux du jeu) */
+    else if (sj_lit(&s, "==")) cmp = 2; else if (sj_lit(&s, "!=")) cmp = 5; else if (sj_lit(&s, ">=")) cmp = 6;
     else if (sj_lit(&s, "<=")) cmp = 3; else if (sj_lit(&s, ">")) cmp = 4; else if (sj_lit(&s, "<")) cmp = 1; else return 0;
     if (!sj_num(&s, &val)) return 0;
     while (*s == ' ') s++;
     if (*s) return 0;
     if (!ptr && (ad < 0x80000000u || ad >= 0x81800000u)) return 0;
     if (ptr && (ad < 0x80000000u || ad >= 0x81800000u || (ad & 3))) return 0;
-    t[0] = ptr << 24 | sz << 16 | cmp << 8; t[1] = ad; t[2] = off; t[3] = val;
+    if (bits && !val) return 0;
+    t[0] = bits << 25 | ptr << 24 | sz << 16 | cmp << 8; t[1] = ad; t[2] = off; t[3] = val;
     return 1;
 }
 /* une ligne -> un succes (0 : commentaire / vide, -1 : erreur) */
@@ -111,6 +267,7 @@ static const char *sj_builtin_text(const char *id) {
     return NULL;
 }
 /* succes d'un jeu (fichier de la carte, cree d'apres sj_builtin s'il n'existe pas) ; rend le nombre, *bad = lignes refusees */
+static int sj_nowrite = 0;                                /* v389 : (liste pour l'appli : pas de fichier cree) */
 static int sj_load(const char *id, sj_def_t *out, int cap, int *bad) {
     char path[96];
     snprintf(path, sizeof(path), SJ_DIR "/%.6s.txt", id);
@@ -120,7 +277,7 @@ static int sj_load(const char *id, sj_def_t *out, int cap, int *bad) {
     if (!t) {
         const char *b = sj_builtin_text(id);
         if (!b) return 0;
-        if (sd_ok) {                                       /* (sur la carte : modifiable, et lisible par le telephone) */
+        if (sd_ok && !sj_nowrite) {                                       /* (sur la carte : modifiable, et lisible par le telephone) */
             mkdir(SJ_DIR, 0777);
             FILE *f = fopen(path, "wb");
             if (f) { fputs(sj_head, f); fputs(b, f); fclose(f); }
@@ -150,6 +307,10 @@ static int sj_load(const char *id, sj_def_t *out, int cap, int *bad) {
 /* ---------- au lancement (natif.c) : section "ACH1" pour Pulse ---------- */
 static u32 na_ach[2 + SJ_MAX * (5 + SJ_TERMS * 4)];   /* (SJ_MAX <= 63 : les etats tiennent dans un secteur) */
 static int na_ach_w = 0, na_ach_n = 0, na_ach_bad = 0;
+static char na_ach_tit[SJ_MAX][48];                       /* v397 : titres (bandeau sur la tele, natif.c) */
+static u8 na_ach_deja[SJ_MAX];                            /* v397 : deja obtenus avant (pas de bandeau pour eux) */
+static void sj_got_path(const char *prof, char *o, int cap);
+static int sj_have(const char *gotf, const char *id, const char *title);
 static void sj_prepare(const char *id) {
     na_ach_w = na_ach_n = na_ach_bad = 0;
     static sj_def_t d[SJ_MAX];
@@ -165,6 +326,14 @@ static void sj_prepare(const char *id) {
     }
     na_ach_w = (int)(w - na_ach);
     na_ach_n = n;
+    {   /* v397 : pour le bandeau de la tele */
+        char gotf[200];
+        sj_got_path(gp_name, gotf, sizeof(gotf));
+        for (int i = 0; i < n; i++) {
+            snprintf(na_ach_tit[i], sizeof(na_ach_tit[i]), "%s", d[i].title);
+            na_ach_deja[i] = sj_have(gotf, id, d[i].title) ? 1 : 0;
+        }
+    }
     FILE *f = fopen(SJ_LANCE, "wb");                      /* (pour le retour : quels titres, quel profil) */
     if (f) {
         fprintf(f, "%s\n%.6s\n", gp_name, id);
@@ -344,6 +513,23 @@ static char *sj_json(void) {
         }
     }
     if (dd) closedir(dd);
+    /* v389 : aussi les jeux qui ont des succes fournis mais pas encore de fichier (jamais lances avec Pulse) */
+    for (int k = 0; k < SJ_NB && d; k++) {
+        char path[96];
+        snprintf(path, sizeof(path), SJ_DIR "/%.6s.txt", sj_builtin[k].id);
+        if (sd_ok && gcd_exists(path)) continue;
+        sj_nowrite = 1;
+        int b, n = sj_load(sj_builtin[k].id, d, SJ_MAX, &b);
+        sj_nowrite = 0;
+        for (int i = 0; i < n; i++) {
+            char u8[300];
+            sb_add(&s, first ? "[" : ",["); first = 0;
+            sb_json_str(&s, sj_builtin[k].id); sb_add(&s, ",");
+            tp_any_utf8(d[i].title, u8, sizeof(u8)); sb_json_str(&s, u8); sb_add(&s, ",");
+            tp_any_utf8(d[i].desc, u8, sizeof(u8)); sb_json_str(&s, u8);
+            sb_add(&s, sj_have(gotf, sj_builtin[k].id, d[i].title) ? ",1]" : ",0]");
+        }
+    }
     free(d);
     sb_add(&s, "]");
     return s.b;

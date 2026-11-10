@@ -1189,58 +1189,6 @@ class CardsTab extends Tab {
     }
 }
 
-// ---------------------------------------------------------------- Salon
-class SalonTab extends Tab {
-    private LinearLayout box;
-    private TextView status;
-    private long last;
-    SalonTab(Activity a) { super(a); }
-
-    @Override View build() {
-        LinearLayout v = UiKit.column(a);
-        status = UiKit.hint(a, "Les autres GC Station de la maison");
-        v.addView(status);
-        ScrollView sc = new ScrollView(a);
-        box = new LinearLayout(a);
-        box.setOrientation(LinearLayout.VERTICAL);
-        sc.addView(box);
-        v.addView(sc, lp(-1, 0, 1));
-        root = v;
-        return v;
-    }
-
-    @Override void show() { load(); }
-    @Override void state(JSONObject s) { if (root != null && root.isShown() && System.currentTimeMillis() - last > 4000) load(); }
-
-    private void load() {
-        last = System.currentTimeMillis();
-        Api.get("/api/salon", r -> {
-            if (r == null) { Neon.set(status, "Pas de réponse de la console"); return; }
-            try {
-                JSONObject j = new JSONObject(r);
-                JSONArray c = j.optJSONArray("c");
-                Neon.set(status, j.optInt("on") == 0 ? "Le Salon est coupé (START > Réglages > Réseau > Salon)" : c == null || c.length() == 0 ? "Aucune autre GC Station pour l'instant" : "Toucher « Écouter avec » pour la même musique sur ta télé");
-                box.removeAllViews();
-                for (int i = 0; c != null && i < c.length(); i++) {
-                    JSONArray x = c.getJSONArray(i);
-                    final int idx = i;
-                    final String ip = x.optString(1);
-                    LinearLayout cd = UiKit.card(a);
-                    cd.addView(Neon.glow(a, x.optString(0), 16, Neon.CYAN));
-                    cd.addView(Neon.text(a, "♪ " + (x.optString(2).isEmpty() ? "rien" : x.optString(2)), 13, Neon.TEXT, false));
-                    cd.addView(UiKit.hint(a, ip));
-                    LinearLayout row = new LinearLayout(a);
-                    row.addView(Neon.btn(a, "Écouter avec", 13, true, v -> Api.get("/api/listen?i=" + idx, rr -> Neon.set(status, rr != null ? "Écoute lancée sur la télé" : "Refusé"))), lp(0, -2, 1));
-                    View g = new View(a); row.addView(g, new LinearLayout.LayoutParams(dp(8), 1));
-                    row.addView(Neon.btn(a, "Piloter celle-ci", 13, false, v -> ((Host) a).switchTo(ip)), lp(0, -2, 1));
-                    cd.addView(row);
-                    box.addView(cd, UiKit.gapBelow(a, 12));
-                }
-            } catch (Exception e) { Neon.set(status, "Réponse illisible"); }
-        });
-    }
-}
-
 // ---------------------------------------------------------------- Outils : memoire, capture, rapport
 class ToolsTab extends Tab {
     private TextView memTxt, bootTxt, journal, testTxt;
@@ -1297,7 +1245,7 @@ class ToolsTab extends Tab {
                 "Lancer", () -> Api.get("/api/test?m=" + t[1], r -> testState(r)))), lp(0, -2, 1));
         }
         tst.addView(Neon.btn(a, "Voir le dernier rapport", 13, false, x -> Api.get("/test.txt", r -> journal.setText(Lang.t(r != null ? r : "Pas encore de rapport")))), lp(-1, -2, 0));
-        v.addView(tst, UiKit.gapBelow(a, 12));
+        if (BuildConfig.PRIVE) v.addView(tst, UiKit.gapBelow(a, 12));   // (build 514 : tests de la console : appli privee seulement)
 
         LinearLayout rep = UiKit.card(a);
         rep.addView(Neon.glow(a, "Rapport de bug", 15, Neon.PINK));
@@ -1324,7 +1272,7 @@ class ToolsTab extends Tab {
         if (System.currentTimeMillis() - lastTest > 3000) test();
     }
 
-    private void test() { lastTest = System.currentTimeMillis(); Api.get("/api/test", this::testState); }
+    private void test() { if (!BuildConfig.PRIVE) return; lastTest = System.currentTimeMillis(); Api.get("/api/test", this::testState); }   // (build 514 : pas dans la version publique)
     private void testState(String r) {
         if (testTxt == null) return;
         if (r == null) { Neon.set(testTxt, "La console ne répond pas (ou elle n'a pas encore le build 764)"); return; }

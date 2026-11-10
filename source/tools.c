@@ -767,7 +767,7 @@ static int ap_bnr_find(const char *path, const char *dir, char *out, int cap) {
     if (!d) return 0;
     struct dirent *e;
     int found = 0;
-    while (!found && (e = readdir(d)) != NULL) {
+    while (!found && !lsc_hold && (e = readdir(d)) != NULL) {   /* (v391 : !lsc_hold) */
         if (e->d_name[0] == '.' || !ap_is_bnr(e->d_name)) continue;
         snprintf(out, cap, "%s/%s", dir, e->d_name);
         found = 1;
@@ -809,7 +809,7 @@ static void ap_scan_dir(const char *dir, int depth) {
     DIR *d = opendir(dir);
     if (!d) return;
     struct dirent *e;
-    while ((e = readdir(d)) != NULL && apb_n < AP_MAX) {
+    while (!lsc_hold && (e = readdir(d)) != NULL && apb_n < AP_MAX) {   /* (v391 : !lsc_hold) */
         if (e->d_name[0] == '.') continue;
         char p[NAME_LEN];
         snprintf(p, sizeof(p), "%s/%s", dir, e->d_name);
@@ -1647,7 +1647,7 @@ static void nfs_ui_draw(void) {
 static int gde_page = 0;
 static const char *const gde_title[GDE_N] = { "Bienvenue sur GC Station", "O\xC3\xB9 mettre tes fichiers", "Tes jeux avec Pulse", "Ton t\xC3\xA9l\xC3\xA9phone comme t\xC3\xA9l\xC3\xA9" "commande" };
 static const char *const gde_text[GDE_N][8] = {
-    { "Ta GameCube devient un centre multim\xC3\xA9" "dia : musique,", "radios, web, photos, vid\xC3\xA9os, podcasts, et tes jeux.", "", "Z : onglet suivant", "START : menu et r\xC3\xA9glages", "A : choisir     B : retour", "Croix ou stick : se d\xC3\xA9placer", NULL },
+    { "Ta GameCube devient un centre multim\xC3\xA9" "dia : musique,", "radios, web, photos, vid\xC3\xA9os, podcasts, et tes jeux.", "", "L / R : onglet pr\xC3\xA9" "c\xC3\xA9" "dent / suivant", "START : menu et r\xC3\xA9glages", "A : choisir     B : retour", "Croix ou stick : se d\xC3\xA9placer", NULL },
     { "Musique : SD:/mp3   (MP3, FLAC, OGG, M4A...)", "Photos : SD:/photos     Vid\xC3\xA9os : SD:/videos", "Musiques r\xC3\xA9tro : SD:/retro   (SPC, NSF, MOD, MIDI...)", "Jeux GameCube (.iso, .gcm, .ciso) : o\xC3\xB9 tu veux,", "   par exemple SD:/games", "Applis homebrew : SD:/apps/<nom>/boot.dol", "GC Station range ses propres fichiers dans SD:/gc-mp3.", NULL },
     { "Onglet JEUX > Jeux GameCube, puis A sur un jeu :", "il d\xC3\xA9marre avec Pulse, le lanceur de GC Station.", "En jeu : A + Z + START tenus 1 s = retour ici.", "Y dans la fiche d'un jeu : ses r\xC3\xA9glages", "   (langue, 16:9, 480p, cheats...).", "Les sauvegardes vont sur une carte m\xC3\xA9moire virtuelle", "   (gc-mp3/resident) : rien \xC3\xA0 brancher.", NULL },
     { "Avec le Broadband Adapter branch\xC3\xA9 \xC3\xA0 ta box :", "onglet T\xC3\x89L\xC3\x89PHONE, puis scanne le QR code.", "Depuis le t\xC3\xA9l\xC3\xA9phone : musique, radios, envoi de fichiers,", "lancement d'un jeu, t\xC3\xA9l\xC3\xA9" "chargement de tes sauvegardes.", "", "Ce guide se revoit dans START > Outils > Guide de d\xC3\xA9marrage.", NULL } };

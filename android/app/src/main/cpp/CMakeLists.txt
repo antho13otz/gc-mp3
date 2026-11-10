@@ -36,3 +36,20 @@ add_subdirectory(${MGBA_DIR} ${CMAKE_CURRENT_BINARY_DIR}/mgba EXCLUDE_FROM_ALL)
 add_library(gbapont SHARED gba_jni.c)
 target_include_directories(gbapont PRIVATE ${MGBA_DIR}/include ${MGBA_DIR}/src ${CMAKE_CURRENT_BINARY_DIR}/mgba/include)
 target_link_libraries(gbapont mgba log)
+
+# Appli build 491 : RetroAchievements : rcheevos (https://github.com/RetroAchievements/rcheevos, licence MIT) n'est pas
+# dans le depot : ci/appli.sh le telecharge en version figee dans src/main/cpp/rcheevos. ra_jni.c : le pont avec l'appli.
+set(RC_DIR ${CMAKE_CURRENT_SOURCE_DIR}/rcheevos)
+if(NOT EXISTS ${RC_DIR}/include/rc_client.h)
+	message(FATAL_ERROR "rcheevos absent : ${RC_DIR} (telecharge par ci/appli.sh)")
+endif()
+file(GLOB RC_SRC ${RC_DIR}/src/api/*.c ${RC_DIR}/src/client/*.c ${RC_DIR}/src/runtime/*.c ${RC_DIR}/src/util/*.c ${RC_DIR}/src/rc_*.c)
+add_library(rapont SHARED ra_jni.c ${RC_SRC})
+target_include_directories(rapont PRIVATE ${RC_DIR}/include ${RC_DIR}/src)
+target_compile_definitions(rapont PRIVATE RC_DISABLE_LUA)
+target_link_libraries(rapont log)
+
+# Appli privee build 498 : presence Discord. Le Social SDK de Discord n'est pas dans le depot : discord_jni.c l'ouvre au
+# moment de l'appel (dlopen), donc cette bibliotheque se compile sans lui.
+add_library(discpont SHARED discord_jni.c)
+target_link_libraries(discpont log dl)

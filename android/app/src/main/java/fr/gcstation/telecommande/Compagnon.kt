@@ -88,43 +88,6 @@ import org.json.JSONArray
 import org.json.JSONObject
 
 
-/** lecture des valeurs du jeu pendant un passage : chaque bloc de 1 Ko n'est demande qu'une fois, et au plus [budget]
- *  blocs par passage (le jeu repond aux demandes pendant son image : peu de blocs = pas de ralentissement du jeu) */
-class Lecteur(private val budget: Int = 24, private val pauseMs: Long = 3) {
-    private val cache = HashMap<Long, ByteArray?>()
-    var demandes = 0; private set
-    private fun octets(a: Long, n: Int): ByteArray? {
-        if (a < MemoireJeu.BASE || a + n > MemoireJeu.BASE + MemoireJeu.FIN) return null
-        val b = a and (MemoireJeu.BLK - 1).toLong().inv()
-        if (a + n > b + MemoireJeu.BLK) return null               // (valeurs alignees : jamais sur deux blocs)
-        val d = if (cache.containsKey(b)) cache[b] else {
-            if (demandes >= budget) return null
-            demandes++
-            if (demandes > 1 && pauseMs > 0) try { Thread.sleep(pauseMs) } catch (e: InterruptedException) { }   // (au plus ~1 bloc par image du jeu)
-            MemoireJeu.bloc(b).also { cache[b] = it }
-        } ?: return null
-        val o = (a - b).toInt()
-        return d.copyOfRange(o, o + n)
-    }
-    fun u8(a: Long): Int? = octets(a, 1)?.let { it[0].toInt() and 255 }
-    fun u16(a: Long): Int? = octets(a, 2)?.let { ((it[0].toInt() and 255) shl 8) or (it[1].toInt() and 255) }
-    fun s16(a: Long): Int? = u16(a)?.toShort()?.toInt()
-    fun u32(a: Long): Long? = octets(a, 4)?.let {
-        ((it[0].toLong() and 255) shl 24) or ((it[1].toLong() and 255) shl 16) or ((it[2].toLong() and 255) shl 8) or (it[3].toLong() and 255)
-    }
-    fun s32(a: Long): Int? = u32(a)?.toInt()
-    fun f32(a: Long): Float? = u32(a)?.let { java.lang.Float.intBitsToFloat(it.toInt()) }
-    /** pointeur vers la memoire du jeu, sinon null */
-    fun ptr(a: Long): Long? = u32(a)?.takeIf { it >= 0x80003100L && it < MemoireJeu.BASE + MemoireJeu.FIN }
-    fun texte(a: Long, n: Int): String? = octets(a, n)?.let { b ->
-        var k = 0
-        while (k < n && b[k] != 0.toByte()) k++
-        String(b, 0, k, Charsets.ISO_8859_1)
-    }
-    /** n octets (chacun lu a part : une plage peut passer d'un bloc a l'autre) ; null si un seul manque */
-    fun plage(a: Long, n: Int): IntArray? { val r = IntArray(n); for (i in 0 until n) r[i] = u8(a + i) ?: return null; return r }
-    fun fini(f: Float?, max: Float = 1e6f): Float? = f?.takeIf { it.isFinite() && Math.abs(it) < max }
-}
 
 /** angle du jeu (s16 : 65536 = un tour) -> radians */
 fun angleJeu(v: Int): Double = v / 65536.0 * 2 * Math.PI
@@ -185,6 +148,8 @@ object JeuWW {
     // quand il est a bord
     private val SHIPP get() = G + 0x5B54
     const val VOILE_N = 168
+    /** build 456 : signature de la coque du bateau (taille du fichier 38240, 11 os ; copie de la memoire du 7 novembre) */
+    const val SIG_COQUE = (38240L shl 16) or 11L
     @Volatile private var bateauVu = 0L
     @Volatile private var bateauPos: FloatArray? = null; @Volatile private var bateauMoy = Float.NaN; @Volatile private var tBateau = 0L
     /** x, z du bateau et ecart de sa hauteur a sa moyenne (unites du jeu) ; null sans bateau en direct */
@@ -193,6 +158,12 @@ object JeuWW {
         return floatArrayOf(p[0], p[2], p[1] - bateauMoy) }
     // (build 426 : la hauteur du bateau rejouee comme Link et les objets : meme retard, glissee entre deux images)
     @Volatile private var vagueRejouee: FloatArray? = null
+    // build 456 : pour le fantome (envoye a un ami) : le bateau ou il est, et son cap (acteur +0x20E, comme Link ; verifie sur
+    // la copie de la memoire du 7 novembre : sa matrice de base est bien la rotation de cet angle)
+    @Volatile private var bateauCap = Float.NaN
+    fun bateauFantome(): FloatArray? { val p = bateauPos ?: return null
+        if (System.nanoTime() - tBateau > 2_000_000_000L || bateauVu == 0L || bateauCap.isNaN()) return null
+        return floatArrayOf(p[0], p[1], p[2], bateauCap) }
     // build 427 : la voile n'est pas un modele : un tissu que le jeu recalcule a chaque image (acteur 0xAC, pointe par le
     // bateau a +0x414) : 7 x 24 points (+0x354, 12 octets chacun, repere de l'articulation 7 de la coque, le mat : modele
     // de la coque = morf du bateau +0x298, puis +0x50 ; ses matrices +0x8C). Lus avec Link, places dans le monde a la
@@ -215,7 +186,6 @@ object JeuWW {
     class VifObjet(val modele: Int, val adr: Long, val nj: Int, val os: Long, @Volatile var pos: FloatArray,
                    val off: Int = 0, val proc: Int = 0, val toujours: Boolean = false)   // (build 424 : objets apparus en jeu)
     /** pose a dessiner : modele du pack, matrices des os (plein) ou matrice de base seule */
-    class VifPose(val modele: Int, val plein: Boolean, val m: FloatArray)
     /** signatures du pack du lieu affiche (posees par la vue) */
     @Volatile var sigsPack: Map<Long, Int> = emptyMap()
     @Volatile var vifs: List<VifObjet> = emptyList(); @Volatile var vifPret = false
@@ -224,7 +194,62 @@ object JeuWW {
     // acteurs garde le dernier cree en queue (tete + 4) : relue chaque seconde ; une nouvelle bombe y est suivie tout de
     // suite (si le pack a son modele), et oubliee des que son acteur n'est plus une bombe
     @Volatile private var bombes: List<Pair<Long, VifObjet>> = emptyList(); private var derniereQueue = 0L
-    @Volatile var vifsRejoues: List<VifPose>? = null
+    // build 456 : l'equipement de Link. Copie de la memoire du proprietaire (7 novembre 2026, GZLP01) : l'equipement choisi
+    // est dans dSv_player_status_a_c (G +0x0E : epee 0x3E Epee de legende, bouclier 0x3C Bouclier miroir, bracelets 0x28) ;
+    // ce que Link porte vraiment a l'ecran, ce sont des modeles (J3DModel, meme table de fonctions que le sien) accroches a
+    // son acteur, de +0x330 a +0x9B0 et de +0x2E70 a +0x2F90 (27 modeles trouves, ceux portes a ce moment ont leur matrice de
+    // base a cote de Link, les autres a l'origine du monde). Comme les objets : signature (taille du fichier, nombre d'os)
+    // -> modele du pack ; suivis par l'abonnement du direct (matrice de base, ou leurs os s'ils en ont plusieurs).
+    const val PROC_EQUIP = 0x7E01
+    class EquipCand(val off: Int, val adr: Long, val sig: Long, val nj: Int, val os: Long)
+    @Volatile var equipCands: List<EquipCand> = emptyList(); private var equipLink = 0L; private var equipSigs: Map<Long, Int>? = null
+    @Volatile private var equipObjs: List<VifObjet> = emptyList()
+    private val EQUIP_ZONES = listOf(0x330 to 0x680, 0x2E70 to 0x120)
+    /** cherche les modeles accroches a l'acteur de Link (une fois par acteur ; lecture groupee, ~2 Ko) */
+    private fun scannerEquip(p: Long, mo: Long, vt: Long) {
+        val r = lireLot(EQUIP_ZONES.map { (p + it.first) to it.second }) ?: return
+        val mods = LinkedHashMap<Long, Int>()
+        for ((o0, n) in EQUIP_ZONES) { val b = r[p + o0] ?: continue
+            for (k in 0 until n step 4) { val q = u32(b, k); if (tas(q) && q != mo && !mods.containsKey(q)) mods[q] = o0 + k } }
+        val cands = ArrayList<EquipCand>()
+        val infos = ArrayList<Triple<Long, Long, Long>>()                    // (modele, donnees, os)
+        for (lot in mods.keys.toList().chunked(40)) {
+            val rr = lireLot(lot.map { it to 0x90 }) ?: return
+            for (q in lot) { val b = rr[q] ?: continue; if (u32(b, 0) != vt) continue
+                val d = u32(b, 4); val os = u32(b, 0x8C); if (tas(d) && tas(os)) infos.add(Triple(q, d, os)) }
+        }
+        val dat = HashMap<Long, Pair<Long, Int>>()
+        for (lot in infos.map { it.second }.distinct().chunked(56)) {
+            val rr = lireLot(lot.map { it to 0x2C }) ?: return
+            for (d in lot) { val b = rr[d] ?: continue; dat[d] = u32(b, 4) to (((b[0x28].toInt() and 255) shl 8) or (b[0x29].toInt() and 255)) }
+        }
+        val tailles = HashMap<Long, Long>()
+        for (lot in dat.values.map { it.first }.filter { tas(it) }.distinct().chunked(56)) {
+            val rr = lireLot(lot.map { it to 12 }) ?: return
+            for (f in lot) { val b = rr[f] ?: continue; if (b[0] == 'J'.code.toByte() && b[1] == '3'.code.toByte()) tailles[f] = u32(b, 8) }
+        }
+        for ((q, d, os) in infos) { val (f, nj) = dat[d] ?: continue; val t = tailles[f] ?: continue
+            if (nj in 1..120) cands.add(EquipCand(mods[q] ?: 0, q, (t shl 16) or nj.toLong(), nj, os)) }
+        equipCands = cands; equipLink = p
+    }
+    /** chaque seconde : l'equipement porte maintenant (modele du pack connu, matrice de base pres de Link) */
+    private fun suivreEquip(l: Lecteur, sigs: Map<Long, Int>) {
+        val lp = imagesWW.lastOrNull()?.pos ?: run { equipObjs = emptyList(); return }
+        val n = ArrayList<VifObjet>()
+        for (c in equipCands) {
+            val mi = sigs[c.sig] ?: continue
+            // (build 459 : ce qui est deja suivi : sa position arrive avec le direct, pas besoin de la relire ; avant, le lecteur
+            //  (16 blocs) etait plein avant d'arriver a la lame de l'epee (+0x2E98), jamais suivie)
+            val deja = equipObjs.firstOrNull { it.adr == c.adr }
+            val pos = deja?.pos ?: FloatArray(3) { java.lang.Float.intBitsToFloat((l.u32(c.adr + 0x30 + 0x10L * it) ?: 0L).toInt()) }
+            val dx = pos[0] - lp[0]; val dy = pos[1] - lp[1]; val dz = pos[2] - lp[2]
+            if (dx * dx + dy * dy + dz * dz > 400f * 400f) continue
+            n.add(deja ?: VifObjet(mi, c.adr, c.nj, c.os, pos, c.off, PROC_EQUIP, true))
+            if (n.size >= 8) break
+        }
+        equipObjs = n
+    }
+    @Volatile var vifsRejoues: List<VifPoseWW>? = null
     private var sigsVues: Map<Long, Int>? = null; private var scanT = 0L
     /** disposition de l'abonnement : Link (os, position, camera), objets suivis, lecture groupee, bourrage (sa longueur rend
      *  la taille totale unique : on reconnait les images de cet abonnement) */
@@ -234,23 +259,38 @@ object JeuWW {
     // articulations, lecture groupee, bourrage), puis les morceaux compacts (une Pulse plus ancienne s'arrete au 1er)
     private class Dispo(val id: Int, val n: Long, val p: Long, val c: Long, val suivis: List<Pair<VifObjet, Boolean>>,
                         val lot: List<Pair<Long, Int>>, val pad: Int, val agb: Long = 0L, val bateau: Long = 0L,
-                        val mat: Long = 0L, val voile: Long = 0L) {
+                        val mat: Long = 0L, val voile: Long = 0L, val alterne: Boolean = false) {
         val oCam = 12; val oAgb = oCam + (if (c != 0L) 48 else 0); val oBat = oAgb + (if (agb != 0L) 12 else 0)
         val oVoile = oBat + (if (bateau != 0L) 12 else 0)
         val oSuivi = IntArray(suivis.size)                       // (ou commence chaque objet suivi)
         val oLot: Int; val oLink: Int; val tot: Int
+        val totCourt: Int                                        // (build 454 : sans les objets, un envoi sur deux ; -1 : pas ce mode)
         val nVif = suivis.sumOf { if (it.second) it.first.nj * 12 else 12 }   // (flottants des objets, une fois decompactes)
+        /** build 461 : objets envoyes a chaque image meme en mode alterne : l'equipement de Link (il bouge avec lui ; un envoi sur
+         *  deux, le masque restait en retard sur la tete pendant les animations, puis disparaissait) */
+        val fixe = BooleanArray(suivis.size) { suivis[it].first.proc == PROC_EQUIP }
         init {
             var q = oVoile + (if (voile != 0L) 48 + VOILE_N * 12 else 0)
-            for ((i, sv) in suivis.withIndex()) if (!sv.second) { oSuivi[i] = q; q += 48 }
+            for ((i, sv) in suivis.withIndex()) if (!sv.second && (!alterne || fixe[i])) { oSuivi[i] = q; q += 48 }
             oLot = q; q += lot.sumOf { it.second } + pad
             oLink = q; q += compact(42)
-            for ((i, sv) in suivis.withIndex()) if (sv.second) { oSuivi[i] = q; q += compact(sv.first.nj) }
+            for ((i, sv) in suivis.withIndex()) if (sv.second && alterne && fixe[i]) { oSuivi[i] = q; q += compact(sv.first.nj) }
+            totCourt = if (alterne && suivis.indices.any { !fixe[it] }) q else -1
+            // (build 454 : en mode alterne, tous les objets a la fin : un paquet sans eux garde les memes places pour le reste)
+            if (alterne) for ((i, sv) in suivis.withIndex()) if (!sv.second && !fixe[i]) { oSuivi[i] = q; q += 48 }
+            for ((i, sv) in suivis.withIndex()) if (sv.second && !(alterne && fixe[i])) { oSuivi[i] = q; q += compact(sv.first.nj) }
             tot = q
         }
         companion object { fun compact(nj: Int) = 48 + (nj - 1) * 18 }
     }
     @Volatile private var dispo: Dispo? = null
+    // (build 454 : les deux derniers objets recus en entier : un envoi sans eux les prolonge d'un demi-pas)
+    private var vifA: FloatArray? = null; private var vifPrec: FloatArray? = null; private var vifPrecId = -1
+    private fun vifProlonge(dp: Dispo): FloatArray? {
+        val b = vifPrec?.takeIf { vifPrecId == dp.id } ?: return null
+        val a = vifA?.takeIf { it.size == b.size } ?: return b.copyOf()
+        return FloatArray(b.size) { i -> val d = b[i] - a[i]; if (d.isFinite() && Math.abs(d) < 500f) b[i] + d * 0.5f else b[i] }
+    }
     private var idDispo = 0; private var padN = 0
     private var lotRes: Map<Long, ByteArray>? = null
     private fun TETE() = 0x803C3AB4L
@@ -263,21 +303,42 @@ object JeuWW {
         if (d.agb != 0L) l.add((d.agb + 0x1F8) to 12)                  // (build 417 : curseur du Tingle Tuner)
         if (d.bateau != 0L) l.add((d.bateau + 0x1F8) to 12)            // (build 425 : le bateau, pour les vagues)
         if (d.voile != 0L) { l.add(d.mat to 48); l.add(d.voile to VOILE_N * 12) }   // (build 427 : la voile)
-        for ((v, plein) in d.suivis) if (!plein) l.add((v.adr + 0x24) to 48)
+        // (build 454, Pulse « 2 » : les objets un envoi sur deux (options 0x60000000), a la fin ; Pulse build 909 et plus)
+        val alt = if (d.alterne) 0x60000000L else 0L
+        for ((i, sv) in d.suivis.withIndex()) if (!sv.second && (!d.alterne || d.fixe[i])) l.add((sv.first.adr + 0x24) to 48)
         l.addAll(d.lot)
         l.add(G to d.pad)
         l.add(d.n to (0x80000000L or (42 * 48L)).toInt())               // (build 440 : compacts, a la fin)
-        for ((v, plein) in d.suivis) if (plein) l.add(v.os to (0x80000000L or (v.nj * 48L)).toInt())
-        MemoireJeu.abonner(l, 1)
+        // (build 461 : l'equipement de Link a chaque image, juste apres Link, avant les objets un envoi sur deux)
+        for ((i, sv) in d.suivis.withIndex()) if (sv.second && d.alterne && d.fixe[i]) l.add(sv.first.os to (0x80000000L or (sv.first.nj * 48L)).toInt())
+        if (d.alterne) for ((i, sv) in d.suivis.withIndex()) if (!sv.second && !d.fixe[i]) l.add((sv.first.adr + 0x24) to (alt or 48L).toInt())
+        for ((i, sv) in d.suivis.withIndex()) if (sv.second && !(d.alterne && d.fixe[i])) l.add(sv.first.os to (0x80000000L or alt or (sv.first.nj * 48L)).toInt())
+        // (build 451 : une image de la tele sur deux : Wind Waker tourne a 30 images par seconde, Pulse envoyait a chaque
+        //  image de la tele (60) ; un envoi sur deux etait une copie du precedent, jetee a l'arrivee : 2 fois moins de temps
+        //  pris au jeu, meme animation)
+        MemoireJeu.maxMorceaux = if (console911()) 96 else 64             // (build 457)
+        MemoireJeu.abonner(l, if (Direct3D.mode == 2) 4 else 2, if ((Direct3D.sansCopie || Direct3D.mode == 2) && console909()) 1 else 0)   // (build 455 : Leger : 1 image sur 4, sans recopie)   // (build 454 : Pulse « 3 », essai)
     }
     private fun nouvelleDispo(n: Long, p: Long, c: Long, suivis: List<Pair<VifObjet, Boolean>>, lot: List<Pair<Long, Int>>, agb: Long = agbVu): Dispo {
         padN = (padN + 1) % 15
-        return Dispo(++idDispo, n, p, c, suivis, lot, 4 + 4 * padN, agb, effBateau(), effMat(), effVoile())
+        val sv = if (Direct3D.mode == 2) suivis.sortedBy { (v, _) -> v.pos?.let { q -> val l = linkPos; if (l == null) 0f else (q[0] - l[0]) * (q[0] - l[0]) + (q[2] - l[2]) * (q[2] - l[2]) } ?: Float.MAX_VALUE }.take(4) else suivis   // (build 455 : Leger : les 4 plus proches)
+        return Dispo(++idDispo, n, p, c, sv, lot, 4 + 4 * padN, agb, effBateau(), effMat(), effVoile(), alterneOk())
+    }
+    // (build 454, Pulse « 2 » : objets un envoi sur deux si la vue 3D le veut (par defaut) et si la console le sait : build 909+)
+    @Volatile private var buildConsole = -1; private var buildT = 0L
+    private fun alterneOk(): Boolean = (Direct3D.mode == 1 || Direct3D.mode == 2) && Direct3D.objetsAlternes && console909()   // (build 455 : pas en Classique ; 456 : ni en Detaille)
+    private fun console909(): Boolean {
+        if (buildConsole < 0 && System.nanoTime() - buildT > 30_000_000_000L) {
+            buildT = System.nanoTime()
+            buildConsole = try { org.json.JSONObject(Api.get("/api/memoire", 1500) ?: "").optInt("build", -1) } catch (e: Exception) { -1 }
+        }
+        return buildConsole >= 909
     }
     // (build 436 : ce que la console envoie, au choix dans la vue 3D : moins de choses, moins de temps pris au jeu)
-    private fun effBateau() = if (Direct3D.vagues) bateauVu else 0L
-    private fun effVoile() = if (Direct3D.voile) voileVu else 0L
-    private fun effMat() = if (Direct3D.voile) voileMatVu else 0L
+    private fun effBateau() = if (Direct3D.vagues && Direct3D.mode != 2) bateauVu else 0L   // (build 455 : Leger : sans)
+    private fun effVoile() = if (Direct3D.voile && Direct3D.mode != 2) voileVu else 0L
+    private fun effMat() = if (Direct3D.voile && Direct3D.mode != 2) voileMatVu else 0L
+    @Volatile var linkPos: FloatArray? = null                        // (build 455 : derniere position de Link, pour les objets proches)
     /** lecture groupee de morceaux de memoire par l'abonnement (Link continue d'arriver) ; null : pas de reponse */
     private fun lireLot(ch: List<Pair<Long, Int>>): Map<Long, ByteArray>? {
         val d0 = dispo ?: return null
@@ -340,21 +401,48 @@ object JeuWW {
     /** objets suivis : les plus proches de Link en entier (os), les autres par leur seule matrice de base
      *  (build 368 : le jeu ralentissait avec le compagnon : Pulse copiait ~10 Ko a chaque image (Link + 40 objets, dont
      *  7,6 Ko d'os) ; maintenant 16 objets, os complets seulement a moins de 15 m et 1,5 Ko au plus : ~4 Ko par image) */
+    // build 456 : ce que chaque mode suit (objets au plus, octets d'os en plus, distance des os complets en unites du jeu,
+    // taille d'un objet complet au plus). Plafonds de Pulse (console 910, inchanges) : 64 morceaux et 10 Ko par image ; on
+    // garde de la marge (60 morceaux, 9,6 Ko), mesure par le « Rapport du direct » (~0,43 ms par Ko a la console 910)
+    private class Reglage(val objets: Int, val budget: Int, val loin: Float, val parObjet: Int)
+    private fun reglage(): Reglage = when (Direct3D.mode) {
+        0 -> Reglage(18, 2048, 1800f, 1536)                 // Classique : un peu plus d'objets, de plus loin (objectif ~1,2 ms)
+        3 -> if (console911()) Reglage(40, 7168, 4000f, 2304) else Reglage(28, 4096, 3000f, 2304)   // Detaille : la vue 3D avant tout (build 457 : plus avec la console 911)
+        else -> Reglage(16, 1536, 1500f, 1536)              // Optimise (et Leger, qui garde ensuite les 4 plus proches)
+    }
+    // (build 457 : console 911 : Pulse accepte 96 morceaux et 16 Ko par image ; on garde la meme marge)
+    private fun maxOctets() = if (console911()) 15800 else 9600
+    private fun maxMorceaux() = if (console911()) 92 else 60
+    fun console911(): Boolean { console909(); return buildConsole >= 911 }
     private fun choisirSuivis(lx: Float, ly: Float, lz: Float): List<Pair<VifObjet, Boolean>> {
-        val dyn = (bateauObjs + bombes.map { it.second }).distinctBy { it.adr }.filter { b -> vifs.none { it.adr == b.adr } }
-        val bo = dyn.filter { it.toujours }.take(6)                               // (build 423 : bombes toujours suivies ; 446 : et le bateau)
-        val tri = bo + (vifs + dyn.filter { !it.toujours }).sortedBy { val p = it.pos; (p[0] - lx) * (p[0] - lx) + (p[1] - ly) * (p[1] - ly) + (p[2] - lz) * (p[2] - lz) }.take(16 - bo.size)
-        var budget = 1536
-        return tri.map { v ->
+        val rg = reglage()
+        // (build 456 : l'equipement que Link porte (epee, bouclier, masque, objet en main...) : toujours suivi, sauf en Leger)
+        val eq = if (Direct3D.mode == 2 || !Direct3D.equipement) emptyList() else equipObjs
+        val dyn = (eq + bateauObjs + bombes.map { it.second }).distinctBy { it.adr }.filter { b -> vifs.none { it.adr == b.adr } }
+        val bo = dyn.filter { it.toujours }.take(6 + eq.size)                     // (build 423 : bombes toujours suivies ; 446 : et le bateau)
+        val tri = bo + (vifs + dyn.filter { !it.toujours }).sortedBy { val p = it.pos; (p[0] - lx) * (p[0] - lx) + (p[1] - ly) * (p[1] - ly) + (p[2] - lz) * (p[2] - lz) }.take(maxOf(0, rg.objets - bo.size))
+        var budget = rg.budget
+        val choix = tri.map { v ->
             val plus = v.nj * 48 - 48
             val d2 = (v.pos[0] - lx) * (v.pos[0] - lx) + (v.pos[2] - lz) * (v.pos[2] - lz)
-            val plein = v.nj > 1 && plus <= budget && v.nj * 48 <= 1536 && d2 < 1500f * 1500f
+            // (equipement de Link : en Optimise, d'un seul bloc (matrice de base) ; ses os en Classique et Detaille)
+            val plein = v.nj > 1 && plus <= budget && v.nj * 48 <= rg.parObjet && d2 < rg.loin * rg.loin && !(v.proc == PROC_EQUIP && Direct3D.mode == 1)
             if (plein) budget -= plus
             v to plein
-        }.sortedBy { it.first.adr }                                       // (ordre stable : meme abonnement d'une seconde a l'autre)
+        }.toMutableList()
+        // (build 456 : jamais plus que les plafonds de Pulse : les objets les plus loin partent d'abord)
+        fun octets() = 786 + 12 + 48 + 12 + 12 + 64 + (if (effVoile() != 0L) 48 + VOILE_N * 12 else 0) +
+            choix.sumOf { (v, pl) -> if (pl) Dispo.compact(v.nj) else 48 }
+        while (choix.isNotEmpty() && (octets() > maxOctets() || choix.size + 9 > maxMorceaux())) choix.removeAt(choix.size - 1)
+        return choix.sortedBy { it.first.adr }                            // (ordre stable : meme abonnement d'une seconde a l'autre)
     }
     /** modeles du pack montres par le direct (leurs copies placees sont cachees) */
-    val modelesVifs: Set<Int> get() = if (vifPret) vifs.mapTo(HashSet()) { it.modele } else emptySet()
+    // (build 461, demande du proprietaire : seulement les personnages et objets vraiment presents dans sa partie. Avant,
+    //  seules les copies des modeles trouves en memoire etaient cachees ; les autres copies du pack (placees d'apres les
+    //  fichiers du lieu, presentes ou non dans la partie) restaient dessinees. Maintenant, des que la recherche est faite,
+    //  toutes les copies des modeles que le direct sait suivre sont cachees : on ne voit que ceux trouves dans le jeu.
+    //  Les modeles secondaires (mouettes, palmiers... : _local.txt) restent ceux du pack)
+    val modelesVifs: Set<Int> get() = if (vifPret) (sigsPack.values.toHashSet().also { s -> vifs.forEach { s.add(it.modele) } }) else emptySet()
 
     /** ecoute le direct (a appeler en boucle hors du fil d'affichage) ; s'abonne et relit les adresses chaque seconde ;
      *  (build 356) cherche les objets du lieu a chaque nouveau lieu et toutes les 10 s, puis les suit */
@@ -381,8 +469,14 @@ object JeuWW {
                     }
                 } else if (sigs.isEmpty()) { vifs = emptyList(); vifPret = false; sigsVues = null }
                 if (version == ID && vifPret && sigs.isNotEmpty()) suivreBombes(l, mo, sigs)
+                // (build 456 : l'equipement de Link : recherche une fois par acteur de Link (ou nouveau pack), puis suivi)
+                // (build 467 : sans attendre la recherche des objets du lieu (plusieurs secondes) : l'epee apparait plus vite)
+                if (version == ID && sigs.isNotEmpty() && dispo != null && Direct3D.mode != 2 && Direct3D.equipement) {
+                    if (equipLink != p || equipSigs !== sigs) { val vt = l.u32(mo); if (vt != null) { try { scannerEquip(p, mo, vt) } catch (e: Exception) { }; equipSigs = sigs } }
+                    try { suivreEquip(Lecteur(24, 0), sigs) } catch (e: Exception) { }
+                } else equipObjs = emptyList()
                 val lp = imagesWW.lastOrNull()?.pos
-                val suivis0 = if (vifPret) choisirSuivis(lp?.get(0) ?: 0f, lp?.get(1) ?: 0f, lp?.get(2) ?: 0f) else emptyList()
+                val suivis0 = if (vifPret || equipObjs.isNotEmpty()) choisirSuivis(lp?.get(0) ?: 0f, lp?.get(1) ?: 0f, lp?.get(2) ?: 0f) else emptyList()
                 val suivis = if (Direct3D.objets) suivis0 else suivis0.map { it.first to false }   // (build 436 : objets sans leurs articulations)
                 val d0 = dispo
                 val memes = d0 != null && d0.lot.isEmpty() && d0.n == n && d0.p == p && d0.c == (c ?: 0L) && d0.agb == agbVu && d0.bateau == effBateau() &&
@@ -414,6 +508,9 @@ object JeuWW {
         sb.append("Wind Waker direct : ").append(if (directWW()) "oui" else "non").append(" ; bibliotheque du pack : ").append(sigsPack.size)
             .append(" modeles ; recherche faite : ").append(vifPret).append(" ; objets trouves : ").append(vifs.size)
             .append(" ; apparus suivis : ").append(bombes.size).append(" ; bateau suivi : ").append(bateauObjs.size).append(" modele(s)\n")
+        sb.append("equipement de Link : ").append(equipCands.size).append(" modeles accroches ; dans le pack : ")
+            .append(equipCands.count { sigsPack.containsKey(it.sig) }).append(" ; portes et suivis : ").append(equipObjs.size).append('\n')
+        for (c in equipCands) sb.append("  +0x%X : fichier %d octets, %d os%s\n".format(c.off, c.sig shr 16, c.nj, if (sigsPack.containsKey(c.sig)) " (pack)" else ""))
         sb.append("bateau : ").append(if (bateauVu != 0L) "%08X".format(bateauVu) else "non").append(" ; voile : ").append(if (voileVu != 0L) "lue" else "non")
             .append(" ; Link : ").append(lp?.let { "%.0f %.0f %.0f".format(it[0], it[1], it[2]) } ?: "-").append('\n')
         val d = dispo
@@ -433,6 +530,7 @@ object JeuWW {
     private fun suivreBombes(l0: Lecteur, mo: Long, sigs: Map<Long, Int>) {
         val l = Lecteur(24, 0)
         bateauVu = l.ptr(SHIPP)?.takeIf { l.u16(it + 8) == 0xA7 } ?: 0L      // (build 425)
+        bateauCap = if (bateauVu != 0L) l.s16(bateauVu + 0x20E)?.let { angleJeu(it).toFloat() } ?: bateauCap else Float.NaN   // (build 456 : fantome)
         val vt = l.u32(mo) ?: return
         run {                                                             // (build 427 : la voile et le mat)
             val b = bateauVu; var va = 0L; var ma = 0L
@@ -474,7 +572,7 @@ object JeuWW {
             if (maillonsVus[n] == ac) break
             k++
             var fini = true
-            if (tas(ac) && nb.none { it.first == ac } && neufs < 3) {
+            if (tas(ac) && nb.none { it.first == ac } && neufs < (when (Direct3D.mode) { 3 -> 6; 0 -> 4; else -> 3 })) {   // (build 456 : plus d'effets en Classique / Detaille)
                 val pr = l.u16(ac + 8)
                 val offs = if (pr == 0x128) listOf(0x2A4) else { neufs++; (0x200 until 0x800 step 4).filter { o -> l.u32(ac + o)?.let { tas(it) } == true } }
                 var res = "pas de modèle"
@@ -514,7 +612,8 @@ object JeuWW {
         for (q in fPrt) { val x = q!!; val k = minOf(x.size, tot - o); System.arraycopy(x, 0, d, o, k); o += k }
         fPrt = arrayOfNulls(0)
         val dp = dispo ?: return
-        if (o < tot || tot != dp.tot) return                             // (image d'un autre abonnement)
+        val court = dp.totCourt > 0 && tot == dp.totCourt                // (build 454 : envoi sans les objets)
+        if (o < tot || (tot != dp.tot && !court)) return                  // (image d'un autre abonnement)
         val avecCam = dp.c != 0L
         // lecture groupee : les morceaux demandes, dans l'ordre
         if (dp.lot.isNotEmpty()) {
@@ -524,7 +623,7 @@ object JeuWW {
         }
         val os = matricesCompactes(d, dp.oLink, 42) ?: return
         if (!os.all { it.isFinite() && Math.abs(it) < 1e7f }) return
-        val pos = FloatArray(3) { fl(d, 4 * it) }
+        val pos = FloatArray(3) { fl(d, 4 * it) }; linkPos = pos   // (build 455)
         var batImg: FloatArray? = null
         if (dp.bateau != 0L) { val q = dp.oBat; val bp = FloatArray(3) { fl(d, q + 4 * it) }
             if (bp.all { it.isFinite() && Math.abs(it) < 1e6f }) { batImg = bp
@@ -533,12 +632,18 @@ object JeuWW {
         if (dp.agb != 0L) { val q = dp.oAgb; val cu = FloatArray(3) { fl(d, q + 4 * it) }
             if (cu.all { it.isFinite() && Math.abs(it) < 1e6f }) { curseurPos = cu; tCurseur = System.nanoTime() } }
         val cam = if (avecCam) FloatArray(12) { fl(d, dp.oCam + 4 * it) }.takeIf { c -> c.all { it.isFinite() } } else null
+        // (build 461 : un envoi court garde l'equipement de Link (fixe) : lu ici ; le reste est prolonge d'un demi-pas)
         val vif = if (dp.suivis.isEmpty()) null else FloatArray(dp.nVif).also { v ->
+            val pr = if (court) vifProlonge(dp) else null
+            if (court && pr == null && dp.suivis.indices.none { dp.fixe[it] }) return
+            if (pr != null) System.arraycopy(pr, 0, v, 0, minOf(pr.size, v.size)) else if (court) java.util.Arrays.fill(v, Float.NaN)
             var q = 0
             for ((i, sv) in dp.suivis.withIndex()) {
+                if (court && !dp.fixe[i]) { q += if (sv.second) sv.first.nj * 12 else 12; continue }
                 if (sv.second) { val m = matricesCompactes(d, dp.oSuivi[i], sv.first.nj); if (m != null) System.arraycopy(m, 0, v, q, m.size) else java.util.Arrays.fill(v, q, q + sv.first.nj * 12, Float.NaN); q += sv.first.nj * 12 }
                 else { for (k in 0 until 12) v[q + k] = fl(d, dp.oSuivi[i] + 4 * k); q += 12 }
             } }
+        if (!court && vif != null) { vifA = if (vifPrecId == dp.id) vifPrec else null; vifPrec = vif; vifPrecId = dp.id }
         // (position des objets suivis, pour choisir les plus proches : translation de la 1re matrice)
         if (vif != null) { var q = 0; for ((v, plein) in dp.suivis) { val x = vif[q + 3]; val y = vif[q + 7]; val z = vif[q + 11]
             if (x.isFinite() && y.isFinite() && z.isFinite()) v.pos = floatArrayOf(x, y, z); q += if (plein) v.nj * 12 else 12 } }
@@ -553,6 +658,7 @@ object JeuWW {
                     break }
                 q += if (plein) v.nj * 12 else 12 } }
         val t = System.nanoTime()
+        reseauWW.addLast(img to t); while (reseauWW.size > 2 && t - reseauWW.first().second > 3_000_000_000L) reseauWW.removeFirst()   // (build 456)
         // (le jeu calcule Link a son propre rythme : une image identique a la precedente ne sert pas de point de passage)
         val dern = imagesWW.lastOrNull()
         if (dern != null && dern.os.contentEquals(os) && (vif == null || dern.vif?.contentEquals(vif) == true)) { fluxWW = t; if (img > imgRecue) imgRecue = img; return }   // (449 : arrete : rien a prolonger)
@@ -577,6 +683,29 @@ object JeuWW {
             val r = arriveesWW.map { (i, tt) -> (tt - i * nsImg - mn) / nsImg }.sorted()
             retardCible = (r[(r.size * 0.95).toInt().coerceAtMost(r.size - 1)] + 1.5).coerceIn(2.5, 10.0)
         }
+    }
+    // build 456 : Wi-Fi plus solide : la qualite de la connexion avec la console sur les 3 dernieres secondes (tous les
+    // envois recus, meme identiques) : part des envois perdus et retard appris. « Faible » apres 3 s de pertes > 15 % ou de
+    // retard >= 7 images ; « bonne » de nouveau apres 5 s sous 5 % et 5 images (pas de va-et-vient)
+    private val reseauWW = java.util.concurrent.ConcurrentLinkedDeque<Pair<Long, Long>>()
+    @Volatile private var faible = false; private var tMauvais = 0L; private var tBon = 0L
+    /** pertes (0 a 1) et retard (images) ; null sans direct */
+    fun qualiteDirect(): Pair<Double, Double>? {
+        if (!directWW()) return null
+        val l = reseauWW.toList(); if (l.size < 10) return null
+        val per = if (Direct3D.mode == 2) 4.0 else 2.0
+        val attendu = (l.last().first - l.first().first) / per
+        val perte = if (attendu > 0) (1.0 - (l.size - 1) / attendu).coerceIn(0.0, 1.0) else 0.0
+        return perte to retardCible
+    }
+    fun connexionFaible(): Boolean {
+        val q = qualiteDirect(); val t = System.nanoTime()
+        if (q == null) { tMauvais = 0L; tBon = 0L; return faible }
+        val mauvais = q.first > 0.15 || q.second >= 7.0; val bon = q.first < 0.05 && q.second < 5.0
+        if (mauvais) { tBon = 0L; if (tMauvais == 0L) tMauvais = t; if (t - tMauvais > 3_000_000_000L) faible = true }
+        else if (bon) { tMauvais = 0L; if (tBon == 0L) tBon = t; if (t - tBon > 5_000_000_000L) faible = false }
+        else { tMauvais = 0L; tBon = 0L }
+        return faible
     }
     /** build 449 : retard du rejeu en images (appris) et part des images ou le mouvement a ete prolonge */
     fun retardDirect(): Double = retardWW
@@ -610,10 +739,11 @@ object JeuWW {
         // (build 447 : chaque image garde la liste de ses objets : plus de pose figee pendant un changement d'abonnement ;
         //  la 446 gardait la derniere pose connue : le bateau restait en arriere, puis sautait a sa place chaque seconde)
         val sa = a.suivis
+        val lpos = mix(a.pos, b.pos)
         if (!vifPret) vifsRejoues = null
         else if (va != null && sa != null) vifsRejoues = run {
             val v = if (b.dispo == a.dispo) mix(va, b.vif) else va
-            val out = ArrayList<VifPose>(); var q = 0
+            val out = ArrayList<VifPoseWW>(); var q = 0
             for ((o, plein) in sa) {
                 val n = if (plein) o.nj * 12 else 12
                 if (q + n > v.size) break
@@ -621,7 +751,10 @@ object JeuWW {
                 if (k > 1f) for (o3 in 0 until n step 4) {
                     val l3 = Math.sqrt((m[o3] * m[o3] + m[o3 + 1] * m[o3 + 1] + m[o3 + 2] * m[o3 + 2]).toDouble()).toFloat()
                     if (l3 > 1e-4f && Math.abs(l3 - 1f) < 0.2f) { m[o3] /= l3; m[o3 + 1] /= l3; m[o3 + 2] /= l3 } }
-                if (m.all { it.isFinite() && Math.abs(it) < 1e7f }) out.add(VifPose(o.modele, plein, m))
+                // (build 456 : equipement de Link range ou cache : le jeu le laisse a l'origine du monde ; pas dessine)
+                if (o.proc == PROC_EQUIP && lpos.size >= 3) { val dx = m[3] - lpos[0]; val dy = m[7] - lpos[1]; val dz = m[11] - lpos[2]
+                    if (dx * dx + dy * dy + dz * dz > 400f * 400f) continue }
+                if (m.all { it.isFinite() && Math.abs(it) < 1e7f }) out.add(VifPoseWW(o.modele, plein, m))
             }
             out
         }
@@ -1905,7 +2038,7 @@ object Chrono {
         try {
             val j = JSONObject(p.getString(cle(), null) ?: return)
             val n = j.getJSONArray("noms"); val t = j.getJSONArray("temps")
-            record = (0 until minOf(n.length(), t.length())).map { Etape(n.getString(it), t.getLong(it)) }
+            record = (0 until minOf(n.length(), t.length())).map { Etape(n.getString(it), t.getLong(it)) }.ifEmpty { null }   // (build 460)
             val m = j.optJSONArray("meilleurs")
             if (m != null) meilleurs = LongArray(m.length()) { m.getLong(it) }
         } catch (e: Exception) { }
@@ -1942,11 +2075,11 @@ object Chrono {
     fun terminer(nom: String = "Fin") {
         if (!enCours) return
         etape(nom)
-        finMs = etapes.last().ms
+        finMs = etapes.lastOrNull()?.ms ?: temps()                       // (build 460)
         enCours = false; fini = true
         val r = record
         nouveauRecord = r == null || r.isEmpty() || etapes.size > r.size || (etapes.size == r.size && finMs < r.last().ms)
-        if (nouveauRecord) { record = etapes.toList(); sauver() }
+        if (nouveauRecord && etapes.isNotEmpty()) { record = etapes.toList(); sauver() }   // (build 460 : jamais un record vide)
     }
     fun annuler() { enCours = false; fini = false; etapes.clear(); vus.clear() }
     fun effacerRecord() { record = null; meilleurs = null; sauver() }
@@ -2069,7 +2202,7 @@ fun EcranCompagnon() {
             if (!occupe && msgPack.isNotEmpty()) Doux(msgPack, taille = 11)
         }
         // build 373 : le micro du telephone (slot B, essai ; MicroTel.kt) : jeux a micro, ou jeu pas encore lu
-        if (id.isEmpty() || id.startsWith("GP6") || id.startsWith("GP7") || MicTel.etat.marche) MicroTelephone()
+        if (MicTel.VISIBLE && (id.isEmpty() || id.startsWith("GP6") || id.startsWith("GP7") || MicTel.etat.marche)) MicroTelephone()   // (build 458 : cache)
         // build 373 : la GBA du telephone ailleurs que dans Wind Waker ; build 376 : pour tous les jeux (Rayman 3, Pac-Man Vs....)
         if (!id.startsWith("GZL")) TingleTunerWW(ww = false)
         RangeeDePuces {
@@ -2769,7 +2902,7 @@ private fun EcranChrono() {
                     else -> "dans un jeu pris en charge"
                 }
                 else -> "Prêt (à la main)"
-            } + if (r != null && !Chrono.enCours && !Chrono.fini) " · record " + dureeChrono(r.last().ms) else "", taille = 12, centre = true)
+            } + (r?.lastOrNull()?.takeIf { !Chrono.enCours && !Chrono.fini }?.let { " · record " + dureeChrono(it.ms) } ?: ""), taille = 12, centre = true)   // (build 460 : record vide (liste sans etape) : l'appli plantait)
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 if (!Chrono.enCours) Bouton(if (Chrono.fini) "Nouvelle course" else "Démarrer", plein = true, icone = Ic.Lecture) { Chrono.charger(id); Chrono.demarrer() }
                 else {

@@ -10,8 +10,15 @@ R=$(pwd); T=$R/tools/natif-test; W=$T/work; mkdir -p $W; cd $W
 python3 $T/uc_patch.py unicorn || (cd unicorn/build && make -j8 >/dev/null)   # (v171 : pour emu_game.py, sans effet sur le reste)
 export UNICORN_DIR=$W/unicorn
 # 1) programme resident (clang, PowerPC 750)
+# v398-v399 : Pulse compile comme la console (gcc -O2 : le Pulse de tous les jeux ; le -Os ne sert qu au mode trap) ;
+# sinon clang -Oz (plus gros : les essais trap / check_z echouent alors pour cette seule raison)
+if command -v powerpc-linux-gnu-gcc >/dev/null; then
+powerpc-linux-gnu-gcc -O2 -mcpu=750 -msoft-float -G 0 -msdata=none -fno-pic -ffreestanding -fno-builtin -fno-asynchronous-unwind-tables -fno-exceptions -nostdlib -nostartfiles -Wall -DPULSE_NET=1 -Wl,-T,$R/tools/natres.ld -Wl,--no-gc-sections -Wl,--build-id=none -Wl,--no-warn-rwx-segments $R/source/natres/natres.c -o natres.elf -lgcc
+else
 clang --target=powerpc-none-eabi -mcpu=750 -Oz -ffreestanding -fno-builtin -nostdlib -fno-pic -msoft-float -Wall -Wextra -c $R/source/natres/natres.c -o natres.o
 ld.lld -T $R/tools/natres.ld natres.o -o natres.elf
+fi
+echo "Pulse : fin a $(llvm-nm natres.elf | awk '/__natres_end/{print $1}') (mode trap : 817ffc00 au plus)"
 llvm-objcopy -O binary natres.elf natres.bin
 python3 $R/tools/bin2h.py natres.bin natres_bin.h natres_bin
 for a in "1 2 0" "0 2 0" "1 0 0" "1 1 0" "1 0 2"; do python3 $T/emu_natres.py natres.bin $a | tail -1; done
@@ -23,9 +30,23 @@ python3 $T/emu_mem.py natres.bin natres.elf $R/source/natres/natres.h | tail -1 
 # v359 : Pulse LAN (jeu en reseau local par Internet) : le pont
 clang --target=powerpc-none-eabi -mcpu=750 -Oz -ffreestanding -fno-builtin -nostdlib -fno-pic -msoft-float -Wall -Wextra -DNATRES_LAN -c $R/source/natres/natres.c -o natres_lan.o
 ld.lld -T $R/tools/natres.ld natres_lan.o -o natres_lan.elf && llvm-objcopy -O binary natres_lan.elf natres_lan.bin
+python3 $R/tools/bin2h.py natres_lan.bin natres_lan_bin.h natres_lan_bin   # (build 908 : pour natif.c, plus bas : manquait depuis v359)
 python3 $T/emu_lan.py natres_lan.bin natres_lan.elf $R/source/natres/natres.h | tail -1
-for wp in "0 2" "1 0" "0 0"; do set -- $wp; W_CH=$1 W_DEV=$2 python3 $T/emu_w5500.py natres.bin natres.elf $R/source/natres/natres.h | tail -1; done   # (v327 : ETH2SP1, ETH2GC en B, en A)
-W_BUSY=1 python3 $T/emu_w5500.py natres.bin natres.elf $R/source/natres/natres.h | tail -1   # (v327 : canal pris par le jeu)
+# (build 909 : le Pulse par defaut est celui du BBA : les essais W5500 sont faits plus bas, avec le Pulse W5500)
+# build 908 : les deux Pulse de la console : Broadband Adapter seul (PULSE_NET=1) et W5500 seul (PULSE_NET=2)
+for v in 1 2; do
+  clang --target=powerpc-none-eabi -mcpu=750 -Oz -ffreestanding -fno-builtin -nostdlib -fno-pic -msoft-float -Wall -Wextra -Wno-unknown-attributes -DPULSE_NET=$v -c $R/source/natres/natres.c -o natres_n$v.o
+  ld.lld -T $R/tools/natres.ld natres_n$v.o -o natres_n$v.elf && llvm-objcopy -O binary natres_n$v.elf natres_n$v.bin
+done
+python3 $R/tools/bin2h.py natres_n2.bin natres_wz_bin.h natres_wz_bin   # (pour natif.c : Pulse W5500)
+for a in "1 2 0" "0 2 0" "1 0 0" "1 1 0" "1 0 2"; do python3 $T/emu_natres.py natres_n1.bin $a | tail -1; done   # (Pulse BBA)
+python3 $T/emu_pad.py natres_n1.bin natres_n1.elf $R/source/natres/natres.h | tail -1
+python3 $T/emu_gba.py natres_n1.bin natres_n1.elf $R/source/natres/natres.h | tail -1
+python3 $T/emu_mic.py natres_n1.bin natres_n1.elf $R/source/natres/natres.h | tail -1
+python3 $T/emu_mem.py natres_n1.bin natres_n1.elf $R/source/natres/natres.h | tail -1
+for wp in "0 2" "1 0" "0 0"; do set -- $wp; W_CH=$1 W_DEV=$2 python3 $T/emu_w5500.py natres_n2.bin natres_n2.elf $R/source/natres/natres.h | tail -1; done   # (Pulse W5500)
+W_BUSY=1 python3 $T/emu_w5500.py natres_n2.bin natres_n2.elf $R/source/natres/natres.h | tail -1
+for a in "1 2 0" "1 0 0"; do python3 $T/emu_natres.py natres_n2.bin $a | tail -1; done   # (Pulse W5500 : la carte SD, sans reseau)
 EMU_NODMA=1 python3 $T/emu_natres.py natres.bin 1 0 0 | tail -1     # (v94 : adaptateur sans DMA)
 EMU_BAD32=1 python3 $T/emu_natres.py natres.bin 1 0 0 | tail -1     # (v94 : 32 MHz qui abime les donnees)
 # v187 : retour a GC Station en quittant une appli (natret en 0x80001800) : SD2SP2 SDHC, SD Gecko slot A carte SD, slot B
@@ -36,6 +57,9 @@ python3 $T/emu_appstub.py $R/source/gclib.c natret.bin | tail -1     # (v189 : l
 # (natif.c sans la partie QR code / telephone, qui depend du reste de GC Station)
 sed '/^\/\* ---------- v51 : le rapport sur le telephone/,$d' $R/source/natif.c > natif.c
 echo 'static void nat_qr_open(const char *id) { (void)id; }' >> natif.c
+# v397 : bandeau des succes sur la tele (code seul, pose sous Pulse par natif.c)
+clang --target=powerpc-none-eabi -mcpu=750 -Os -ffreestanding -fno-builtin -nostdlib -fno-pic -msoft-float -fno-jump-tables -fno-asynchronous-unwind-tables -Wall -Wextra -c $R/source/natres/bandeau.c -o bandeau.o
+ld.lld -T $R/tools/bandeau.ld bandeau.o -o bandeau.elf && llvm-objcopy -O binary bandeau.elf bandeau.bin && python3 $R/tools/bin2h.py bandeau.bin bandeau_bin.h bandeau_bin
 # 2) partie console de natif.c : verification de syntaxe avec les en-tetes de libogc
 mkdir -p fakeinc/gnu; touch fakeinc/gnu/stubs-32.h
 printf '#pragma once\n#include <stdbool.h>\n#include <sys/types.h>\nbool fatMountSimple(const char*, const void*);\nvoid fatUnmount(const char*);\n' > fakeinc/fat.h
@@ -86,6 +110,8 @@ printf '04001F70 12345678\n20001F74 00000000\n02001F78 0000ABCD\nE2000001 000000
 NATIF_SELF=selfdol.dol NATIF_CHEATS=cheats.txt NATIF_WS=1 NATIF_DUMP=boot-g.bin ./h2 game.iso sd.img 10 > h2-g.txt
 python3 $T/emu_e2e.py boot-g.bin sd.img game.iso cheat | tail -1                # (cheats appliques par Pulse)
 python3 $T/emu_e2e.py boot-g.bin sd.img game.iso ws | tail -1                   # (16:9 force : GXSetProjection)
+NATIF_SELF=selfdol.dol NATIF_CHEATS=cheats.txt NATIF_TVSUCC=1 NATIF_DUMP=boot-gb.bin ./h2 game.iso sd.img 10 > h2-gb.txt
+EMU_BANDEAU=1 python3 $T/emu_e2e.py boot-gb.bin sd.img game.iso cheat | tail -1   # (v397 : bandeau des succes devant les cheats : les deux marchent)
 # v122 : carte du slot B, manettes (stick C inverse, seuil des gachettes, frequence), lecture apres la fin (.nkit), modes video
 python3 $T/mkfat.py 32 game.iso sd-b.img 1 selfdol.dol 2097152 disc2.iso 2097152 >/dev/null
 NATIF_SELF=selfdol.dol NATIF_CARD=2 NATIF_CSTICK=1 NATIF_TRIG=2 NATIF_POLL=2 NATIF_DUMP=boot-b.bin ./h2 game.iso sd-b.img 10 > h2-b.txt

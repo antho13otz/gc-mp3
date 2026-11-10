@@ -1,0 +1,22 @@
+GC Remote (application Android de GC Station) - Tous droits réserves / All rights reserved
+
+Copyright (c) 2026 Anthony (chauvet830 sur GitLab, antho13otz sur GitHub). Tous droits réservés.
+
+Le code de ce dossier (android/) n'est PAS sous licence MIT. La licence MIT du fichier LICENSE à la racine
+du dépôt ne couvre que la console (source/, tools/), pas l'application Android ni la version PC.
+Aucune autorisation n'est donnée de copier, modifier, distribuer, publier ou réutiliser ce code, en tout ou en
+partie, sans l'accord écrit du propriétaire.
+
+Exceptions (composants tiers, qui gardent leur propre licence) :
+- mGBA (https://mgba.io), téléchargé tel quel à la compilation dans app/src/main/cpp/mgba (version 0.10.5) :
+  Mozilla Public License 2.0 (MPL 2.0). Ses fichiers restent sous MPL 2.0 et leur code source reste disponible
+  sur https://github.com/mgba-emu/mgba (commit 26b7884bc25a5933960f3cdcd98bac1ae14d42e2).
+- Les bibliothèques utilisées à la compilation (AndroidX, Jetpack Compose, ONNX Runtime, ML Kit…) gardent leur
+  licence.
+- Voir aussi CREDITS.md à la racine du dépôt.
+
+---
+
+The code in this folder (android/) is NOT MIT licensed. Copyright (c) 2026 Anthony (chauvet830). All rights
+reserved. No permission is granted to copy, modify, distribute or reuse it without the owner's written consent.
+Third-party components (mGBA: MPL 2.0; Android libraries) keep their own licenses.

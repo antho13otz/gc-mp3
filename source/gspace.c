@@ -118,6 +118,11 @@ static void gs_input(u32 down, u32 nav, int fire) {
         gs_pos = p;
         if (gs_apps()) ap_sel = p; else gl_sel = gs_idx[p];
     }
+    /* v392 : sections : L / R ou stick C gauche / droite, AVANT les applis (avant : la section Applis rendait la main
+       avant de lire le stick C : on ne pouvait plus en sortir) */
+    if (down & PAD_TRIGGER_R) gs_filter_next(1);
+    if (down & PAD_TRIGGER_L) gs_filter_next(-1);
+    if (cs_ex) gs_filter_next(cs_ex > 0 ? 1 : -1);
     if (gs_apps()) {                            /* applis : A lancer, Y relire la carte, B retour */
         if ((down & PAD_BUTTON_A) && gs_n) gs_app_confirm = gs_idx[gs_pos];
         if (down & PAD_BUTTON_Y) { ap_rescan(); gs_dirty = 1; gl_note("Liste actualis\xC3\xA9" "e"); }
@@ -125,16 +130,17 @@ static void gs_input(u32 down, u32 nav, int fire) {
         return;
     }
     if ((down & PAD_BUTTON_A) && gs_n) { gl_detail = 1; if (gl[gl_sel].dvd) gl_launch_sel = gl_sel; }   /* v376 : A : la fiche d'abord (A encore : jouer) ; avant : "Lancer ce jeu ?" */
-    if ((down & PAD_BUTTON_Y) && gs_n) gl_detail = 1;                                 /* fiche du jeu */
     if ((down & PAD_BUTTON_X) && gs_n && !gl[gl_sel].dvd) gl_open_cheats(gl_sel);
-    if ((down & PAD_TRIGGER_L) && gs_n && !gl[gl_sel].dvd) {                          /* favori */
+    if ((down & PAD_BUTTON_Y) && gs_n && !gl[gl_sel].dvd) {   /* favori (v390 : Y ; L change d'onglet depuis la v386, et la croix
+                                                             haut de la fiche ouvre la boite : plus de favori dans cette vue) */
         gl[gl_sel].fav = !gl[gl_sel].fav;
         gl_note(gl[gl_sel].fav ? "Ajout\xC3\xA9 aux favoris" : "Retir\xC3\xA9 des favoris");
         gl_fav_save();
         gl_apply_sort();
         gs_dirty = 1;
     }
-    if (down & PAD_TRIGGER_R) { gl_view = GLV_LIST; settings_dirty = 1; gl_note(gl_view_name()); }   /* liste */
+    if (cs_ey < 0) { gl_view = GLV_LIST; settings_dirty = 1; gl_note(gl_view_name()); }   /* liste (v386 : stick C bas, avant R) */
+    if (cs_ey > 0) gs_filter_next(1);                     /* v386 : (stick C haut : onglet suivant, garde) */
     if (down & PAD_BUTTON_B) { gl_on = 0; if (gl_list_dirty) { gl_list_dirty = 0; gl_list_save(); } }
 }
 
@@ -202,8 +208,8 @@ static void gs_header(void) {
         else gx_rrect_fill(x, 58, w, 4, 2, RGBA(255, 255, 255, 46), RGBA(255, 255, 255, 46));
         x += w + dg;
     }
-    gx_rrect_fill(512, 30, 22, 18, 5, au_a(235), au_b(235));          /* Z : filtre suivant */
-    gx_text_c(F_SMALL, 523, 43, "Z", RGBA(255, 255, 255, 255));
+    gx_rrect_fill(512, 30, 22, 18, 5, au_a(235), au_b(235));          /* v390 : stick C (avant : Z) : onglet suivant */
+    gx_text_c(F_SMALL, 523, 43, "C", RGBA(255, 255, 255, 255));
     gx_hgrad(20, 72, 300, 1, RGBA(255, 255, 255, 0), RGBA(255, 255, 255, 34));   /* filet sous la barre */
     gx_hgrad(320, 72, 300, 1, RGBA(255, 255, 255, 34), RGBA(255, 255, 255, 0));
     nv_raw = 0;
@@ -310,7 +316,7 @@ static void gs_draw(void) {
             "Aucun favori : L sur un jeu pour l'ajouter", "Aucun jeu jou\xC3\xA9 pour l'instant", "Aucun jeu GameCube sur la carte SD",
             "Aucune appli : SD:/apps/<nom>/boot.dol (avec icon.png ou un .bnr)" };
         gx_text_c(F_LARGE, 320, 230, TR(gs_apps() && apq_state ? "Lecture des applis..." : e[gs_filter]), RGBA(255, 255, 255, 255));   /* (v376 : en fond) */
-        gx_text_c(F_SMALL, 320, 258, TR("Z : autre filtre"), RGBA(170, 170, 195, 255));
+        gx_text_c(F_SMALL, 320, 258, TR("C \xE2\x86\x91 : autre filtre"), RGBA(170, 170, 195, 255));
     } else if (gs_apps()) {
         gs_draw_vitrine();
         nv_raw = 1;
@@ -353,7 +359,7 @@ static void gs_draw(void) {
     if (gs_apps()) {
         x = gs_key(x, 453, "A", "Lancer", RGBA(110, 220, 140, 255));
         x = gs_key(x, 453, "Y", "Actualiser", RGBA(235, 235, 245, 255));
-        x = gs_key(x, 453, "Z", "Filtre", au_a(255));
+        x = gs_key(x, 453, "L/R", "Sections", au_a(255));   /* v390 */
         gs_key(x, 453, "B", "Retour", RGBA(240, 110, 110, 255));
         nv_raw = 0;
         if (gs_app_confirm >= 0 && gs_app_confirm < ap_n) {     /* "Lancer cette appli ?" */
@@ -372,10 +378,10 @@ static void gs_draw(void) {
     }
     if (gs_n && !(gl_sel >= 0 && gl_sel < gl_n && gl[gl_sel].dvd)) {           /* v198 : (pas de cheats ni de favori pour le lecteur) */
         x = gs_key(x, 453, "X", "Cheats", RGBA(235, 235, 245, 255));
-        x = gs_key(x, 453, "L", "Favori", RGBA(255, 210, 90, 255));
+        x = gs_key(x, 453, "Y", "Favori", RGBA(255, 210, 90, 255));   /* v390 (avant : L, qui change d'onglet depuis la v386) */
     }
-    x = gs_key(x, 453, "Z", "Filtre", au_a(255));
-    x = gs_key(x, 453, "R", "Liste", RGBA(235, 235, 245, 255));
+    x = gs_key(x, 453, "L/R", "Sections", au_a(255));   /* v390 : stick C (avant : Z, R) */
+    x = gs_key(x, 453, "C", "\xE2\x86\x93 Liste", RGBA(235, 235, 245, 255));
     gs_key(x, 453, "B", "Retour", RGBA(240, 110, 110, 255));
     nv_raw = 0;
     if (gl_launch_sel >= 0) gl_draw_launch_box();                /* "Lancer ce jeu ?" (gclib.c) */
@@ -424,8 +430,14 @@ static void gs_draw_fiche(void) {
     } else {                                                     /* v282 : la boite du jeu en 3D (box3d.c) */
         if (g->post >= 0 && gl_big.game == gl_sel && gl_big.tex) { o = &gl_big.obj; big = 1; }
         else if (g->post >= 0) o = gl_cover(gl_sel, 1);          /* (la petite en attendant la grande) */
-        if (!bx_zoomed()) bx_draw(gl_sel, cx, cy, cw, chh, o, big, gl_fc_get(gl_sel), bx_open_to > 0.5f || bx_open > 0.3f ? gl_dk_get(gl_sel) : NULL);   /* v290 : + le disque */
+        GXTexObj *fc = gl_fc_get(gl_sel);
+        if (!fc && !net_ok && o) {                               /* build 908 : sans Internet (pas de jaquette complete) : seulement */
+            f32 u1 = big ? 192.0f / 256.0f : 96.0f / 128.0f;      /* l'image de la jaquette, a plat, sans boite (demande du proprietaire) */
+            gs_tex_quad(o, u1, 0.0f, 1.0f, cx, cy, cy + chh, cx + cw, cy, cy + chh, 255, 255);
+        } else {
+        if (!bx_zoomed()) bx_draw(gl_sel, cx, cy, cw, chh, o, big, fc, bx_open_to > 0.5f || bx_open > 0.3f ? gl_dk_get(gl_sel) : NULL);   /* v290 : + le disque */
         if (!bx_zoomed()) gx_text_c(F_SMALL, cx + cw / 2, cy + chh + 34, "Stick C : tourner / zoomer", RGBA(170, 160, 210, 200));   /* v284 */   /* v283 : + la jaquette complete (GameTDB) ; v284 : zoomee : dessinee par-dessus, plus bas */
+        }
     }
     /* a droite */
     const f32 rx = 250 + ox; const int rw = 366;
@@ -491,7 +503,7 @@ static void gs_draw_fiche(void) {
     }
     if (gs_n && !gs_apps()) { snprintf(d, sizeof(d), "%d / %d", gs_pos + 1, gs_n); gx_text_r(F_SMALL, 616, 404, d, RGBA(130, 130, 155, 255)); }
     if (now_ms() - gl_msg_t < 3500) gx_text_c(F_SMALL, 320, 428, gl_msg, RGBA(255, 210, 120, 255));
-    if (!g->dvd && bx_zoomed()) {                            /* v284 : boite zoomee, par-dessus la fiche */
+    if (!g->dvd && bx_zoomed() && (net_ok || gl_fc_get(gl_sel))) {   /* v284 : boite zoomee, par-dessus la fiche (build 908 : pas sans Internet, jaquette a plat) */
         f32 t = (bx_zoom - 1) / 0.35f; if (t > 1) t = 1;
         u8 a = (u8)(225 * t);
         gx_poly4(0, 0, 640, 0, 640, 480, 0, 480, RGBA(6, 4, 14, a), RGBA(6, 4, 14, a), RGBA(6, 4, 14, a), RGBA(6, 4, 14, a));
@@ -564,7 +576,7 @@ static void gs_draw_fiche(void) {
         x = gs_key(x, 453, "Z", "Plus", au_a(255));        /* v376 : "Lancer ce jeu ?" : lanceur de secours, Pulse LAN */
         x = gs_key(x, 453, "X", bx_open_to > 0.5f && nt_pages(gl_sel) > 0 ? "Notice" : "Cheats", RGBA(235, 235, 245, 255));   /* v296 */
         x = gs_key(x, 453, "Y", "R\xC3\xA9glages", RGBA(235, 235, 245, 255));
-        x = gs_key(x, 453, "L", "Favori", RGBA(255, 210, 90, 255));
+        x = gs_key(x, 453, "C", "\xE2\x86\x90 Favori", RGBA(255, 210, 90, 255));   /* v390 : stick C gauche (avant : L) */
         if (bx_open_to > 0.5f) x = gs_key(x, 453, "\xE2\x86\x93", bx_out_to > 0.5f ? "Ranger le disque" : "Sortir le disque", RGBA(150, 200, 255, 255));   /* v304 */
         else {
             x = gs_key(x, 453, "\xE2\x86\x91", "Bo\xC3\xAEte", RGBA(150, 200, 255, 255));   /* v282 : box3d.c */

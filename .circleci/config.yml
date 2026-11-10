@@ -1,0 +1,129 @@
+# Compilation de la console (GC Station .dol) sur CircleCI (8 novembre 2026) : les memes etapes que sur GitLab
+# (.gitlab-ci.yml : console-lanceur, console, console-compresse, console-publier), mais avec les minutes gratuites de
+# CircleCI (30 000 credits par mois). GitLab reste la maison du projet : le code, et les mises a jour publiees dans ses
+# paquets (tools/publish_gitlab.py, cle d'acces GITLAB_TOKEN creee par le proprietaire dans les reglages du projet
+# CircleCI ; jamais ecrite ici).
+#
+# Ne compile QUE la branche "compiler" : on y envoie main quand le proprietaire dit de compiler
+# (git push origin main:compiler). Un envoi sur main ne coute rien.
+version: 2.1
+
+jobs:
+  recuperer:
+    docker: [{ image: cimg/base:current }]
+    resource_class: small
+    steps:
+      - checkout
+      - run: rm -rf .git                              # (l'historique ne sert pas a la compilation : moitie moins de stockage)
+      - persist_to_workspace: { root: ., paths: [.] }
+
+  lanceur:
+    docker: [{ image: ghcr.io/extremscorner/libogc2:latest }]
+    steps:
+      - attach_workspace: { at: . }
+      - restore_cache: { keys: [lanceur-swiss] }
+      - run: bash ci/console-loader.sh
+      - save_cache: { key: lanceur-swiss, paths: [ci-cache/loader] }
+      - persist_to_workspace: { root: ., paths: [gc-mp3-loader.bin, gc-mp3-igr.img] }
+
+  console:
+    docker: [{ image: devkitpro/devkitppc:latest }]
+    steps:
+      - attach_workspace: { at: . }
+      - run: . ci/numeros.env && bash ci/console.sh "$CONSOLE_BUILD"
+      - persist_to_workspace: { root: ., paths: [sortie, gc-mp3player.elf] }
+      - store_artifacts: { path: gc-mp3player.elf }       # (pour retrouver les fonctions d'un ecran rouge)
+
+  compresse:
+    docker: [{ image: ghcr.io/extremscorner/libogc2:latest }]
+    steps:
+      - attach_workspace: { at: . }
+      - run: . ci/numeros.env && bash ci/compresse.sh "$CONSOLE_BUILD"
+      - persist_to_workspace: { root: ., paths: [sortie] }
+
+  publier:
+    docker: [{ image: python:3.12-slim }]
+    resource_class: small
+    steps:
+      - attach_workspace: { at: . }
+      - run:
+          name: publication sur GitLab (paquets du projet gc-station-group/gc-station)
+          command: |
+            . ci/numeros.env
+            export CI_PROJECT_ID=88617655
+            python3 -I tools/publish_gitlab.py console "$CONSOLE_BUILD" "sortie/gc-mp3player-b$CONSOLE_BUILD.dol" "sortie/gc-station-compresse-b$CONSOLE_BUILD.bin" sortie/gc-mp3-igr.img sortie/gc-mp3-loader.bin
+
+  appli-publique:
+    # Appli publique (GC Remote Lite) : memes etapes que le job GitLab « appli-publique » (ci/appli-publique.sh), avec les
+    # credits de CircleCI. Variables du projet CircleCI (jamais ecrites ici) : ANDROID_PUBLIC_KEYSTORE_B64,
+    # ANDROID_PUBLIC_KEYSTORE_PASS, GITLAB_TOKEN. Branche « appli-compiler » seulement. Jamais l'APK prive.
+    docker: [{ image: cimg/android:2026.10.1-ndk }]
+    resource_class: large
+    steps:
+      - checkout
+      - restore_cache: { keys: [appli-gradle] }
+      - run: . ci/numeros.env && export CI_PROJECT_ID=88617655 && bash ci/appli-publique.sh "$APPLI_BUILD"
+      - save_cache: { key: appli-gradle, paths: [ci-cache/gradle-8.11.1, ci-cache/gradle-home] }
+
+  github:
+    # Build 516 : recopie sur GitHub (antho13otz/gc-mp3, Releases) de ce qui vient d'etre publie sur GitLab : console ou appli
+    # publique, avec sa note de docs/HISTORIQUE.md (tools/publish_github.py). Variable du projet CircleCI GITHUB_TOKEN (jeton
+    # « fine-grained » Contents : Read and write sur gc-mp3 seulement ; jamais ecrit ici) ; sans elle, ne fait rien.
+    # Jamais l'APK prive (refuse par le script).
+    parameters:
+      quoi: { type: string }
+    docker: [{ image: cimg/python:3.12 }]
+    resource_class: small
+    steps:
+      - checkout
+      - run: python3 -I tools/publish_github.py depuis-gitlab << parameters.quoi >>
+
+  github-code:
+    # Build 524 : recopie le CODE sur GitHub (tools/publish_code_github.py), sans l'appli privee ni les notes de travail.
+    # Branche « github-code » ; meme jeton GITHUB_TOKEN que les releases.
+    docker: [{ image: cimg/python:3.12 }]
+    resource_class: small
+    steps:
+      - checkout
+      - run: python3 -I tools/publish_code_github.py
+
+workflows:
+  console:
+    jobs:
+      - recuperer:
+          filters: { branches: { only: compiler } }
+      - lanceur:
+          requires: [recuperer]
+      - console:
+          requires: [lanceur]
+      - compresse:
+          requires: [console]
+      - publier:
+          requires: [compresse]
+      - github:
+          name: github-console
+          quoi: console
+          requires: [publier]
+  appli-publique:
+    jobs:
+      - appli-publique:
+          filters: { branches: { only: appli-compiler } }
+      - github:
+          name: github-appli
+          quoi: appli
+          requires: [appli-publique]
+  github-rattrapage:
+    # (branche « github-publier » : ne compile rien ; recopie sur GitHub la derniere console et la derniere appli publiques)
+    jobs:
+      - github:
+          name: github-console-seule
+          quoi: console
+          filters: { branches: { only: github-publier } }
+      - github:
+          name: github-appli-seule
+          quoi: appli
+          filters: { branches: { only: github-publier } }
+  github-code:
+    jobs:
+      - github-code:
+          filters: { branches: { only: github-code } }

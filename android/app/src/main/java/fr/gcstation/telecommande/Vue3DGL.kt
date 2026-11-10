@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.geometry.Offset
@@ -71,6 +72,9 @@ class SceneR3(val dossier: java.io.File, val niveau: String, val groupes: List<G
                              // build 276 : 3 lave peinte (texture claire que le jeu colore en rouge : la mer de lave de knaar_10)
         var chaud = false    // build 276 : sous la lumiere rouge-orange du jeu (zone du crane de knaar_10)
         var vent = false     // build 356 : herbe de Wind Waker : ondule (2e coordonnees : hauteur dans la touffe, phase)
+        var nami = false           // build 470 : vague de la plage (Txa_nami) : le sable mouille est imite le long d'elle
+        var rivage = false         // build 468 : bandes collees au sable (sable mouille, ecume) : dessinees un peu devant
+        var sableMouille = false   // build 466 : Wind Waker, bande « umi_kage » le long du rivage : le sable mouille
         /** build 356 : clignements (suite de textures) et couleurs animees (multiplicateurs r g b a), images par seconde */
         var texSeq: IntArray? = null; var texIps = 30f; var coulSeq: FloatArray? = null; var coulIps = 30f
     }
@@ -133,6 +137,27 @@ class SceneR3(val dossier: java.io.File, val niveau: String, val groupes: List<G
                         // build 332 : R3V3 : les teintes du jeu sont deja dans les couleurs des sommets (knaar_10 : os blancs, sol
                         // orange, d'apres une photo de la console) ; la teinte chaude n'est gardee que pour les anciens packs
                         for (g in l) { g.eau = type[g.texture] ?: 0; g.chaud = !v3 && g.texture in chauds }
+                        // build 466 : le sable mouille (Wind Waker : texture « Txa_umi_kage », le long du rivage). Le pack garde
+                        // l'alpha des sommets a 0 (le jeu ne s'en sert pas pour cette bande) : elle etait invisible. Alpha remis
+                        // a 1 ; la couleur (sable sombre, a moitie transparent) est donnee au dessin
+                        // build 467 : pour les bandes du rivage (Txa_umi_kage, Txa_umi_kiwa, Txa_nami : sable mouille, ecume, vagues),
+                        // le jeu se sert de la couleur grise des sommets comme transparence : 0x7F (gris) = visible, 0 (noir) = efface.
+                        // Lue comme une couleur, elle donnait la bande noire au bout de l'ecume (journal du 8 novembre, 2 h 31) ;
+                        // et l'alpha a 0 du pack cachait le sable mouille. Ici : alpha = gris x 2, couleur blanche (x 0,5)
+                        // build 470 : sur les plages, le pack n'a pas de sable mouille (Txa_umi_kage n'entoure que les rochers et
+                        // les pontons, vu sur sea_44) : seules les vagues (Txa_nami) y sont. Il est imite sous elles (voir texHumide)
+                        val kages = HashSet<Int>(); val rivage = HashSet<Int>(); val namis = HashSet<Int>()
+                        for (li in ft.readLines()) { val p = li.trim().split(' ', limit = 2); if (p.size < 2) continue; val k = p[0].toIntOrNull() ?: continue
+                            if (p[1].contains("umi_kage", true)) kages.add(k)
+                            if (p[1].contains("_nami_", true)) namis.add(k)
+                            if (p[1].contains("umi_kage", true) || p[1].contains("umi_kiwa", true) || p[1].contains("_nami_", true)) rivage.add(k) }
+                        for (g in l) if (g.texture in rivage && g.mode >= 2) {
+                            g.sableMouille = g.texture in kages; g.rivage = true
+                            g.nami = g.texture in namis
+                            for (k in 0 until g.n) { val o = k * g.pas + 20
+                                val gris = maxOf(g.sommets.get(o).toInt() and 255, g.sommets.get(o + 1).toInt() and 255, g.sommets.get(o + 2).toInt() and 255)
+                                g.sommets.put(o, 0x7F.toByte()); g.sommets.put(o + 1, 0x7F.toByte()); g.sommets.put(o + 2, 0x7F.toByte())
+                                g.sommets.put(o + 3, minOf(255, gris * 2).toByte()) } }
                     }
                     // R3V3 : <niveau>_anim.txt : groupe, defilement u et v par seconde
                     java.io.File(d, nv + "_anim.txt").takeIf { it.exists() }?.readLines()?.forEach { li -> val p = li.trim().split(' ')
@@ -233,7 +258,7 @@ class Etat3D {
     @Volatile var redessiner: () -> Unit = {}
     @Volatile var voir = "cfjkvrpidtuq"
     /** build 356 : Wind Waker, les objets lus en direct (poses) et les modeles du pack qu'ils remplacent */
-    @Volatile var vifsWW: List<JeuWW.VifPose>? = null; @Volatile var modelesVifs: Set<Int> = emptySet()
+    @Volatile var vifsWW: List<VifPoseWW>? = null; @Volatile var modelesVifs: Set<Int> = emptySet()
     /** build 266 : autres pions a montrer (Mario Kart : les autres karts) : x, y, z, couleur (ARGB en Float.fromBits) par pion */
     @Volatile var pions = FloatArray(0)
     /** build 269 : position lue en direct ~30 fois par seconde ; le moteur la lisse a chaque image (plus de sauts) */
@@ -244,6 +269,12 @@ class Etat3D {
     @Volatile var captureCb: ((android.graphics.Bitmap?) -> Unit)? = null
     /** build 338 : Wind Waker, Link en 3D : cap (radians, angle du jeu), vitesse (unites du jeu par image), sous l'eau (0/1) */
     @Volatile var linkWW: FloatArray? = null
+    /** build 456 : derniere place du fantome d'un ami dessine (repere de l'appli), pour « Aller le voir » */
+    @Volatile var fantomePos: FloatArray? = null
+    @Volatile var suitFantome = false
+    /** build 456 : plus de noir au passage en plein ecran : chaque vue OpenGL a son numero ; tant que la nouvelle n'a pas
+     *  dessine sa 1re image (textures du lieu chargees), la derniere image de l'ancienne reste affichee par-dessus */
+    @Volatile var genVue = 0; @Volatile var genPret = 0; @Volatile var apercu: android.graphics.Bitmap? = null
     /** build 340 : Wind Waker, la vraie pose de Link lue en direct : 42 matrices du monde (3 x 4, repere du jeu) et l'heure
      *  de lecture (System.nanoTime) */
     @Volatile var poseWW: FloatArray? = null; @Volatile var tPoseWW = 0L
@@ -422,7 +453,7 @@ object QualiteR3 {
     fun changer(ctx: android.content.Context, f: Int) { facteur = f; ctx.getSharedPreferences("cartes-r3", 0).edit().putInt("tex", f).apply() }
 }
 
-private class RenduR3(val scene: SceneR3, val etat: Etat3D, val facteur: Int) : GLSurfaceView.Renderer {
+private class RenduR3(val scene: SceneR3, val etat: Etat3D, val facteur: Int, val gen: Int = 0) : GLSurfaceView.Renderer {
     private var prog = 0; private var progL = 0
     private var uSeuil = 0; private var progCiel = 0; private var cPos = 0
     // build 245 : ambiance, eau animee, objets
@@ -624,6 +655,7 @@ private class RenduR3(val scene: SceneR3, val etat: Etat3D, val facteur: Int) : 
         return p
     }
     override fun onSurfaceCreated(gl: GL10?, config: EGLConfig?) {
+        texHumide = 0; texNappe = 0   // (build 470 : nouveau contexte, textures a refaire)
         prog = programme("""
             uniform mat4 uMvp; uniform vec3 uCam; uniform float uT; uniform float uEau; uniform vec2 uDefil; uniform float uVent;
             uniform vec4 uVague; uniform float uOnde;
@@ -636,7 +668,9 @@ private class RenduR3(val scene: SceneR3, val etat: Etat3D, val facteur: Int) : 
                 if (uOnde > 0.5 && uVague.w > 0.0) { float r = distance(p.xy, uVague.xy);
                     float bord = 1.0 - smoothstep(uVague.w * 0.5, uVague.w, r);
                     float h = uVague.z * exp(-r * r / 420.0)
-                        + (0.30 * sin(p.x * 0.11 + p.y * 0.05 - uT * 0.9) + 0.18 * sin(p.y * 0.09 - p.x * 0.04 - uT * 1.3)) * smoothstep(4.0, 16.0, r);
+                        // (build 465 : houle 3 fois plus faible et seulement pres du bateau (25 m) : elle montait jusqu'a 0,48 m et
+                        //  recouvrait le bord des plages (sable plat, a peine au-dessus de l'eau) : le rivage changeait sans arret)
+                        + (0.10 * sin(p.x * 0.11 + p.y * 0.05 - uT * 0.9) + 0.06 * sin(p.y * 0.09 - p.x * 0.04 - uT * 1.3)) * smoothstep(4.0, 16.0, r) * (1.0 - smoothstep(18.0, 30.0, r));
                     p.z += h * bord; }
                 // build 356 : herbe : le haut de la touffe ondule au vent (2e coordonnees : hauteur relative, phase)
                 if (uVent > 0.5) { float o = sin(uT * 1.9 + aUvL.y) * 0.07 * aUvL.x * aUvL.x; p.x += o; p.y += o * 0.7; }
@@ -733,9 +767,12 @@ private class RenduR3(val scene: SceneR3, val etat: Etat3D, val facteur: Int) : 
         val texDecor = HashSet<Int>().apply { for (g in scene.groupes + (scene.mobiles?.groupes ?: emptyList())) { add(g.texture); g.texSeq?.forEach { add(it) } } }
         for ((gTexture, gEnveloppe) in aCharger) {
             if (gTexture < 0 || textures.containsKey(gTexture)) continue
-            val f = java.io.File(scene.dossier, scene.niveau + "_t" + String.format(java.util.Locale.ROOT, "%03d", gTexture) + ".png")
-            val petite = hd && gTexture !in texDecor
-            val bmp = (if (hd && (fac < 4 || petite)) {
+            // (build 458 : textures de l'equipement de Link : ww_equip_tNNN.png, a la taille du jeu (jamais reduites))
+            val eqT = gTexture >= AnimesWW.TEX_EQUIP
+            val f = if (eqT) java.io.File(scene.dossier, "ww_equip_t" + String.format(java.util.Locale.ROOT, "%03d", gTexture - AnimesWW.TEX_EQUIP) + ".png")
+                    else java.io.File(scene.dossier, scene.niveau + "_t" + String.format(java.util.Locale.ROOT, "%03d", gTexture) + ".png")
+            val petite = hd && gTexture !in texDecor && !eqT
+            val bmp = (if (hd && !eqT && (fac < 4 || petite)) {
                 // x2 et x1 : lecture directe en 1/2 ou 1/4 ; x3 : reduction filtree des 3/4
                 val o = android.graphics.BitmapFactory.Options().apply { inSampleSize = if (fac == 1 || petite) 4 else if (fac == 2) 2 else 1 }
                 val b0 = android.graphics.BitmapFactory.decodeFile(f.path, o)
@@ -1039,18 +1076,7 @@ private class RenduR3(val scene: SceneR3, val etat: Etat3D, val facteur: Int) : 
     private var peauLink: PeauLink? = null; private var peauCharge = false
     private fun dessinerLinkWW(mvp: FloatArray, c0: FloatArray): Boolean {
         val l = etat.linkWW ?: return false
-        if (!linkCharge) {
-            linkCharge = true
-            linkAni = LinkAnime.lire(java.io.File(scene.dossier, "ww_link.ani"))
-            val la = linkAni ?: return false
-            for (g in la.groupes) if (g.texture >= 0 && !linkTex.containsKey(g.texture))
-                linkTex[g.texture] = chargerTex("ww_link_t" + String.format(java.util.Locale.ROOT, "%03d", g.texture) + ".png")
-            linkVbo = IntArray(la.groupes.size * 2); GLES20.glGenBuffers(linkVbo.size, linkVbo, 0)
-            for ((i, g) in la.groupes.withIndex()) {
-                GLES20.glBindBuffer(GLES20.GL_ARRAY_BUFFER, linkVbo[2 * i]); g.uvc.position(0)
-                GLES20.glBufferData(GLES20.GL_ARRAY_BUFFER, g.n * 12, g.uvc, GLES20.GL_STATIC_DRAW)
-            }
-        }
+        chargerLinkWW()
         val la = linkAni ?: return false
         // build 340 : la vraie pose lue dans le jeu (42 matrices) : chaque sommet suit ses articulations (pack : ww_link.peau)
         val pw = etat.poseWW?.takeIf { System.nanoTime() - etat.tPoseWW < 1_000_000_000L && it.size >= 42 * 12 }
@@ -1082,12 +1108,36 @@ private class RenduR3(val scene: SceneR3, val etat: Etat3D, val facteur: Int) : 
             GLES20.glUseProgram(progL)
             return true
         }
+        return dessinerLinkAnime(mvp, c0, l, false)
+    }
+    /** build 456 : charge le Link du pack (ww_link.ani et ses textures) une fois */
+    private fun chargerLinkWW() {
+        if (!linkCharge) {
+            linkCharge = true
+            linkAni = LinkAnime.lire(java.io.File(scene.dossier, "ww_link.ani"))
+            val la = linkAni ?: return
+            for (g in la.groupes) if (g.texture >= 0 && !linkTex.containsKey(g.texture))
+                linkTex[g.texture] = chargerTex("ww_link_t" + String.format(java.util.Locale.ROOT, "%03d", g.texture) + ".png")
+            linkVbo = IntArray(la.groupes.size * 2); GLES20.glGenBuffers(linkVbo.size, linkVbo, 0)
+            for ((i, g) in la.groupes.withIndex()) {
+                GLES20.glBindBuffer(GLES20.GL_ARRAY_BUFFER, linkVbo[2 * i]); g.uvc.position(0)
+                GLES20.glBufferData(GLES20.GL_ARRAY_BUFFER, g.n * 12, g.uvc, GLES20.GL_STATIC_DRAW)
+            }
+        }
+    }
+    /** Link anime d'apres sa vitesse (sans la vraie pose) ; build 456 : aussi le fantome d'un ami (translucide, teinte bleue,
+     *  sa propre horloge d'animation) */
+    private var animFant = ""; private var tAnimFant = 0L
+    private fun dessinerLinkAnime(mvp: FloatArray, c0: FloatArray, l: FloatArray, fantome: Boolean): Boolean {
+        val la = linkAni ?: return false
         // l'animation : nage (sous l'eau), sinon d'apres la vitesse
         val v = l[1]
         val nom = if (l.size > 2 && l[2] > 0.5f) (if (v > 2f) "nage" else "nage_attente") else if (v < 1f) "attente" else if (v < 12f) "marche" else "course"
         val an = la.anims[nom] ?: la.anims["attente"] ?: return false
-        if (nom != animLink) { animLink = nom; tAnim = System.nanoTime() }
-        val img = (((System.nanoTime() - tAnim) / 1e9 * an.ips).toLong() % an.images).toInt()
+        val t0a: Long
+        if (fantome) { if (nom != animFant) { animFant = nom; tAnimFant = System.nanoTime() }; t0a = tAnimFant }
+        else { if (nom != animLink) { animLink = nom; tAnim = System.nanoTime() }; t0a = tAnim }
+        val img = (((System.nanoTime() - t0a) / 1e9 * an.ips).toLong() % an.images).toInt()
         // matrice : position, puis rotation du cap autour de la verticale (le modele regarde vers -y)
         android.opengl.Matrix.setRotateM(mLink, 0, Math.toDegrees(l[0].toDouble()).toFloat(), 0f, 0f, 1f)
         mLink[12] = c0[0]; mLink[13] = c0[1]; mLink[14] = c0[2]
@@ -1095,28 +1145,149 @@ private class RenduR3(val scene: SceneR3, val etat: Etat3D, val facteur: Int) : 
         GLES20.glUseProgram(prog)
         GLES20.glUniformMatrix4fv(uMvp, 1, false, mvpLink, 0)
         GLES20.glUniform1f(uEauL, 0f); GLES20.glUniform1f(uChaudL, 0f); GLES20.glUniform1f(uLmK, 0f); GLES20.glUniform2f(uDefil, 0f, 0f)
-        GLES20.glUniform4f(uMulL, 1f, 1f, 1f, 1f); GLES20.glUniform1f(uVentL, 0f)
-        GLES20.glUniform1f(uSeuil, 0.5f); GLES20.glDisable(GLES20.GL_BLEND); GLES20.glDepthMask(true); GLES20.glEnable(GLES20.GL_DEPTH_TEST)
+        GLES20.glUniform1f(uVentL, 0f); GLES20.glEnable(GLES20.GL_DEPTH_TEST)
         GLES20.glEnableVertexAttribArray(aPos); GLES20.glEnableVertexAttribArray(aUv); GLES20.glEnableVertexAttribArray(aCol)
         if (aUvL >= 0) { GLES20.glDisableVertexAttribArray(aUvL); GLES20.glVertexAttrib2f(aUvL, 0f, 0f) }
-        for ((i, g) in la.groupes.withIndex()) {
-            val t = linkTex[g.texture]
-            GLES20.glUniform1f(uAvecTex, if (t != null && t != 0) 1f else 0f)
-            if (t != null && t != 0) { GLES20.glActiveTexture(GLES20.GL_TEXTURE0); GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, t) }
-            GLES20.glBindBuffer(GLES20.GL_ARRAY_BUFFER, linkVbo[2 * i])
-            GLES20.glVertexAttribPointer(aUv, 2, GLES20.GL_FLOAT, false, 12, 0)
-            GLES20.glVertexAttribPointer(aCol, 4, GLES20.GL_UNSIGNED_BYTE, true, 12, 8)
-            val pb = an.pos[img][i]; pb.position(0)
-            GLES20.glBindBuffer(GLES20.GL_ARRAY_BUFFER, linkVbo[2 * i + 1])
-            GLES20.glBufferData(GLES20.GL_ARRAY_BUFFER, g.n * 12, pb, GLES20.GL_STREAM_DRAW)
-            GLES20.glVertexAttribPointer(aPos, 3, GLES20.GL_FLOAT, false, 12, 0)
-            GLES20.glDrawArrays(GLES20.GL_TRIANGLES, 0, g.n)
+        // (fantome : d'abord sa profondeur seule, puis sa couleur a moitie transparente : on ne voit pas son corps a travers lui)
+        for (passeF in (if (fantome) 0..1 else 1..1)) {
+            if (!fantome) { GLES20.glUniform4f(uMulL, 1f, 1f, 1f, 1f); GLES20.glUniform1f(uSeuil, 0.5f); GLES20.glDisable(GLES20.GL_BLEND); GLES20.glDepthMask(true) }
+            else if (passeF == 0) { GLES20.glColorMask(false, false, false, false); GLES20.glUniform4f(uMulL, 1f, 1f, 1f, 1f); GLES20.glUniform1f(uSeuil, 0.5f)
+                GLES20.glDisable(GLES20.GL_BLEND); GLES20.glDepthMask(true) }
+            else { GLES20.glColorMask(true, true, true, true); GLES20.glUniform4f(uMulL, 0.75f, 0.95f, 1.3f, 0.5f); GLES20.glUniform1f(uSeuil, 0.2f)
+                GLES20.glEnable(GLES20.GL_BLEND); GLES20.glBlendFunc(GLES20.GL_SRC_ALPHA, GLES20.GL_ONE_MINUS_SRC_ALPHA); GLES20.glDepthMask(false)
+                GLES20.glDepthFunc(GLES20.GL_LEQUAL) }
+            for ((i, g) in la.groupes.withIndex()) {
+                val t = linkTex[g.texture]
+                GLES20.glUniform1f(uAvecTex, if (t != null && t != 0) 1f else 0f)
+                if (t != null && t != 0) { GLES20.glActiveTexture(GLES20.GL_TEXTURE0); GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, t) }
+                GLES20.glBindBuffer(GLES20.GL_ARRAY_BUFFER, linkVbo[2 * i])
+                GLES20.glVertexAttribPointer(aUv, 2, GLES20.GL_FLOAT, false, 12, 0)
+                GLES20.glVertexAttribPointer(aCol, 4, GLES20.GL_UNSIGNED_BYTE, true, 12, 8)
+                val pb = an.pos[img][i]; pb.position(0)
+                GLES20.glBindBuffer(GLES20.GL_ARRAY_BUFFER, linkVbo[2 * i + 1])
+                GLES20.glBufferData(GLES20.GL_ARRAY_BUFFER, g.n * 12, pb, GLES20.GL_STREAM_DRAW)
+                GLES20.glVertexAttribPointer(aPos, 3, GLES20.GL_FLOAT, false, 12, 0)
+                GLES20.glDrawArrays(GLES20.GL_TRIANGLES, 0, g.n)
+            }
         }
+        if (fantome) { GLES20.glUniform4f(uMulL, 1f, 1f, 1f, 1f); GLES20.glDepthFunc(GLES20.GL_LESS); GLES20.glColorMask(true, true, true, true) }
         GLES20.glBindBuffer(GLES20.GL_ARRAY_BUFFER, 0)
         GLES20.glDisableVertexAttribArray(aUv); GLES20.glDisableVertexAttribArray(aCol)
         GLES20.glUniformMatrix4fv(uMvp, 1, false, mvp, 0)
         GLES20.glUseProgram(progL)
         return true
+    }
+
+    /** build 456 : le fantome d'un ami (Fantome.kt) : son Link anime d'apres sa vitesse, et son bateau (la coque du pack, a sa
+     *  place et tournee de son cap), a moitie transparents et teintes de bleu ; seulement s'il est dans le lieu affiche */
+    private val mBat = FloatArray(16); private val mvpBat = FloatArray(16); private val gBat = FloatArray(12)
+    private fun dessinerFantome(mvp: FloatArray, ex: Float, ey: Float, ez: Float) {
+        val (f, b) = Fantome.vuePour(scene.niveau) ?: return
+        etat.fantomePos = floatArrayOf(f[0], f[1], f[2])
+        if (b != null) dessinerBateauFantome(mvp, b, ex, ey, ez)
+        chargerLinkWW()
+        if (linkAni != null) dessinerLinkAnime(mvp, f, floatArrayOf(f[3], f[4], f[5]), true)
+        GLES20.glUseProgram(prog); GLES20.glUniformMatrix4fv(uMvp, 1, false, mvp, 0); GLES20.glUniform3f(uCam, ex, ey, ez)
+        GLES20.glEnableVertexAttribArray(aPos); GLES20.glEnableVertexAttribArray(aUv); GLES20.glEnableVertexAttribArray(aCol)
+    }
+    private fun dessinerBateauFantome(mvp: FloatArray, b: FloatArray, ex: Float, ey: Float, ez: Float) {
+        val ani = scene.animes ?: return
+        val m = ani.sigs[JeuWW.SIG_COQUE] ?: return
+        if (m >= vboAniPos.size || m >= vboAniUv.size) return
+        val md = ani.modeles.getOrNull(m) ?: return
+        if (md.images == 0) return
+        // (matrice de base du jeu : rotation du cap autour de la verticale, puis la place ; verifiee sur la copie de la memoire)
+        val c = Math.cos(b[3].toDouble()).toFloat(); val sn = Math.sin(b[3].toDouble()).toFloat()
+        gBat[0] = c; gBat[1] = 0f; gBat[2] = sn; gBat[3] = b[0]
+        gBat[4] = 0f; gBat[5] = 1f; gBat[6] = 0f; gBat[7] = b[1]
+        gBat[8] = -sn; gBat[9] = 0f; gBat[10] = c; gBat[11] = b[2]
+        matriceAppli(gBat, 0, mBat)
+        android.opengl.Matrix.multiplyMM(mvpBat, 0, mvp, 0, mBat, 0)
+        GLES20.glUseProgram(prog)
+        GLES20.glUniformMatrix4fv(uMvp, 1, false, mvpBat, 0)
+        GLES20.glUniform3f(uCam, 0f, 0f, 1e6f)                                  // (pas de brume sur le fantome)
+        GLES20.glUniform1f(uEauL, 0f); GLES20.glUniform1f(uChaudL, 0f); GLES20.glUniform1f(uLmK, 0f); GLES20.glUniform1f(uVentL, 0f)
+        GLES20.glUniform2f(uDefil, 0f, 0f); GLES20.glEnable(GLES20.GL_DEPTH_TEST)
+        GLES20.glEnableVertexAttribArray(aPos); GLES20.glEnableVertexAttribArray(aUv); GLES20.glEnableVertexAttribArray(aCol)
+        if (aUvL >= 0) { GLES20.glDisableVertexAttribArray(aUvL); GLES20.glVertexAttrib2f(aUvL, 0f, 0f) }
+        for (passeF in 0..1) {
+            if (passeF == 0) { GLES20.glColorMask(false, false, false, false); GLES20.glUniform4f(uMulL, 1f, 1f, 1f, 1f); GLES20.glUniform1f(uSeuil, 0.5f)
+                GLES20.glDisable(GLES20.GL_BLEND); GLES20.glDepthMask(true) }
+            else { GLES20.glColorMask(true, true, true, true); GLES20.glUniform4f(uMulL, 0.75f, 0.95f, 1.3f, 0.45f); GLES20.glUniform1f(uSeuil, 0.15f)
+                GLES20.glEnable(GLES20.GL_BLEND); GLES20.glBlendFunc(GLES20.GL_SRC_ALPHA, GLES20.GL_ONE_MINUS_SRC_ALPHA); GLES20.glDepthMask(false)
+                GLES20.glDepthFunc(GLES20.GL_LEQUAL) }
+            for ((gi, g) in md.groupes.withIndex()) {
+                if (gi >= vboAniUv[m].size) break
+                val t = textures[g.texture]
+                GLES20.glUniform1f(uAvecTex, if (t != null) 1f else 0f)
+                if (t != null) { GLES20.glActiveTexture(GLES20.GL_TEXTURE0); GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, t) }
+                GLES20.glBindBuffer(GLES20.GL_ARRAY_BUFFER, vboAniUv[m][gi])
+                GLES20.glVertexAttribPointer(aUv, 2, GLES20.GL_FLOAT, false, 12, 0)
+                GLES20.glVertexAttribPointer(aCol, 4, GLES20.GL_UNSIGNED_BYTE, true, 12, 8)
+                GLES20.glBindBuffer(GLES20.GL_ARRAY_BUFFER, vboAniPos[m][0])
+                GLES20.glVertexAttribPointer(aPos, 3, GLES20.GL_FLOAT, false, 12, g.debut * 12)
+                GLES20.glDrawArrays(GLES20.GL_TRIANGLES, 0, g.n)
+            }
+        }
+        GLES20.glUniform4f(uMulL, 1f, 1f, 1f, 1f); GLES20.glDepthFunc(GLES20.GL_LESS); GLES20.glColorMask(true, true, true, true)
+        GLES20.glDisable(GLES20.GL_BLEND); GLES20.glDepthMask(true)
+        GLES20.glUniformMatrix4fv(uMvp, 1, false, mvp, 0); GLES20.glUniform3f(uCam, ex, ey, ez)
+    }
+
+    /** build 464 : le vent de la partie (Wind Waker, g_env_light : direction), repere de l'appli (x, y au sol) ; null sans partie */
+    private fun ventApp(): FloatArray? {
+        if (scene.dossier.name != "cartes-ww") return null
+        val e = Compagnon.etat as? JeuWW.Etat ?: return null
+        if (!e.ventOk) return null
+        val x = e.ventX; val y = -e.ventZ; val l = Math.sqrt((x * x + y * y).toDouble()).toFloat()
+        return if (l < 1e-3f) null else floatArrayOf(x / l, y / l)
+    }
+    private val mBal = FloatArray(16); private val mBal2 = FloatArray(16)
+    private fun balancer(m: FloatArray, tSec: Double, phase: Float) {
+        val v = ventApp() ?: floatArrayOf(1f, 0f)
+        val px = m[12]; val py = m[13]; val pz = m[14]
+        val ph = phase * 6.2832f + (px * 0.37f + py * 0.23f)
+        // (penche dans le vent, et oscille autour : 1,5 a 4 degres)
+        val deg = 1.5f + 2.5f * Math.sin(tSec * 1.9 + ph).toFloat() * 0.5f + 1.2f * Math.sin(tSec * 3.3 + ph * 1.7).toFloat() * 0.3f
+        android.opengl.Matrix.setIdentityM(mBal, 0)
+        android.opengl.Matrix.translateM(mBal, 0, px, py, pz)
+        android.opengl.Matrix.rotateM(mBal, 0, deg, -v[1], v[0], 0f)            // (axe au sol, perpendiculaire au vent)
+        android.opengl.Matrix.translateM(mBal, 0, -px, -py, -pz)
+        android.opengl.Matrix.multiplyMM(mBal2, 0, mBal, 0, m, 0)
+        System.arraycopy(mBal2, 0, m, 0, 16)
+    }
+    /** build 464 : traînées de vent (comme celles du jeu, faites ici) : 18 traits blancs ondulants qui filent dans le sens du
+     *  vent de la partie autour du point regarde, apparaissent puis s'effacent */
+    private var traineeBuf: java.nio.FloatBuffer? = null
+    private fun dessinerVent(tSec: Double, c0: FloatArray) {
+        val v = ventApp() ?: return
+        val nP = 14; val n = 18
+        val fb = traineeBuf ?: ByteBuffer.allocateDirect(nP * 12).order(ByteOrder.nativeOrder()).asFloatBuffer().also { traineeBuf = it }
+        val ne = scene.niveauEau.takeIf { !it.isNaN() } ?: 0f
+        val px = -v[1]; val py = v[0]
+        GLES20.glEnable(GLES20.GL_BLEND); GLES20.glBlendFunc(GLES20.GL_SRC_ALPHA, GLES20.GL_ONE_MINUS_SRC_ALPHA); GLES20.glDepthMask(false)
+        GLES20.glUniform1f(lTaille, 1f); GLES20.glLineWidth(2.5f * echelle)
+        for (k in 0 until n) {
+            val tt = tSec / 3.2 + k * 0.618
+            val cyc = Math.floor(tt).toInt(); val p = (tt - cyc).toFloat()
+            var h = (k * 7919 + cyc * 104729) and 0x7FFFFFFF
+            fun alea(): Float { h = (h * 1103515245 + 12345) and 0x7FFFFFFF; return (h % 10000) / 10000f }
+            val ox = (alea() - 0.5f) * 70f; val oy = (alea() - 0.5f) * 70f; val oz = 2f + alea() * 12f
+            val lg = 6f + alea() * 6f; val amp = 0.3f + alea() * 0.5f
+            val tx = c0[0] + ox - v[0] * 18f + v[0] * p * 36f; val ty = c0[1] + oy - v[1] * 18f + v[1] * p * 36f
+            fb.position(0)
+            for (i in 0 until nP) {
+                val s = i / (nP - 1f) * lg
+                val w = amp * Math.sin(s * 0.9 + tSec * 3.0 + k).toFloat()
+                fb.put(tx - v[0] * s + px * w).put(ty - v[1] * s + py * w).put(ne + oz + 0.3f * Math.sin(s * 0.5 + k).toDouble().toFloat())
+            }
+            fb.position(0)
+            val a = (Math.sin(p * Math.PI) * 0.22).toFloat()                   // (build 467 : plus legeres, demande du proprietaire)
+            GLES20.glUniform4f(lCoul, 1f, 1f, 1f, a)
+            GLES20.glVertexAttribPointer(lPos, 3, GLES20.GL_FLOAT, false, 12, fb); GLES20.glEnableVertexAttribArray(lPos)
+            GLES20.glDrawArrays(GLES20.GL_LINE_STRIP, 0, nP)
+        }
+        GLES20.glDisable(GLES20.GL_BLEND); GLES20.glDepthMask(true)
     }
 
     /** un groupe du decor (ou d'un objet qui bouge) : textures, ombres, defilement, sommets (build 332 : sorti de la boucle) */
@@ -1138,10 +1309,75 @@ private class RenduR3(val scene: SceneR3, val etat: Etat3D, val facteur: Int) : 
             !ne.isNaN() && x.mode == 2 && x.n >= 600 && listOf(0, x.n / 2, x.n - 1).all { v -> Math.abs(x.sommets.getFloat(v * x.pas + 8) - ne) < 0.1f } }.also { ondes = it }
         return i < o.size && o[i]
     }
+    // build 470 : sable mouille imite sur les plages : la bande des vagues (Txa_nami) est d'abord dessinee sans sa texture,
+    // couleur de sable sombre, avec un degrade doux en travers (texture 1 x 64 faite ici) ; elle � respire � avec la vague
+    private var texHumide = 0
+    private fun degradeHumide(): Int {
+        if (texHumide != 0) return texHumide
+        val bmp = android.graphics.Bitmap.createBitmap(1, 64, android.graphics.Bitmap.Config.ARGB_8888)
+        for (y in 0 until 64) { val a = Math.pow(Math.sin(Math.PI * (y + 0.5) / 64.0), 0.6); bmp.setPixel(0, y, android.graphics.Color.argb((a * 255).toInt(), 255, 255, 255)) }
+        val t = IntArray(1); GLES20.glGenTextures(1, t, 0); GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, t[0])
+        GLUtils.texImage2D(GLES20.GL_TEXTURE_2D, 0, bmp, 0); bmp.recycle()
+        GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_MIN_FILTER, GLES20.GL_LINEAR)
+        GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_MAG_FILTER, GLES20.GL_LINEAR)
+        GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_WRAP_S, GLES20.GL_CLAMP_TO_EDGE)
+        GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_WRAP_T, GLES20.GL_CLAMP_TO_EDGE)
+        texHumide = t[0]; return texHumide
+    }
+    // build 472 : d'apres la video du jeu (8 novembre, 3 h 01) : la vague monte sur la plage puis redescend ; derriere son
+    // front d'ecume, une nappe d'eau claire et transparente ; le sable qu'elle quitte reste plus sombre. Imite sur la bande
+    // des vagues (v = 0 cote plage, v = 1 cote mer, vu sur sea_44) : texture 1 x 64, eau pour v > 0,5, front blanc a 0,5,
+    // decalee en v (uDefil) pour que le front aille et vienne
+    private var texNappe = 0
+    private fun degradeNappe(): Int {
+        if (texNappe != 0) return texNappe
+        val bmp = android.graphics.Bitmap.createBitmap(1, 64, android.graphics.Bitmap.Config.ARGB_8888)
+        for (y in 0 until 64) { val v = (y + 0.5) / 64.0
+            val c = when {
+                v < 0.45 -> android.graphics.Color.argb(0, 255, 255, 255)
+                v < 0.53 -> { val k = 1.0 - Math.abs(v - 0.49) / 0.04; android.graphics.Color.argb((235 * k.coerceIn(0.0, 1.0)).toInt(), 255, 255, 255) }
+                else -> android.graphics.Color.argb((110 + 30 * Math.min(1.0, (v - 0.53) * 4)).toInt(), 190, 235, 255) }
+            bmp.setPixel(0, y, c) }
+        val t = IntArray(1); GLES20.glGenTextures(1, t, 0); GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, t[0])
+        GLUtils.texImage2D(GLES20.GL_TEXTURE_2D, 0, bmp, 0); bmp.recycle()
+        GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_MIN_FILTER, GLES20.GL_LINEAR)
+        GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_MAG_FILTER, GLES20.GL_LINEAR)
+        GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_WRAP_S, GLES20.GL_CLAMP_TO_EDGE)
+        GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_WRAP_T, GLES20.GL_CLAMP_TO_EDGE)
+        texNappe = t[0]; return texNappe
+    }
+    private fun dessinerSableHumide(g: SceneR3.Groupe, buf: Int, tSec: Double) {
+        GLES20.glUniform1f(uOndeL, 0f); GLES20.glUniform1f(uEauL, 0f); GLES20.glUniform1f(uChaudL, 0f); GLES20.glUniform1f(uVentL, 0f)
+        GLES20.glUniform4f(uMulL, 0.40f, 0.33f, 0.22f, 0.50f)   // (build 472 : fixe ; c'est la nappe qui bouge)
+        GLES20.glUniform1f(uAvecTex, 1f); GLES20.glActiveTexture(GLES20.GL_TEXTURE0); GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, degradeHumide())
+        GLES20.glUniform1f(uLmK, 0f); GLES20.glUniform2f(uDefil, 0f, 0f)
+        GLES20.glEnable(GLES20.GL_POLYGON_OFFSET_FILL); GLES20.glPolygonOffset(-1f, -4f); GLES20.glDepthFunc(GLES20.GL_LEQUAL)
+        GLES20.glBindBuffer(GLES20.GL_ARRAY_BUFFER, buf)
+        GLES20.glVertexAttribPointer(aPos, 3, GLES20.GL_FLOAT, false, g.pas, 0)
+        GLES20.glVertexAttribPointer(aUv, 2, GLES20.GL_FLOAT, false, g.pas, 12)
+        GLES20.glVertexAttribPointer(aCol, 4, GLES20.GL_UNSIGNED_BYTE, true, g.pas, 20)
+        if (aUvL >= 0) { GLES20.glDisableVertexAttribArray(aUvL); GLES20.glVertexAttrib2f(aUvL, 0f, 0f) }
+        GLES20.glDrawArrays(GLES20.GL_TRIANGLES, 0, g.n)
+        // (build 472 : la nappe de la vague : le front monte (v -> 0,08) en ~2 s puis redescend (v -> 0,92) ; periode 5,5 s)
+        val ph = (tSec % 5.5) / 5.5
+        val front = if (ph < 0.38) 0.92 - 0.84 * Math.sin(ph / 0.38 * Math.PI / 2) else 0.08 + 0.84 * (1 - Math.cos((ph - 0.38) / 0.62 * Math.PI)) / 2
+        GLES20.glUniform4f(uMulL, 1f, 1f, 1f, 1f)
+        GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, degradeNappe())
+        GLES20.glUniform2f(uDefil, 0f, (0.5 - front).toFloat())
+        GLES20.glDrawArrays(GLES20.GL_TRIANGLES, 0, g.n)
+        GLES20.glDisable(GLES20.GL_POLYGON_OFFSET_FILL); GLES20.glDepthFunc(GLES20.GL_LESS)
+    }
     private fun dessinerGroupe(g: SceneR3.Groupe, buf: Int, tSec: Double, onde: Boolean = false) {
+        if (g.nami) dessinerSableHumide(g, buf, tSec)
         GLES20.glUniform1f(uOndeL, if (onde) 1f else 0f)
         GLES20.glUniform1f(uEauL, g.eau.toFloat()); GLES20.glUniform1f(uChaudL, if (g.chaud) 1f else 0f)
         GLES20.glUniform1f(uVentL, if (g.vent) 1f else 0f); couleurDuMoment(g, tSec)
+        // (build 466 : sable mouille, plus sombre ; 467 : il « respire » doucement, comme l'eau qui monte et descend sur la plage)
+        // (build 468 : plus marque, la video du 8 novembre (2 h 45) ne le montrait toujours pas)
+        if (g.sableMouille) GLES20.glUniform4f(uMulL, 0.40f, 0.33f, 0.22f, (0.50 + 0.12 * Math.sin(tSec * 0.8)).toFloat())
+        // build 468 : le sable mouille est colle au sable (2 cm au-dessus, parfois au meme niveau) : le test de profondeur
+        // le cachait derriere le sol. Comme les decalcomanies du jeu, il est dessine legerement vers la camera
+        if (g.rivage) { GLES20.glEnable(GLES20.GL_POLYGON_OFFSET_FILL); GLES20.glPolygonOffset(-2f, -8f); GLES20.glDepthFunc(GLES20.GL_LEQUAL) }
         val t = textures[texDuMoment(g, tSec)]
         GLES20.glUniform1f(uAvecTex, if (t != null) 1f else 0f)
         if (t != null) { GLES20.glActiveTexture(GLES20.GL_TEXTURE0); GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, t) }
@@ -1158,6 +1394,7 @@ private class RenduR3(val scene: SceneR3, val etat: Etat3D, val facteur: Int) : 
         if (aUvL >= 0) { if (g.pas >= 32) { GLES20.glEnableVertexAttribArray(aUvL); GLES20.glVertexAttribPointer(aUvL, 2, GLES20.GL_FLOAT, false, g.pas, 24) }
             else { GLES20.glDisableVertexAttribArray(aUvL); GLES20.glVertexAttrib2f(aUvL, 0f, 0f) } }
         GLES20.glDrawArrays(GLES20.GL_TRIANGLES, 0, g.n)
+        if (g.rivage) { GLES20.glDisable(GLES20.GL_POLYGON_OFFSET_FILL); GLES20.glDepthFunc(GLES20.GL_LESS) }
     }
 
     override fun onDrawFrame(gl: GL10?) {
@@ -1185,6 +1422,7 @@ private class RenduR3(val scene: SceneR3, val etat: Etat3D, val facteur: Int) : 
             GLES20.glEnable(GLES20.GL_DEPTH_TEST)
         } else dessinerScene()
         etat.captureCb?.let { cb -> etat.captureCb = null; cb(try { lireEcran() } catch (e: Throwable) { null }) }
+        if (gen > etat.genPret) etat.genPret = gen                    // (build 456 : 1re image de cette vue dessinee)
     }
     /** l'image affichee (journal de bug) : glReadPixels, retournee (OpenGL lit de bas en haut) */
     private fun lireEcran(): android.graphics.Bitmap {
@@ -1904,6 +2142,7 @@ private class RenduR3(val scene: SceneR3, val etat: Etat3D, val facteur: Int) : 
         GLES20.glEnableVertexAttribArray(aPos); GLES20.glEnableVertexAttribArray(aUv); GLES20.glEnableVertexAttribArray(aCol)
         var linkFait = false
         for (passe in 0..3) {                             // opaque, decoupe, transparent, lumiere (additive)
+            GLES20.glDepthFunc(GLES20.GL_LESS)                // (build 463)
             // build 349 : Link de Wind Waker avant l'eau et les transparents : sous la surface, on le voit a travers la mer
             if (passe == 2 && etat.montrerRayman && etat.linkWW != null) {
                 linkFait = dessinerLinkWW(mvp, c0)
@@ -1913,8 +2152,8 @@ private class RenduR3(val scene: SceneR3, val etat: Etat3D, val facteur: Int) : 
             when (passe) {
                 0 -> { GLES20.glDisable(GLES20.GL_BLEND); GLES20.glDepthMask(true); GLES20.glUniform1f(uSeuil, 0.02f) }
                 1 -> { GLES20.glDisable(GLES20.GL_BLEND); GLES20.glDepthMask(true); GLES20.glUniform1f(uSeuil, 0.5f) }
-                2 -> { GLES20.glEnable(GLES20.GL_BLEND); GLES20.glBlendFunc(GLES20.GL_SRC_ALPHA, GLES20.GL_ONE_MINUS_SRC_ALPHA); GLES20.glDepthMask(false); GLES20.glUniform1f(uSeuil, 0.02f) }
-                3 -> { GLES20.glEnable(GLES20.GL_BLEND); GLES20.glBlendFunc(GLES20.GL_SRC_ALPHA, GLES20.GL_ONE); GLES20.glDepthMask(false); GLES20.glUniform1f(uSeuil, 0.02f) }
+                2 -> { GLES20.glEnable(GLES20.GL_BLEND); GLES20.glBlendFunc(GLES20.GL_SRC_ALPHA, GLES20.GL_ONE_MINUS_SRC_ALPHA); GLES20.glDepthMask(false); GLES20.glUniform1f(uSeuil, 0.02f); }
+                3 -> { GLES20.glEnable(GLES20.GL_BLEND); GLES20.glBlendFunc(GLES20.GL_SRC_ALPHA, GLES20.GL_ONE); GLES20.glDepthMask(false); GLES20.glUniform1f(uSeuil, 0.02f); }
             }
             if (passe == 0) {                                 // (build 426 : vagues autour du bateau, voir le shader)
                 val vg = etat.vagueWW; val cb = vg?.let { CartesWW.pos(it[0], 0f, it[1]) }
@@ -1958,6 +2197,9 @@ private class RenduR3(val scene: SceneR3, val etat: Etat3D, val facteur: Int) : 
                     val ob = if (cp.mobile >= 0) mo?.objets?.getOrNull(cp.mobile) else null
                     if (ob != null) { mo!!.matrice(ob, tSec, mMob); android.opengl.Matrix.multiplyMM(mAni, 0, mMob, 0, cp.mat, 0) }
                     else System.arraycopy(cp.mat, 0, mAni, 0, 16)
+                    // (build 464 : arbres et plantes immobiles dans le pack (une seule image : le jeu les balance lui-meme) :
+                    //  l'appli les incline doucement autour de leur pied, dans le sens du vent lu dans la partie)
+                    if (ob == null && md.images == 1 && cp.modele in ani.locaux) balancer(mAni, tSec, cp.phase)
                     android.opengl.Matrix.multiplyMM(mvpAni, 0, mvp, 0, mAni, 0)
                     GLES20.glUniformMatrix4fv(uMvp, 1, false, mvpAni, 0)
                     if (android.opengl.Matrix.invertM(mAniInv, 0, mAni, 0)) {       // (brume : la camera dans le repere de l'objet)
@@ -1983,6 +2225,9 @@ private class RenduR3(val scene: SceneR3, val etat: Etat3D, val facteur: Int) : 
                 // build 356 : les objets lus en direct : leur peau posee sur les os du jeu, ou leur image de repos a la place
                 // donnee par le jeu (objets plus loin)
                 val vp = etat.vifsWW
+                // (build 463 : a egalite de profondeur, seulement pour les objets du direct (gravures du bouclier miroir, posees sur
+                //  sa surface) ; en 459 c'etait pour tout le lieu : l'ecume de la plage et la mer se melangeaient (traits noirs))
+                if (vp != null && passe >= 2) GLES20.glDepthFunc(GLES20.GL_LEQUAL)
                 if (vp != null) for ((vi, v) in vp.withIndex()) {
                     val mvpV = mvp   // (build 426 : le bateau garde ses montees et descentes : c'est la mer qui ondule)
                     val md = ani.modeles.getOrNull(v.modele) ?: continue
@@ -2026,6 +2271,8 @@ private class RenduR3(val scene: SceneR3, val etat: Etat3D, val facteur: Int) : 
                 GLES20.glUniformMatrix4fv(uMvp, 1, false, mvp, 0); GLES20.glUniform3f(uCam, ex, ey, ez)
             }
         }
+        GLES20.glDepthFunc(GLES20.GL_LESS)                    // (build 459)
+        dessinerFantome(mvp, ex, ey, ez)                      // (build 456 : le fantome d'un ami, translucide, par-dessus le decor)
         GLES20.glDisable(GLES20.GL_BLEND); GLES20.glDepthMask(true)
         GLES20.glUniform4f(uMulL, 1f, 1f, 1f, 1f); GLES20.glUniform1f(uVentL, 0f)
         GLES20.glBindBuffer(GLES20.GL_ARRAY_BUFFER, 0)
@@ -2034,6 +2281,7 @@ private class RenduR3(val scene: SceneR3, val etat: Etat3D, val facteur: Int) : 
         // le chemin et Rayman (par-dessus)
         GLES20.glUseProgram(progL)
         GLES20.glUniformMatrix4fv(lMvp, 1, false, mvp, 0)
+        dessinerVent(tSec, c0)                                // (build 464 : traînées de vent)
         val ch = etat.chemin
         if (ch.size >= 6) {
             val fb = ByteBuffer.allocateDirect(ch.size * 4).order(ByteOrder.nativeOrder()).asFloatBuffer().put(ch); fb.position(0)
@@ -2164,9 +2412,9 @@ fun DessinVue3DGL(scene: SceneR3, cible: FloatArray, camera: FloatArray?, chemin
                   pions: FloatArray? = null, distance: Float? = null, direct: (() -> FloatArray?)? = null,
                   pose: (() -> PoseRayman?)? = null, karts: List<KartVue>? = null, linkWW: FloatArray? = null,
                   capPerso: Float = Float.NaN, poseWW: (() -> FloatArray?)? = null, camJeu: (() -> FloatArray?)? = null,
-                  ecouteDirect: (() -> Unit)? = null, rejeu: ((Etat3D) -> Unit)? = null) {
+                  ecouteDirect: (() -> Unit)? = null, rejeu: ((Etat3D) -> Unit)? = null, spectateur: Boolean = false) {
     // build 400 : interrupteur « positions en direct » (vue 3D en jeu seulement ; coupe : rien n'est demande a Pulse)
-    if ((direct != null || ecouteDirect != null || rejeu != null) && !InterrupteurDirect3D()) return
+    if (!spectateur && (direct != null || ecouteDirect != null || rejeu != null) && !InterrupteurDirect3D()) return   // (build 499 : le spectateur 3D ne demande rien a la console)
     // build 242 : un etat neuf par niveau ; sans jeu en cours, la vue de depart cadre tout le niveau
     val etat = remember(scene) { Etat3D().also { e -> if (!montrerRayman) { e.distBase = scene.rayon * 1.7f; e.dist = e.distBase; e.tangage = 0.75f } } }
     // build 269 : en direct, la position vient de la lecture rapide (la valeur passee ici, plus lente, ne sert qu'au depart)
@@ -2216,6 +2464,16 @@ fun DessinVue3DGL(scene: SceneR3, cible: FloatArray, camera: FloatArray?, chemin
         } finally { etat.pose = null }
     }
     if (distance != null) remember(scene) { etat.distBase = distance; etat.dist = distance; 0 }
+    // build 456 : « Aller le voir » (fantome d'un ami) : la vue suit le fantome tant que la visite dure, puis revient
+    val visite = Fantome.visite
+    androidx.compose.runtime.LaunchedEffect(scene, visite) {
+        if (!visite) { if (etat.mode == 2 && etat.libre != null && etat.suitFantome) { etat.libre = null; etat.mode = 0 }; etat.suitFantome = false; return@LaunchedEffect }
+        while (true) {
+            val f = etat.fantomePos?.takeIf { Fantome.vuePour(scene.niveau) != null }
+            if (f != null) { etat.vol?.cancel(); etat.libre = f; etat.mode = 2; etat.suitFantome = true }
+            kotlinx.coroutines.delay(60)
+        }
+    }
     etat.chemin = FloatArray(chemin.size * 3).also { a -> for ((k, p) in chemin.withIndex()) { a[k * 3] = p[0]; a[k * 3 + 1] = p[1]; a[k * 3 + 2] = p[2] } }
     var plein by remember(scene) { androidx.compose.runtime.mutableStateOf(false) }
     // build 412 : demande venue du plein ecran de la GBA (Tingle Tuner) : cette vue passe en plein ecran
@@ -2251,11 +2509,12 @@ fun DessinVue3DGL(scene: SceneR3, cible: FloatArray, camera: FloatArray?, chemin
             modifier = m.background(Color(0xCC1A1530), RoundedCornerShape(10.dp)).padding(horizontal = 10.dp, vertical = 6.dp)) }
     Box(Modifier.fillMaxWidth().aspectRatio(1.1f)) {
         if (!plein) VueGL(scene, etat, Modifier.fillMaxSize(), toucher)
+        if (!plein) ApercuChargement(etat, Modifier.fillMaxSize())     // (build 456)
         // (build 428 : mode Tingle : tout le reste disparait, la vue est libre ; seuls « 🎯 Tingle » (pour en sortir) et
         //  « 💣 Bombe » restent, petits, en haut a droite)
         Row(Modifier.align(androidx.compose.ui.Alignment.TopEnd).padding(8.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
             if (!piloteTT) PetitBouton("⟲") { etat.voler(scope, vers = etat.cible, d = etat.distBase, tg = if (etat.montrerRayman) 0.5f else 0.75f) }
-            if (!piloteTT) PetitBouton("⛶ Plein écran") { plein = true }
+            if (!piloteTT) PetitBouton("⛶ Plein écran") { basculer(scope, etat) { plein = true } }
             if (ttDispo) PetitBouton("🎯 Tingle", actif = piloteTT) { piloteTT = !piloteTT; if (piloteTT) plein = true   // (build 428 : en plein ecran)
                 etiquette = if (piloteTT) "Touche un endroit : le curseur de Tingle y va" else null }
             if (ttDispo) PetitBouton("💣 Bombe") { etiquette = GbaEmu.bombe() }   // (build 421 : B sur la GBA, une fois le curseur arrive)
@@ -2266,11 +2525,12 @@ fun DessinVue3DGL(scene: SceneR3, cible: FloatArray, camera: FloatArray?, chemin
     }
     if (!piloteTT) ChoixObjets(scene, etat, Modifier.padding(top = 6.dp)) { o -> etiquette = nomObjet(scene, o); allerA(scope, etat, o) }
     val ctxBug = androidx.compose.ui.platform.LocalContext.current
-    if (plein) PleinEcranCouche({ plein = false }) {        // (build 411 : couche de l'activite, plus une fenetre de dialogue)
+    if (plein) CouchePleinEcran({ plein = false }) {        // (build 411 : couche de l'activite ; build 453 : dans la fiche d'un jeu, une fenetre au-dessus)
         // build 365 : vrai plein ecran : la fenetre prend tout l'ecran, barres d'Android cachees (elles reviennent un instant en
         // glissant depuis le bord), et la vue passe aussi sous la camera du telephone (encoche) ; les boutons restent hors de l'encoche
         Box(Modifier.fillMaxSize().background(Color(0xFF6B80AE))) {
             VueGL(scene, etat, Modifier.fillMaxSize(), toucher)
+            ApercuChargement(etat, Modifier.fillMaxSize())               // (build 456 : l'image d'avant pendant le chargement)
             // build 332 : sans ATH : seule la vue reste (un petit oeil discret, en haut a droite, ramene les boutons)
             if (sansAth) Text("👁", fontSize = 18.sp, modifier = Modifier.align(androidx.compose.ui.Alignment.TopEnd).displayCutoutPadding().padding(top = 40.dp, end = 12.dp)
                 .background(Color(0x33000000), RoundedCornerShape(16.dp)).pointerInput(Unit) { detectTapGestures { sansAth = false } }.padding(horizontal = 10.dp, vertical = 6.dp))
@@ -2282,7 +2542,7 @@ fun DessinVue3DGL(scene: SceneR3, cible: FloatArray, camera: FloatArray?, chemin
                     if (ttDispo) PetitBouton("💣 Bombe") { etiquette = GbaEmu.bombe() }
                     if (!piloteTT) PetitBouton("⟲ Recentrer") { if (etat.mode == 5) etat.mode = 0; etat.voler(scope, vers = etat.cible, d = etat.distBase, tg = if (etat.montrerRayman) 0.5f else 0.75f) }
                     if (!piloteTT) PetitBouton("👁 Sans ATH") { sansAth = true }
-                    if (!piloteTT) PetitBouton("✕") { plein = false }
+                    if (!piloteTT) PetitBouton("✕") { basculer(scope, etat) { plein = false } }
                 }
                 Etiquette(Modifier.align(androidx.compose.ui.Alignment.TopCenter).padding(top = 90.dp))
                 if (!piloteTT) Box(Modifier.fillMaxSize()) {
@@ -2295,6 +2555,46 @@ fun DessinVue3DGL(scene: SceneR3, cible: FloatArray, camera: FloatArray?, chemin
                     else "1 doigt : tourner · 2 doigts : déplacer, zoomer, pivoter · toucher un objet : y aller · double toucher : zoom", color = Color.White, fontSize = 11.sp,
                     modifier = Modifier.align(androidx.compose.ui.Alignment.BottomCenter).padding(bottom = 28.dp, start = 12.dp, end = 12.dp).background(Color(0x88000000), RoundedCornerShape(10.dp)).padding(horizontal = 10.dp, vertical = 6.dp))
                 }
+            }
+        }
+    }
+}
+
+/** build 456 : avant de changer de vue (plein ecran ou retour) : garde l'image affichee (1 image, 0,4 s au plus), puis bascule */
+private fun basculer(scope: kotlinx.coroutines.CoroutineScope, etat: Etat3D, faire: () -> Unit) {
+    etat.apercu = null
+    etat.captureCb = { b -> etat.apercu = b }
+    etat.redessiner()
+    scope.launch {
+        val fin = System.nanoTime() + 400_000_000L
+        while (etat.apercu == null && System.nanoTime() < fin) kotlinx.coroutines.delay(20)
+        etat.captureCb = null
+        faire()
+    }
+}
+
+/** build 456 : pendant que la nouvelle vue charge les textures du lieu : l'image d'avant (ou un fond), et une barre qui avance */
+@Composable
+private fun ApercuChargement(etat: Etat3D, modifier: Modifier) {
+    var pret by remember { androidx.compose.runtime.mutableStateOf(false) }
+    var t by remember { androidx.compose.runtime.mutableStateOf(0f) }
+    androidx.compose.runtime.LaunchedEffect(Unit) {
+        val t0 = System.nanoTime()
+        while (etat.genPret < etat.genVue) { kotlinx.coroutines.delay(50); t = (System.nanoTime() - t0) / 1e9f }
+        pret = true; etat.apercu = null
+    }
+    if (pret) return
+    val a = etat.apercu
+    Box(modifier.background(Color(0xFF15122A))) {
+        if (a != null) androidx.compose.foundation.Image(a.asImageBitmap(), null, Modifier.fillMaxSize(),
+            contentScale = androidx.compose.ui.layout.ContentScale.Crop)
+        if (t > 0.3f) Box(Modifier.align(androidx.compose.ui.Alignment.BottomCenter).padding(bottom = 18.dp)
+            .background(Color(0xAA000000), RoundedCornerShape(10.dp)).padding(horizontal = 12.dp, vertical = 6.dp)) {
+            androidx.compose.foundation.layout.Column(horizontalAlignment = androidx.compose.ui.Alignment.CenterHorizontally) {
+                Text("Chargement du lieu…", color = Color.White, fontSize = 12.sp)
+                // (la duree n'est pas connue : la barre avance vite puis ralentit, sans jamais finir avant la vraie fin)
+                androidx.compose.material3.LinearProgressIndicator(progress = { (1f - Math.exp(-t / 2.5).toFloat()).coerceIn(0f, 0.97f) },
+                    modifier = Modifier.padding(top = 4.dp).size(width = 160.dp, height = 4.dp), color = C.Rose)
             }
         }
     }
@@ -2522,6 +2822,7 @@ private fun VueGL(scene: SceneR3, etat: Etat3D, modifier: Modifier, toucher: (Fl
     val vueRef = remember { arrayOfNulls<GLSurfaceView>(1) }
     val scope = androidx.compose.runtime.rememberCoroutineScope()
     val ctxF = androidx.compose.ui.platform.LocalContext.current
+    val gen = remember { ++etat.genVue }                          // (build 456)
     remember { FluiditeR3.charger(ctxF)
         try { @Suppress("DEPRECATION") FluiditeR3.hz = (ctxF.getSystemService(android.content.Context.WINDOW_SERVICE) as android.view.WindowManager).defaultDisplay.refreshRate } catch (e: Throwable) { }
         0 }
@@ -2547,9 +2848,10 @@ private fun VueGL(scene: SceneR3, etat: Etat3D, modifier: Modifier, toucher: (Fl
             GLSurfaceView(ctx).apply {
                 setEGLContextClientVersion(2)
                 setEGLConfigChooser(ChoixMsaa())
-                setRenderer(RenduR3(scene, etat, QualiteR3.facteur))
+                setRenderer(RenduR3(scene, etat, QualiteR3.facteur, gen))
                 renderMode = GLSurfaceView.RENDERMODE_WHEN_DIRTY
                 vueRef[0] = this
+                Partage.vue = java.lang.ref.WeakReference(this)       // (build 495 : partage de la vue 3D)
             }
         }, Modifier.fillMaxSize(), update = { it.requestRender() })
         Box(Modifier.fillMaxSize()
@@ -2646,6 +2948,7 @@ private fun VueGL(scene: SceneR3, etat: Etat3D, modifier: Modifier, toucher: (Fl
                     }
                 }
             })
+        if (BuildConfig.PRIVE) BoutonPartage(Modifier.align(androidx.compose.ui.Alignment.TopEnd).padding(8.dp))   // (build 495)
     }
     }
 }
@@ -2675,6 +2978,30 @@ object Direct3D {
     var objets by androidx.compose.runtime.mutableStateOf(true)      // Wind Waker : objets et personnages animes (articulations)
     var voile by androidx.compose.runtime.mutableStateOf(true)       // Wind Waker : la voile du bateau
     var vagues by androidx.compose.runtime.mutableStateOf(true)      // Wind Waker : le bateau sur les vagues
+    var objetsAlternes by androidx.compose.runtime.mutableStateOf(true)   // build 454 : Wind Waker : objets un envoi sur deux (console 909+)
+    var sansCopie by androidx.compose.runtime.mutableStateOf(false)
+    var equipement by androidx.compose.runtime.mutableStateOf(true)  // build 456 : Wind Waker : l'equipement que Link porte
+    // build 455 : mode du direct : 0 Classique (tout a chaque envoi), 1 Optimise (objets un envoi sur deux), 2 Leger (le jeu
+    // le moins derange : une image de la tele sur 4, les 4 objets les plus proches, sans voile ni vagues, sans recopie)
+    // build 456 : 3 Detaille (la vue 3D avant tout : plus d'objets, de plus loin, squelettes complets ; peut ralentir le jeu) ;
+    // le mode est retenu pour chaque jeu (cle vue3d_mode_<jeu>) et revient tout seul quand on relance ce jeu
+    /** build 456 : mode d'avant le Leger propose pendant une connexion faible (-1 : aucun) */
+    var modeAvantFaible by androidx.compose.runtime.mutableStateOf(-1)
+    fun nomMode(m: Int) = when (m) { 0 -> "Classique"; 2 -> "Léger"; 3 -> "Détaillé"; else -> "Optimisé" }
+    var modeJeu = ""
+    fun chargerModeJeu(ctx: android.content.Context, jeu: String) {
+        if (jeu == modeJeu) return
+        modeJeu = jeu
+        val sp = ctx.getSharedPreferences("gcs", 0)
+        mode = (if (jeu.isNotEmpty() && sp.contains("vue3d_mode_$jeu")) sp.getInt("vue3d_mode_$jeu", 1) else sp.getInt("vue3d_mode", 1)).coerceIn(0, 3)
+    }
+    fun choisirMode(ctx: android.content.Context, m: Int) {
+        mode = m; modeAvantFaible = -1
+        val e = ctx.getSharedPreferences("gcs", 0).edit().putInt("vue3d_mode", m)
+        if (modeJeu.isNotEmpty()) e.putInt("vue3d_mode_$modeJeu", m)
+        e.apply()
+    }
+    var mode by androidx.compose.runtime.mutableStateOf(1)       // build 454 : Pulse « 3 » (essai) : direct sans recopie (console 909+, BBA)
     var pilotes by androidx.compose.runtime.mutableStateOf(true)     // Mario Kart : pilotes des autres karts animes
     var chomp by androidx.compose.runtime.mutableStateOf(true)       // Mario Kart : le Chomp
     var camera by androidx.compose.runtime.mutableStateOf(true)      // Mario Kart : la camera du jeu (« Vue du jeu »)
@@ -2685,8 +3012,13 @@ fun InterrupteurDirect3D(): Boolean {
     val ctx = androidx.compose.ui.platform.LocalContext.current
     if (!Direct3D.charge) { val sp = ctx.getSharedPreferences("gcs", 0); Direct3D.actif = sp.getBoolean("vue3d_direct", true)
         Direct3D.objets = sp.getBoolean("vue3d_objets", true); Direct3D.voile = sp.getBoolean("vue3d_voile", true); Direct3D.vagues = sp.getBoolean("vue3d_vagues", true)
+        Direct3D.objetsAlternes = sp.getBoolean("vue3d_objets_alt", true)
+        Direct3D.sansCopie = BuildConfig.PRIVE && sp.getBoolean("vue3d_sans_copie", false)   // (build 514 : essai, appli privee seulement)
+        Direct3D.mode = sp.getInt("vue3d_mode", 1).coerceIn(0, 3)
+        Direct3D.equipement = sp.getBoolean("vue3d_equip", true)
         Direct3D.pilotes = sp.getBoolean("vue3d_pilotes", true); Direct3D.chomp = sp.getBoolean("vue3d_chomp", true); Direct3D.camera = sp.getBoolean("vue3d_camera", true)
         Direct3D.charge = true }
+    Direct3D.chargerModeJeu(ctx, Compagnon.jeuReel.ifEmpty { Compagnon.jeu })                 // (build 456 : mode retenu par jeu)
     Row(Modifier.fillMaxWidth().padding(vertical = 4.dp), verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
         horizontalArrangement = Arrangement.SpaceBetween) {
         Text("Positions en direct (vue 3D)", color = Color.White, fontSize = 13.sp)
@@ -2698,27 +3030,54 @@ fun InterrupteurDirect3D(): Boolean {
     }
     if (!Direct3D.actif) Text("Coupé : la vue 3D est en pause et ne demande plus rien à la console.", color = C.Pale, fontSize = 11.sp)
     else {                                                         // (Pulse v370 : ce que le direct coûte au jeu)
+        var fen by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(false) }   // (build 456 : rapport en graphiques)
+        if (fen) FenetreRapportDirect { fen = false }
         var tic by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(0) }
         androidx.compose.runtime.LaunchedEffect(Unit) { while (true) { kotlinx.coroutines.delay(1000); tic++ } }
         val m = MemoireJeu.mesure
-        if (tic >= 0 && m != null && System.nanoTime() - MemoireJeu.mesureT < 3_000_000_000L) {
+        if (BuildConfig.PRIVE && tic >= 0 && m != null && System.nanoTime() - MemoireJeu.mesureT < 3_000_000_000L) {   // (build 514 : mesures et rapport du direct : appli privee seulement)
             Text(String.format(java.util.Locale.FRANCE, "Temps pris au jeu : %.1f ms par image (pire %.1f ms", m[0] / 1000.0, m[1] / 1000.0) +
                 (if (m[2] >= 0) String.format(java.util.Locale.FRANCE, " ; avec le reste %.1f ms", m[2] / 1000.0) else "") +
                 String.format(java.util.Locale.FRANCE, ") · %.1f Ko par image", m[3] / 1024.0) +
                 (if (m.size > 5 && m[4] >= 0) String.format(java.util.Locale.FRANCE, " · envoi %.1f ms, attente du câble %.1f ms", m[5] / 1000.0, m[4] / 1000.0) else ""),
                 color = C.Pale, fontSize = 11.sp)
-            androidx.compose.material3.TextButton(onClick = { rapportDirect(ctx) }) { Text("Rapport du direct", color = C.Rose, fontSize = 12.sp) }
+            androidx.compose.material3.TextButton(onClick = { fen = true }) { Text("Rapport du direct", color = C.Rose, fontSize = 12.sp) }
         }
+        BandeauConnexion(ctx, tic)
         ChoixDirect3D(ctx)
     }
     return Direct3D.actif
+}
+
+/** build 456 : Wi-Fi faible : l'appli le dit et propose le mode Leger en attendant (choix du proprietaire : proposer
+ *  seulement, rien d'automatique) ; quand ca va mieux, elle propose de revenir au mode d'avant. Le Leger d'attente n'est
+ *  pas retenu pour le jeu. */
+@Composable
+fun BandeauConnexion(ctx: android.content.Context, tic: Int) {
+    if (tic < 0) return
+    val faible = JeuWW.connexionFaible(); val q = JeuWW.qualiteDirect()
+    val avant = Direct3D.modeAvantFaible
+    if (faible) {
+        Row(Modifier.fillMaxWidth().padding(vertical = 2.dp), verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
+            Text("📶 Connexion faible" + (q?.let { String.format(java.util.Locale.FRANCE, " (pertes %d %%, retard %.0f images)", Math.round(it.first * 100), it.second) } ?: ""),
+                color = Color(0xFFFFC94A), fontSize = 12.sp, modifier = Modifier.weight(1f))
+            if (Direct3D.mode != 2) androidx.compose.material3.TextButton(onClick = { Direct3D.modeAvantFaible = Direct3D.mode; Direct3D.mode = 2 }) {
+                Text("Passer en Léger", color = C.Rose, fontSize = 12.sp) }
+        }
+    } else if (avant >= 0 && Direct3D.mode == 2) {
+        Row(Modifier.fillMaxWidth().padding(vertical = 2.dp), verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
+            Text("📶 La connexion va mieux.", color = Color(0xFF7DF0A6), fontSize = 12.sp, modifier = Modifier.weight(1f))
+            androidx.compose.material3.TextButton(onClick = { Direct3D.mode = avant; Direct3D.modeAvantFaible = -1 }) {
+                Text("Revenir en " + Direct3D.nomMode(avant), color = C.Rose, fontSize = 12.sp) }
+        }
+    }
 }
 
 /** rapport du direct (vue 3D) : les mesures de Pulse des 10 dernieres minutes, a partager */
 fun rapportDirect(ctx: android.content.Context) {
     val f = java.text.SimpleDateFormat("HH:mm:ss", java.util.Locale.FRANCE)
     val sb = StringBuilder("GC Remote - rapport du direct (vue 3D)\n")
-    sb.append("Appli build ${BuildConfig.VERSION_CODE}\n")
+    sb.append("Appli build ${BuildConfig.VERSION_CODE} ; mode du direct : ${Direct3D.nomMode(Direct3D.mode)}\n")
     sb.append("heure ; direct moyen (ms) ; direct pire (ms) ; tout Pulse pire (ms) ; Ko par image ; attente du câble (ms) ; écriture de la file (ms)\n")
     val l = synchronized(MemoireJeu.mesures) { MemoireJeu.mesures.toList() }
     for ((t, m) in l) sb.append(String.format(java.util.Locale.FRANCE, "%s ; %.2f ; %.2f ; %s ; %.1f ; %s ; %s\n", f.format(java.util.Date(t)),
@@ -2744,10 +3103,26 @@ fun ChoixDirect3D(ctx: android.content.Context) {
     androidx.compose.material3.TextButton(onClick = { ouvert = !ouvert }) {
         Text(if (ouvert) "Ce que la console envoie ▲" else "Ce que la console envoie ▼", color = C.Rose, fontSize = 12.sp) }
     if (!ouvert) return
+    Text("Mode du direct" + (if (Direct3D.modeJeu.isNotEmpty()) " (retenu pour ce jeu)" else ""), color = C.Pale, fontSize = 11.sp)   // (build 455 ; 456 : par jeu)
+    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(2.dp)) {
+        for ((i, nom) in listOf(2 to "Léger", 1 to "Optimisé", 0 to "Classique", 3 to "Détaillé"))
+            androidx.compose.material3.TextButton(onClick = { Direct3D.choisirMode(ctx, i) }) {
+                Text(nom, color = if (Direct3D.mode == i) C.Rose else C.Pale, fontSize = 12.sp) }
+    }
+    Text(when (Direct3D.mode) {
+        0 -> "Classique : tout est envoyé à chaque image, avec plus d'objets et de plus loin (18 objets, articulations jusqu'à 18 m, équipement de Link articulé). Fluide sur le téléphone, plus lourd pour le jeu."
+        2 -> "Léger : le jeu est le moins dérangé. Une image sur quatre, seulement les 4 objets les plus proches, sans voile, vagues ni équipement. La vue 3D est moins fluide."
+        3 -> "Détaillé : la vue 3D avant tout. Jusqu'à 28 objets (40 avec la console 911), articulations jusqu'à 30 m (40 m), équipement de Link, plus d'effets (bombes, projectiles). Pulse reste dans ses limites (le jeu ne plante pas)."
+        else -> "Optimisé (conseillé) : Link, son équipement, la caméra, le bateau et la voile à chaque image ; les objets une fois sur deux."
+    }, color = C.Pale, fontSize = 11.sp)
+    if (Direct3D.mode == 3) Text("⚠ Peut ralentir le jeu : il peut saccader un peu." + (if (BuildConfig.PRIVE) " Mesure avec le « Rapport du direct »." else ""), color = Color(0xFFFFC94A), fontSize = 11.sp)
     Text("Wind Waker", color = C.Pale, fontSize = 11.sp)
     LigneChoix(ctx, "Objets et personnages animés", "vue3d_objets", Direct3D.objets) { Direct3D.objets = it }
+    LigneChoix(ctx, "Équipement de Link (épée, bouclier, masque…)", "vue3d_equip", Direct3D.equipement) { Direct3D.equipement = it }
     LigneChoix(ctx, "La voile du bateau", "vue3d_voile", Direct3D.voile) { Direct3D.voile = it }
     LigneChoix(ctx, "Le bateau sur les vagues", "vue3d_vagues", Direct3D.vagues) { Direct3D.vagues = it }
+    LigneChoix(ctx, "Objets : un envoi sur deux (moins de temps pris au jeu)", "vue3d_objets_alt", Direct3D.objetsAlternes) { Direct3D.objetsAlternes = it }
+    if (BuildConfig.PRIVE) LigneChoix(ctx, "Essai : direct sans recopie (Broadband Adapter)", "vue3d_sans_copie", Direct3D.sansCopie) { Direct3D.sansCopie = it }
     Text("Mario Kart : Double Dash!!", color = C.Pale, fontSize = 11.sp)
     LigneChoix(ctx, "Pilotes des autres karts animés", "vue3d_pilotes", Direct3D.pilotes) { Direct3D.pilotes = it }
     LigneChoix(ctx, "Le Chomp", "vue3d_chomp", Direct3D.chomp) { Direct3D.chomp = it }
@@ -2764,3 +3139,6 @@ private fun LigneChoix(ctx: android.content.Context, nom: String, cle: String, v
             colors = androidx.compose.material3.SwitchDefaults.colors(checkedTrackColor = C.Rose, checkedThumbColor = Color.White))
     }
 }
+
+/** Wind Waker : un objet lu en direct (modele du pack, pose) ; build 486 : ici (code commun) pour la vue 3D publique */
+class VifPoseWW(val modele: Int, val plein: Boolean, val m: FloatArray)

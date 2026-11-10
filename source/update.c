@@ -1,5 +1,6 @@
-// Mise a jour en un clic : le workflow GitHub publie chaque version reussie
-// dans la release "dernier" du depot (gc-mp3player.dol + "build=N" dans le
+// Mise a jour en un clic : la compilation publie chaque version reussie
+// (build 907 : sur GitLab, paquet "console" ; sur GitHub, release "dernier" ; voir upd_pub_url dans main.c)
+// avec release.json (gc-mp3player.dol + "build=N" dans le
 // texte). GC-MP3 compare ce numero au sien, telecharge le .dol, le verifie,
 // garde l'ancien (.ancien) et le remplace sur la carte SD.
 
@@ -20,11 +21,14 @@ static void upd_rel_url(char *url, int cap, int api) {
 #ifndef GEKKO
     if (getenv("PCSIM_UPD")) { snprintf(url, cap, "%s/release.json", getenv("PCSIM_UPD")); return; }   /* (simulateur : serveur de test) */
 #endif
-    if (api) snprintf(url, cap, UPD_API "/repos/%s/releases/tags/dernier", upd_repo);
-    else snprintf(url, cap, "https://github.com/%s/releases/download/dernier/release.json", upd_repo);
+    if (api && !upd_is_gitlab()) snprintf(url, cap, UPD_API "/repos/%s/releases/tags/dernier", upd_gh_repo());
+    else upd_pub_url(url, cap, "dernier", "console", "release.json");
 }
 static const char *upd_fail_msg(int code) {
-    return code == 403 || code == 429 ? "GitHub : trop de v\xC3\xA9rifications, r\xC3\xA9" "essaie dans une heure" : "GitHub ne r\xC3\xA9pond pas";
+    static char m[80];
+    if (code == 403 || code == 429) snprintf(m, sizeof(m), "%s : trop de v\xC3\xA9rifications, r\xC3\xA9" "essaie dans une heure", upd_host_name());
+    else snprintf(m, sizeof(m), "%s ne r\xC3\xA9pond pas", upd_host_name());
+    return m;
 }
 static int up_via_api = 0;
 #endif
@@ -69,12 +73,12 @@ static void update_check(void) {
     if (up_state == UP_CHECK || up_state == UP_DL || up_state == UP_WRITE) return;
     if (net_phase != NET_DONE) { net_start_async(); up_fail("R\xC3\xA9seau en cours de connexion, r\xC3\xA9" "essaie"); return; }
     if (!net_ok) { up_fail("Pas de r\xC3\xA9seau"); return; }
-    char url[256];
-    up_via_api = 0;
+    char url[512];
+    up_via_api = upd_is_gitlab();                             /* (build 907 : GitLab : release.json seulement, pas d'API) */
     upd_rel_url(url, sizeof(url), 0);
     up_hf.maxbytes = 512 * 1024;
     up_hf.image = 0;
-    up_hf.accept = "application/vnd.github+json";
+    up_hf.accept = upd_is_gitlab() ? "application/json,*/*" : "application/vnd.github+json";
     hf_start(&up_hf, url, NULL);
     up_state = UP_CHECK;
     crumb("mise a jour : verification");
@@ -478,7 +482,7 @@ static void update_pump(void) {
         up_sink_abort();
         char m[120];
         if (code == 0) snprintf(m, sizeof(m), "T\xC3\xA9l\xC3\xA9" "chargement interrompu (r\xC3\xA9seau)");
-        else snprintf(m, sizeof(m), "T\xC3\xA9l\xC3\xA9" "chargement refus\xC3\xA9 (GitHub : code %d)", code);
+        else snprintf(m, sizeof(m), "T\xC3\xA9l\xC3\xA9" "chargement refus\xC3\xA9 (%s : code %d)", upd_host_name(), code);
         up_fail(m);
         return;
     }
@@ -508,7 +512,7 @@ static void update_pump(void) {
         up_hf.st = HF_IDLE;
         if (up_state == UP_CHECK) {
             if (!up_via_api) {                                    /* v112 : release.json absent : l'API */
-                char url[256];
+                char url[512];
                 up_via_api = 1;
                 upd_rel_url(url, sizeof(url), 1);
                 hf_start(&up_hf, url, NULL);

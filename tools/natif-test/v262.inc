@@ -24,3 +24,9 @@ static int nat_mictel = 0;                               /* (v332 : micro du tel
 static int app_envoi = 1;                               /* (v330 : envoi vers l'appli, main.c) */
 static int sx_safe = 0;
 static void sx_block(const char *what) { (void)what; }
+/* v397 : bandeau des succes sur la tele (main.c, succes_jeux.c) */
+static int nat_tvsucc = 0;
+static int nat_tvbas = 0;                               /* (v400 : bandeau en haut) */
+static char na_ach_tit[64][48];
+static u8 na_ach_deja[64];
+static volatile int lsc_hold = 0, lsc_busy = 0;          /* (v390 / v391 : fil de la bibliotheque, main.c ; manquait au banc) */

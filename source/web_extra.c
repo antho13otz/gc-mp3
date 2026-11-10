@@ -320,7 +320,7 @@ static void au_choose(u32 down) {
             snprintf(stations[nstations].url, sizeof(stations[0].url), "%s", au.url);
             start_station(nstations, 0);
         } else podcast_play_url(au.name, au.url, au.clen);   /* fichier : avance / recul, reprise */
-        web_note("Lecture en cours (L / R : reculer / avancer dans un fichier)", 0);
+        web_note("Lecture en cours (Z : avancer, 2 fois : reculer dans un fichier)", 0);
         au_clear();
     } else if (down & PAD_BUTTON_X) {                   /* telecharger */
         unsigned char *b = au.body;

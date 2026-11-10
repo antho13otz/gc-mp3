@@ -11,6 +11,8 @@
 
 #include <ogc/si.h>
 
+static void transport_step(int d);                  /* (main.c) */
+
 static int gk_chan = -1;                       /* port du clavier, -1 = aucun */
 static u64 gk_probe_t = 0;
 static volatile int gk_busy = 0, gk_ok = 0;
@@ -76,11 +78,11 @@ static void gk_key(u8 k, int shift, u32 *down, u32 *nav, int *fire) {
     case 0x61: *down |= PAD_BUTTON_A; return;
     case 0x4C: case 0x50: *down |= PAD_BUTTON_B; return;
     case 0x59: *down |= PAD_BUTTON_Y; return;
-    case 0x51: *down |= PAD_TRIGGER_Z; return;
+    case 0x51: *down |= PAD_TRIGGER_R; return;           /* (Tab : onglet suivant ; v386 : R, Z change de morceau) */
     case 0x40: *down |= PAD_BUTTON_START; return;
     case 0x41: if (!night_on && !menu_open) night_start(); return;
-    case 0x08: *down |= PAD_TRIGGER_L; return;
-    case 0x09: *down |= PAD_TRIGGER_R; return;
+    case 0x08: transport_step(-1); return;               /* (Page haut / bas : morceau ; v386 : plus par L / R, */
+    case 0x09: transport_step(1); return;                /*  qui changent d'onglet) */
     }
     /* onglet WEB : une lettre ouvre la barre d'adresse */
     char c = gk_char(k, shift);

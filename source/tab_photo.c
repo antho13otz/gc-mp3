@@ -659,7 +659,7 @@ static void photo_input(u32 down, u32 nav, int fire) {
     }
     if ((down & PAD_BUTTON_A) && npf > 0) pv_open(pf_sel);
     if (down & PAD_BUTTON_X) photo_rescan();
-    if ((down & (PAD_TRIGGER_L | PAD_TRIGGER_R)) && npf > 0) {   /* v76 : trier par nom / par date */
+    if (cs_ex && npf > 0) {                                /* v76 : trier par nom / par date ; v386 : stick C gauche / droite (avant L / R) */
         char keep[NAME_LEN];
         snprintf(keep, sizeof(keep), "%s", pf[pf_sel >= 0 && pf_sel < npf ? pf_sel : 0].path);
         pf_sort ^= 1;
@@ -746,7 +746,7 @@ static void draw_tab_photo(void) {
         }
     }
     if (npf > 0) {
-        snprintf(buf, sizeof(buf), "L / R : tri %s", pf_sort ? TR("par date") : TR("par nom"));
+        snprintf(buf, sizeof(buf), TR("C \xE2\x86\x90 / \xE2\x86\x92 : tri %s"), pf_sort ? TR("par date") : TR("par nom"));
         char nb[16]; snprintf(nb, sizeof(nb), "%d", npf);       /* v316 : (styles 1 a 3 : le nombre est deja a droite) */
         f32 xr = (ui_skin >= 1 && ui_skin <= 3) ? 614 - text_width(F_SMALL, nb, 0) - 14 : 614;
         gx_text_r(F_SMALL, xr, 99, buf, RGBA(150, 135, 210, 255));

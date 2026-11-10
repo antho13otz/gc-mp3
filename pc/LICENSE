@@ -1,0 +1,16 @@
+GC Station PC (Windows) - Tous droits réservés / All rights reserved
+
+Copyright (c) 2026 Anthony (chauvet830 sur GitLab, antho13otz sur GitHub). Tous droits réservés.
+
+Le code de ce dossier (pc/) n'est PAS sous licence MIT. La licence MIT du fichier LICENSE à la racine du dépôt
+ne couvre que la console (source/, tools/), pas la version PC ni l'application Android.
+Aucune autorisation n'est donnée de copier, modifier, distribuer, publier ou réutiliser ce code, en tout ou en
+partie, sans l'accord écrit du propriétaire.
+
+Exceptions : les composants tiers repris dans pc/source (bibliothèques listées dans CREDITS.md : Mbed TLS,
+minimp3, stb, libxmp, game-music-emu, etc.) gardent leur propre licence.
+
+---
+
+The code in this folder (pc/) is NOT MIT licensed. Copyright (c) 2026 Anthony (chauvet830). All rights reserved.
+Third-party components keep their own licenses (see CREDITS.md).

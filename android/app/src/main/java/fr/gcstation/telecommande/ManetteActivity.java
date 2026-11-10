@@ -57,6 +57,7 @@ public class ManetteActivity extends Activity implements SensorEventListener {
     static final int PORT_GCS = 51238;                         // (console build 765 : mini-jeux et menus de GC Station lui-meme)
 
     static void open(Context c, int mask) {
+        if (!BuildConfig.PRIVE) { openGcs(c); return; }        // (build 457 : version publique : pas de manette en jeu, seulement GC Station)
         c.startActivity(new Intent(c, ManetteActivity.class).putExtra(EXTRA_MASK, mask));
     }
 
@@ -106,7 +107,7 @@ public class ManetteActivity extends Activity implements SensorEventListener {
         Lang.init(this);
         mask = getIntent().getIntExtra(EXTRA_MASK, 0x2);
         setup = getIntent().getBooleanExtra(EXTRA_SETUP, false);
-        gcs = getIntent().getBooleanExtra(EXTRA_GCS, false);
+        gcs = !BuildConfig.PRIVE || getIntent().getBooleanExtra(EXTRA_GCS, false);   // (build 457 : version publique : mini-jeux et menus seulement)
         if (mask == 0) mask = 0x2;
         sp = getSharedPreferences("gcs", MODE_PRIVATE);
         port = sp.getInt(gcs ? "manette_joueur" : "manette_port", -1);

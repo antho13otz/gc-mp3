@@ -44,7 +44,8 @@ void cb_host_screen(float *ox, float *oy, float *sx, float *sy, int *fb_w, int *
 }
 static int cbh_wants_start = 0;
 static int am_open;                                      /* (lib_extra.c) */
-u32 cb_host_reserved_buttons(void) { return PAD_TRIGGER_Z | (cbh_wants_start ? 0 : PAD_BUTTON_START); }
+/* v386 : L / R aussi a GC Station (onglet precedent / suivant), sauf quand le clavier du navigateur est ouvert (curseur) */
+u32 cb_host_reserved_buttons(void) { return PAD_TRIGGER_Z | (cbh_wants_start ? 0 : PAD_BUTTON_START | PAD_TRIGGER_L | PAD_TRIGGER_R); }
 int cb_host_input_enabled(void) { return tab == TAB_WEB && !menu_open && !kb_open && !tl_screen && !ic_on && !am_open && !sh_on; }
 void cb_host_restore_gx(void) {
     Mtx id;

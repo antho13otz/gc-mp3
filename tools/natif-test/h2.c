@@ -24,7 +24,7 @@ static const char *nat_self_path(void) { return getenv("NATIF_SELF"); }   /* (v6
 
 static void *read_file(const char *p, long max, long *len) { FILE *f = fopen(p, "rb"); if (!f) return NULL; void *b = malloc(max); *len = b ? (long)fread(b, 1, max, f) : 0; fclose(f); return b; }
 static void crumb(const char*f,...){}
-static void stop_track(void){} static volatile int gj_hold; static void bg_quiesce(void){} /* v96 */
+static void stop_track(void){} static volatile int gj_hold, lsc_hold; static void bg_quiesce(void){} /* v96 ; v390 : lsc_hold */
 static int mount_sd(void){return 1;}
 typedef struct { char path[NAME_LEN]; u8 ciso; long size; char title[72]; char id[7]; u8 disc, dvd; } gcg_t;   /* (v121 : id, disque) */
 static gcg_t gl[2]; static int gl_n=1; static char gl_busy[96];
@@ -63,6 +63,7 @@ int main(int c, char **v) {
     if (getenv("NATIF_POLL")) nat_poll = atoi(getenv("NATIF_POLL"));
     nat_speed = getenv("NATIF_SPEED") != NULL;
     nat_trap = getenv("NATIF_TRAP") != NULL;                 /* v139 */
+    nat_tvsucc = getenv("NATIF_TVSUCC") != NULL;               /* v397 : bandeau des succes */
     if (getenv("NATIF_NET")) {                                 /* v143 : ISO lue par le reseau (serveur simule par le banc) */
         na_net_on = 1; memset(&na_netc, 0, sizeof(na_netc));
         na_netc.magic = NATRES_NET_MAGIC; na_netc.ip = 0xC0A80132u; na_netc.srv = 0xC0A8010Au; na_netc.port = 51235;

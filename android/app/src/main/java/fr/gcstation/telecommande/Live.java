@@ -38,6 +38,9 @@ public final class Live {
         int leftMin = -1;
         int padMask;                                         // ports donnes aux telephones pendant ce jeu (bit n = port n + 1)
         boolean mem;                                         // (GC Station v306) chercheur de codes : Pulse ouvre la memoire du jeu a l'appli
+        String raHash = "";                                  // (GC Station v393, appli 491) empreinte RetroAchievements du jeu ("" : pas calculee)
+        int cheats = -1;                                     // (GC Station v395, appli 500) 1 : cheats appliques au jeu, 0 : aucun, -1 : console plus ancienne
+        boolean enDirect;                                    // (appli 500) lancement vu par l'appli (pas une partie retrouvee apres coup) : hardcore possible
         long start;                                          // (ms, horloge du telephone)
         long playedSec() { return Math.max(0, (System.currentTimeMillis() - start) / 1000); }
         /** secondes restantes avant la limite du jour, ou Long.MIN_VALUE sans limite */
@@ -115,6 +118,9 @@ public final class Live {
                         g.profile = f.length > 4 ? f[4] : "";
                         try { g.padMask = f.length > 5 ? Integer.parseInt(f[5].trim()) : 0; } catch (Exception e) { g.padMask = 0; }
                         g.mem = f.length > 6 && f[6].trim().equals("1");
+                        g.raHash = f.length > 7 && f[7].trim().matches("[0-9a-f]{32}") ? f[7].trim() : "";
+                        g.cheats = f.length > 8 ? (f[8].trim().equals("1") ? 1 : f[8].trim().equals("0") ? 0 : -1) : -1;
+                        g.enDirect = true;
                         g.start = System.currentTimeMillis();
                         setGame(g);
                         break;
@@ -151,7 +157,7 @@ public final class Live {
         if (prefs != null) {
             if (g == null) prefs.edit().remove("jeu_id").apply();
             else prefs.edit().putString("jeu_id", g.id).putString("jeu_nom", g.name).putString("jeu_prof", g.profile)
-                          .putInt("jeu_lim", g.leftMin).putLong("jeu_t", g.start).putInt("jeu_pad", g.padMask).putBoolean("jeu_mem", g.mem).apply();
+                          .putInt("jeu_lim", g.leftMin).putLong("jeu_t", g.start).putInt("jeu_pad", g.padMask).putBoolean("jeu_mem", g.mem).putString("jeu_ra", g.raHash).apply();
         }
         ui.post(() -> { for (Listener l : listeners) l.game(g); });
     }
@@ -167,6 +173,7 @@ public final class Live {
         g.start = prefs.getLong("jeu_t", 0);
         g.padMask = prefs.getInt("jeu_pad", 0);
         g.mem = prefs.getBoolean("jeu_mem", false);
+        g.raHash = prefs.getString("jeu_ra", "");
         if (System.currentTimeMillis() - g.start > 12 * 3600 * 1000L) { prefs.edit().remove("jeu_id").apply(); return; }   // (trop vieux)
         game = g;
     }

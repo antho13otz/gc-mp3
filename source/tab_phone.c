@@ -35,7 +35,7 @@ static volatile int tp_json_now = 0;                      /* v330 : etat a prepa
 static volatile u32 tp_json_gen = 0;
 
 /* commandes envoyees par la page */
-enum { PC_TOGGLE = 1, PC_NEXT, PC_PREV, PC_STOP, PC_VOLUP, PC_VOLDOWN, PC_PLAY, PC_RADIO, PC_PARTY, PC_LAYOUT, PC_OPEN, PC_MENU, PC_CHECK, PC_SET, PC_UPDATE, PC_SHOW, PC_SALON, PC_TYPE, PC_SHOWNAME, PC_PLAYURL, PC_RADIOADD, PC_TEST, PC_MINIJEU, PC_QPLAY };   /* v142 : photo sur la tele, ecouter avec (Salon) */
+enum { PC_TOGGLE = 1, PC_NEXT, PC_PREV, PC_STOP, PC_VOLUP, PC_VOLDOWN, PC_PLAY, PC_RADIO, PC_PARTY, PC_LAYOUT, PC_OPEN, PC_MENU, PC_CHECK, PC_SET, PC_UPDATE, PC_SHOW, PC_SALON, PC_TYPE, PC_SHOWNAME, PC_PLAYURL, PC_RADIOADD, PC_TEST, PC_MINIJEU, PC_QPLAY, PC_SEEK, PC_NOTIF };   /* v142 : photo sur la tele, ecouter avec (Salon) */
 static volatile u32 tp_keys = 0;                /* v142 : boutons de la manette du telephone (pris par la boucle) */
 static u8 *gl_cover_raw(int k, int *w, int *h, int *iw, int *ih, u32 *len);   /* (gclib.c) jaquette telle qu'elle est dans posters.pak */
 static int tl_screen;                                        /* (tools.c : 0 = aucun outil ouvert) */
@@ -72,6 +72,11 @@ static int tp_type_go = 0;
 static volatile int tp_type_busy = 0;
 static char tp_shown_name[NAME_LEN];
 static volatile int tp_shown_busy = 0;
+static char tp_nt_e[48], tp_nt_m[160];                   /* v399 : notification du telephone (/api/notif), en attente du fil principal */
+static int tp_nt_ic = 0;
+static unsigned short tp_nt_px[24 * 24];                /* v401 : icone de l'application (px= : 24 x 24 en RGBA 4444, hexa) */
+static int tp_nt_img = 0;
+static volatile int tp_nt_busy = 0;
 int osk_phone_get(char *title, int tcap, char *out, int cap);   /* (cb/osk.c) */
 void osk_phone_set(const char *latin1, int accept);
 const char *cb_current_url(void);                              /* (cb/browser.c) */
@@ -211,49 +216,29 @@ static void tp_send_capture(s32 c) {
 static u8 *tp_ej_buf = NULL;
 static int tp_param(const char *q, const char *key, char *out, int cap);
 static u32 tp_ej_n = 0;                                          /* (images envoyees : le journal le dit) */
-/* v285 : second ecran : GET /api/ecran?w=320|640&q=10..95 -> ce qu'affiche la tele en JPEG */
-static void tp_send_ecran(s32 c, const char *q) {
-    const u8 *fb; int w, h;
-#ifndef GEKKO
-    tp_cap = 3;                                                  /* (simulateur : une image dessinee, sans fichier PNG) */
-    for (int k = 0; k < 400 && tp_cap; k++) usleep(5000);
-    fb = (const u8 *)pcsim_xfb_last; w = pcsim_xfb_w; h = pcsim_xfb_h;
-#else
-    fb = (const u8 *)xfb[displayed_fb]; w = rmode ? rmode->fbWidth : 0; h = rmode ? rmode->xfbHeight : 0;
-#endif
-    if (!fb || w <= 0 || h <= 0 || w > 720 || h > 576) { tp_reply(c, 503, "text/plain", "ecran indisponible", 18); return; }
-    char v[12];
-    tp_param(q ? q : "", "w", v, sizeof(v));
-    int s = atoi(v) >= 600 ? 1 : 2;
-    tp_param(q ? q : "", "q", v, sizeof(v));
-    int qual = v[0] ? atoi(v) : 60;
-    int cap = s == 1 ? 256 * 1024 : 96 * 1024;
-    if (!tp_ej_buf) tp_ej_buf = (u8 *)malloc(256 * 1024);
-    if (!tp_ej_buf) { tp_reply(c, 503, "text/plain", "memoire", 7); return; }
-#ifdef GEKKO
-    /* (le tampon video est lu par son adresse en cache, apres invalidation : bien plus rapide que sans cache) */
-    const u8 *cfb = (const u8 *)MEM_K1_TO_K0(fb);
-    DCInvalidateRange((void *)cfb, (u32)w * h * 2);
-    fb = cfb;
-#endif
-    u64 t0 = now_ms();
-    int n = ej_encode(fb, w, h, s, qual, tp_ej_buf, cap);
-    if (!n) n = ej_encode(fb, w, h, s, qual / 2, tp_ej_buf, cap);   /* (image trop chargee : moins de qualite) */
-    if (!n) { tp_reply(c, 503, "text/plain", "image trop grosse", 17); return; }
-    tp_ej_n++;
-    char hd[300];
-    int hn = snprintf(hd, sizeof(hd), "HTTP/1.1 200 OK\r\nContent-Type: image/jpeg\r\nContent-Length: %d\r\nX-Ecran: %dx%d\r\nX-Ms: %u\r\nX-Web: %d\r\n"
-                      "Cache-Control: no-store\r\nConnection: close\r\n\r\n", n, w / s, h / s, (unsigned)(now_ms() - t0), tab == TAB_WEB ? 1 : 0);
-    if (tp_send(c, hd, hn)) tp_send(c, tp_ej_buf, n);
-}
-/* v294 : images partielles : GET /api/ecranz?w=320|640&q=&s=<derniere image recue> (voir ecran_jpeg.c, ej_partiel)
-   v295 : image suivante preparee d'avance : des qu'une image est envoyee, la console prepare la suivante (le temps que
-   le telephone la recoive et redemande) ; a la demande suivante, elle part tout de suite. Le telephone n'attend plus
-   que la console capture et compresse : plus d'images par seconde. (Preparee il y a plus de 40 ms et vide : refaite.) */
+/* v285 : second ecran : GET /api/ecran?w=320|640&q=10..95 -> ce qu'affiche la tele en JPEG (image entiere)
+   v294 : images partielles : GET /api/ecranz?w=320|640&q=&s=<derniere image recue> (voir ecran_jpeg.c, ej_partiel)
+   v295 : image suivante preparee d'avance : des qu'une image est envoyee, la console prepare la suivante ; a la demande
+   suivante, elle part tout de suite. (Preparee il y a plus de 40 ms et vide : refaite.)
+   v396 : la suivante est preparee PENDANT l'envoi, par un fil a part (tpe_thread). Avant, capture, compression et
+   envoi se suivaient dans le fil du serveur. Le Gekko n'a qu'un coeur, mais pendant l'envoi le fil du serveur attend le
+   reseau : le fil de l'image prend ce temps-la. Deux tampons, celui qui part et celui qu'on remplit, qui s'echangent.
+   Aussi pour /api/ecran (images entieres) : l'appli (507) la demande en 320x240 pendant que tout l'ecran bouge.
+   L'encodeur (ej_*) n'est jamais utilise par deux fils a la fois : le serveur attend le fil de l'image (tpe_attendre)
+   avant d'y toucher. */
+#define TPE_BARRIERE() __asm__ __volatile__("" ::: "memory")
 static u8 *tp_pf_buf = NULL;
-static int tp_pf_len = -1, tp_pf_plein = 0, tp_pf_nb = 0, tp_pf_s = 0, tp_pf_q = 0, tp_pf_ms = 0;
+static volatile int tp_pf_len = -1;
+static int tp_pf_plein = 0, tp_pf_nb = 0, tp_pf_s = 0, tp_pf_q = 0, tp_pf_ms = 0, tp_pf_mode = 0, tp_pf_w = 0, tp_pf_h = 0;
 static u32 tp_pf_base = 0;
 static u64 tp_pf_t = 0;
+static volatile int tpe_job = 0;                         /* 1 : image a preparer, 2 : en cours, 0 : rien */
+static volatile int tpe_mode = 0, tpe_s = 0, tpe_q = 0;
+static volatile u32 tpe_base = 0;
+static volatile u64 tpe_vu = 0;                          /* (derniere demande d'image : sans tele, le fil dort plus) */
+static lwp_t tpe_h;
+static int tpe_ok = 0;                                   /* 1 : fil lance, -1 : impossible (on prepare apres l'envoi) */
+static u8 tpe_stack[16 * 1024] ATTRIBUTE_ALIGN(32);
 static const u8 *tp_ecran_fb(int *w, int *h) {
     const u8 *fb;
 #ifndef GEKKO
@@ -271,6 +256,98 @@ static const u8 *tp_ecran_fb(int *w, int *h) {
 #endif
     return fb;
 }
+/* une image dans tp_pf_buf : 0 = partielle (base : derniere image du telephone), 1 = entiere */
+static void tpe_faire(int mode, int s, int q, u32 base) {
+    int w = 0, h = 0, plein = 1, nb = 0, n;
+    tp_pf_len = -1;
+    const u8 *fb = tp_ecran_fb(&w, &h);
+    if (!fb) return;
+    u64 t0 = now_ms();
+    if (mode == 0) n = ej_partiel(fb, w, h, s, q, base, tp_pf_buf, 256 * 1024, &plein, &nb);
+    else {
+        int cap = s == 1 ? 256 * 1024 : 96 * 1024;
+        n = ej_encode(fb, w, h, s, q, tp_pf_buf, cap);
+        if (!n) n = ej_encode(fb, w, h, s, q / 2, tp_pf_buf, cap);   /* (image trop chargee : moins de qualite) */
+        if (!n) n = -1;
+    }
+    tp_pf_ms = (int)(now_ms() - t0); tp_pf_t = now_ms();
+    tp_pf_plein = plein; tp_pf_nb = nb; tp_pf_mode = mode; tp_pf_s = s; tp_pf_q = q; tp_pf_base = base; tp_pf_w = w; tp_pf_h = h;
+    TPE_BARRIERE();
+    tp_pf_len = n;
+}
+static void *tpe_thread(void *a) {
+    (void)a;
+    for (;;) {
+        if (tpe_job != 1) { usleep(now_ms() - tpe_vu < 3000 ? 2000 : 40000); continue; }
+        tpe_job = 2;
+        TPE_BARRIERE();
+        tpe_faire(tpe_mode, tpe_s, tpe_q, tpe_base);
+        TPE_BARRIERE();
+        tpe_job = 0;
+    }
+    return NULL;
+}
+/* avant de toucher a l'encodeur ou aux tampons : le fil de l'image a fini. 0 : toujours occupe apres 10 s (alors on
+   n'y touche pas : jamais deux fils dans l'encodeur, sinon les images partielles se melangent) */
+static int tpe_attendre(void) {
+    u64 t0 = now_ms();
+    while (tpe_job && now_ms() - t0 < 10000) usleep(1000);
+    TPE_BARRIERE();
+    return !tpe_job;
+}
+/* l'image suivante, preparee par le fil de l'image pendant l'envoi ; 0 : pas de fil (a faire apres l'envoi) */
+static int tpe_lancer(int mode, int s, int q, u32 base) {
+    if (!tpe_ok) tpe_ok = LWP_CreateThread(&tpe_h, tpe_thread, NULL, tpe_stack, sizeof(tpe_stack), 30) < 0 ? -1 : 1;
+    if (tpe_ok < 0 || tpe_job) return 0;
+    tpe_mode = mode; tpe_s = s; tpe_q = q; tpe_base = base;
+    TPE_BARRIERE();
+    tpe_job = 1;
+    return 1;
+}
+static int tp_ecran_tampons(void) {
+    if (!tp_ej_buf) tp_ej_buf = (u8 *)malloc(256 * 1024);
+    if (!tp_pf_buf) tp_pf_buf = (u8 *)malloc(256 * 1024);
+    return tp_ej_buf && tp_pf_buf;
+}
+/* l'image preparee devient celle qui part (les deux tampons s'echangent) */
+static u8 *tp_ecran_prendre(void) {
+    u8 *t = tp_ej_buf; tp_ej_buf = tp_pf_buf; tp_pf_buf = t;
+    return tp_ej_buf;
+}
+
+static void tp_send_ecran(s32 c, const char *q) {
+    char v[12];
+    tp_param(q ? q : "", "w", v, sizeof(v));
+    int s = atoi(v) >= 600 ? 1 : 2;
+    tp_param(q ? q : "", "q", v, sizeof(v));
+    int qual = v[0] ? atoi(v) : 60;
+    if (!tp_ecran_tampons()) { tp_reply(c, 503, "text/plain", "memoire", 7); return; }
+    tpe_vu = now_ms();
+    if (!tpe_attendre()) { tp_reply(c, 503, "text/plain", "occupe", 6); return; }
+    int w = 0, h = 0, n, ms;
+    u8 *buf;
+    if (tp_pf_len > 0 && tp_pf_mode == 1 && tp_pf_s == s && tp_pf_q == qual && now_ms() - tp_pf_t < 150) {
+        n = tp_pf_len; ms = tp_pf_ms; w = tp_pf_w; h = tp_pf_h;   /* (preparee pendant l'envoi de la precedente) */
+        buf = tp_ecran_prendre();
+    } else {
+        const u8 *fb = tp_ecran_fb(&w, &h);
+        if (!fb) { tp_reply(c, 503, "text/plain", "ecran indisponible", 18); return; }
+        int cap = s == 1 ? 256 * 1024 : 96 * 1024;
+        u64 t0 = now_ms();
+        buf = tp_ej_buf;
+        n = ej_encode(fb, w, h, s, qual, buf, cap);
+        if (!n) n = ej_encode(fb, w, h, s, qual / 2, buf, cap);   /* (image trop chargee : moins de qualite) */
+        ms = (int)(now_ms() - t0);
+        if (!n) { tp_reply(c, 503, "text/plain", "image trop grosse", 17); return; }
+    }
+    tp_pf_len = -1;
+    tp_ej_n++;
+    char hd[300];
+    int hn = snprintf(hd, sizeof(hd), "HTTP/1.1 200 OK\r\nContent-Type: image/jpeg\r\nContent-Length: %d\r\nX-Ecran: %dx%d\r\nX-Ms: %u\r\nX-Web: %d\r\n"
+                      "Cache-Control: no-store\r\nConnection: close\r\n\r\n", n, w / s, h / s, (unsigned)ms, tab == TAB_WEB ? 1 : 0);
+    tpe_lancer(1, s, qual, 0);                            /* (v396 : la suivante, pendant l'envoi) */
+    if (tp_send(c, hd, hn)) tp_send(c, buf, n);
+}
 static void tp_send_ecranz(s32 c, const char *q) {
     char v[16];
     tp_param(q ? q : "", "w", v, sizeof(v));
@@ -279,14 +356,14 @@ static void tp_send_ecranz(s32 c, const char *q) {
     int qual = v[0] ? atoi(v) : 60;
     tp_param(q ? q : "", "s", v, sizeof(v));
     u32 sc = (u32)strtoul(v, NULL, 10);
-    if (!tp_ej_buf) tp_ej_buf = (u8 *)malloc(256 * 1024);
-    if (!tp_pf_buf) tp_pf_buf = (u8 *)malloc(256 * 1024);
-    if (!tp_ej_buf || !tp_pf_buf) { tp_reply(c, 503, "text/plain", "memoire", 7); return; }
+    if (!tp_ecran_tampons()) { tp_reply(c, 503, "text/plain", "memoire", 7); return; }
+    tpe_vu = now_ms();
+    if (!tpe_attendre()) { tp_reply(c, 503, "text/plain", "occupe", 6); return; }
     int w = 0, h = 0, plein = 0, nb = 0, n, ms;
     u8 *buf;
-    if (tp_pf_len >= 0 && tp_pf_s == s && tp_pf_q == qual && sc == tp_pf_base && !(tp_pf_len == 0 && now_ms() - tp_pf_t > 40)) {
-        buf = tp_pf_buf; n = tp_pf_len; plein = tp_pf_plein; nb = tp_pf_nb; ms = tp_pf_ms;   /* (preparee d'avance) */
-        w = ej_rw * s; h = ej_rh * s;
+    if (tp_pf_len >= 0 && tp_pf_mode == 0 && tp_pf_s == s && tp_pf_q == qual && sc == tp_pf_base && !(tp_pf_len == 0 && now_ms() - tp_pf_t > 40)) {
+        n = tp_pf_len; plein = tp_pf_plein; nb = tp_pf_nb; ms = tp_pf_ms; w = tp_pf_w; h = tp_pf_h;   /* (preparee d'avance) */
+        buf = tp_ecran_prendre();
     } else {
         const u8 *fb = tp_ecran_fb(&w, &h);
         if (!fb) { tp_reply(c, 503, "text/plain", "ecran indisponible", 18); return; }
@@ -302,15 +379,10 @@ static void tp_send_ecranz(s32 c, const char *q) {
                       "X-Ms: %d\r\nX-Web: %d\r\nCache-Control: no-store\r\nConnection: close\r\n\r\n", n ? "200 OK" : "204 No Content",
                       plein ? "image/jpeg" : "application/octet-stream", n, w / s, h / s, (unsigned)ej_seq, plein, nb, ms, tab == TAB_WEB ? 1 : 0);
     tp_ej_n++;
+    u32 base = ej_seq;
+    int pendant = tpe_lancer(0, s, qual, base);           /* (v396 : la suivante, pendant l'envoi) */
     if (!tp_send(c, hd, hn) || (n > 0 && !tp_send(c, buf, n))) return;
-    /* la suivante, d'avance (dans l'autre tampon) */
-    const u8 *fb = tp_ecran_fb(&w, &h);
-    if (!fb) return;
-    u64 t0 = now_ms();
-    tp_pf_base = ej_seq;
-    tp_pf_len = ej_partiel(fb, w, h, s, qual, ej_seq, tp_pf_buf, 256 * 1024, &tp_pf_plein, &tp_pf_nb);
-    tp_pf_ms = (int)(now_ms() - t0);
-    tp_pf_t = now_ms(); tp_pf_s = s; tp_pf_q = qual;
+    if (!pendant) tpe_faire(0, s, qual, base);           /* (sans fil : apres l'envoi, comme en v295) */
 }
 static volatile int tp_touch = 0, tp_tc = 0;             /* v303 : tele tactile : toucher a un endroit de l'image */
 static int tp_tap_retry = 0;                              /* (zone pas encore la, ex. barre des onglets qui apparait : reessaye) */
@@ -1101,7 +1173,7 @@ static int tp_param(const char *q, const char *key, char *out, int cap) {
     out[0] = 0;
     for (const char *p = q; p && *p; ) {
         if (!strncmp(p, key, kl) && p[kl] == '=') {
-            char raw[2100];
+            static char raw[2400];                         /* (v401 : 2400, avant 2100 : l'icone de /api/notif fait 2304 chiffres) */
             int n = (int)strcspn(p + kl + 1, "&");
             if (n > (int)sizeof(raw) - 1) n = sizeof(raw) - 1;
             memcpy(raw, p + kl + 1, n);
@@ -1326,8 +1398,8 @@ static void tp_handle(s32 c) {
     }
     if (hend < 0) return;
     tp_last_req = now_ms();
-    char method[8] = "", target[2600] = "";
-    if (sscanf((char *)req, "%7s %2599s", method, target) != 2) return;
+    char method[8] = "", target[4600] = "";             /* (v401 : 4600, avant 2600 : /api/notif porte l'icone : 2304 chiffres) */
+    if (sscanf((char *)req, "%7s %4599s", method, target) != 2) return;
     char *q = strchr(target, '?');
     if (q) *q++ = 0;
     if (!strcmp(method, "PUT") || !strcmp(method, "POST")) {
@@ -1649,6 +1721,30 @@ static void tp_handle(s32 c) {
         }
         tp_reply(c, 200, "application/json", ok ? "{\"ok\":1}" : "{\"ok\":0}", 8);
     }
+    else if (!strcmp(target, "/api/notif")) {               /* v399 : ?e=<etiquette>&m=<texte>&i=<icone 1-6> : carte en haut de l'ecran */
+        int ok = !tp_nt_busy;
+        if (ok) {
+            char ic[4];
+            tp_param(q ? q : "", "e", tp_nt_e, sizeof(tp_nt_e));
+            tp_param(q ? q : "", "m", tp_nt_m, sizeof(tp_nt_m));
+            tp_param(q ? q : "", "i", ic, sizeof(ic));
+            tp_nt_ic = atoi(ic);
+            static char hx[24 * 24 * 4 + 8];
+            tp_param(q ? q : "", "px", hx, sizeof(hx));
+            tp_nt_img = (int)strlen(hx) == 24 * 24 * 4;
+            for (int i = 0; tp_nt_img && i < 24 * 24; i++) {
+                unsigned v = 0;
+                for (int j = 0; j < 4; j++) {
+                    char c = hx[i * 4 + j];
+                    v = v << 4 | (unsigned)(c >= '0' && c <= '9' ? c - '0' : c >= 'a' && c <= 'f' ? c - 'a' + 10 : c >= 'A' && c <= 'F' ? c - 'A' + 10 : 0);
+                }
+                tp_nt_px[i] = (unsigned short)v;
+            }
+            ok = tp_nt_m[0] != 0;
+            if (ok) { tp_nt_busy = 1; tp_push(PC_NOTIF, 0); }
+        }
+        tp_reply(c, ok ? 200 : 503, "application/json", ok ? "{\"ok\":1}" : "{\"ok\":0}", 8);
+    }
     else if (!strcmp(target, "/api/showname")) {             /* v222 : photo envoyee par le telephone -> sur la tele */
         int ok = !tp_shown_busy;
         if (ok) { tp_param(q ? q : "", "n", tp_shown_name, sizeof(tp_shown_name)); ok = tp_shown_name[0] != 0; }
@@ -1906,7 +2002,8 @@ static void tp_handle(s32 c) {
         tp_param(q ? q : "", "i", is, sizeof(is));
         int found = 0;
         for (int k = 1; k <= PC_LAYOUT; k++) if (!strcmp(cmd, cmds[k])) { tp_push(k, is[0] ? atoi(is) : -1); found = 1; }
-        if (!strcmp(cmd, "qplay") && is[0]) { tp_push(PC_QPLAY, atoi(is)); found = 1; }   /* v311 : un morceau de la file "a suivre" (sa place), sans la refaire */
+        if (!strcmp(cmd, "qplay") && is[0]) { tp_push(PC_QPLAY, atoi(is)); found = 1; }
+        if (!strcmp(cmd, "seek") && is[0] && atoi(is) >= 0) { tp_push(PC_SEEK, atoi(is)); found = 1; }   /* v389 : aller a i secondes du morceau en cours */   /* v311 : un morceau de la file "a suivre" (sa place), sans la refaire */
         tp_reply(c, found ? 200 : 400, "application/json", found ? "{\"ok\":1}" : "{\"ok\":0}", found ? 8 : 8);
     } else tp_reply(c, 404, "text/plain", "", 0);
 }
@@ -1974,7 +2071,7 @@ static void phone_enter(void) { tp_wanted = 1; }
    - "GCSS1" (toutes les 10 s) : abonnement de cet appareil pour 30 s -> "GCSK1" ;
    - aux abonnes : "GCSN1\t<numero>" quand l'etat change (titre, pause, volume, paroles, position sautee...) : l'appli
      relit /api/state tout de suite au lieu de demander chaque seconde ;
-     "GCSG1\t<id>\t<nom>\t<minutes restantes, -1 sans limite>\t<profil>" juste avant de lancer un jeu (la console ne
+     "GCSG1\t<id>\t<nom>\t<minutes restantes, -1 sans limite>\t<profil>\t<ports>\t<memoire>\t<empreinte RA>\t<cheats 0/1>" (v395) juste avant de lancer un jeu (la console ne
      repond plus pendant le jeu : l'appli affiche la partie en cours) ; "GCSE1" si le lancement a echoue. */
 #define TPL_PORT 51236
 #define TPL_MAX 6
@@ -2080,16 +2177,18 @@ static void tpl_pump(void) {
 static int pj_left_min(void);
 static u32 na_padmask(void);                             /* (prive, natif.c) */
 static int na_mem_on(void);                              /* (v306, natif.c) */
+static char ra_cur_hash[33];                             /* (v393, ra_hash.c) empreinte RetroAchievements du jeu lance */
+static int ra_cur_cheats;                                /* (v395, jeux_cfg.c) 1 : des cheats sont appliques au jeu lance */
 static void tpl_game(const char *id, const char *name) {
     if (tpl_fd < 0 || !app_envoi || !tpl_live()) return;
     static char last[8] = "";
     static u64 last_t = 0;
     if (!strcmp(last, id ? id : "") && now_ms() - last_t < 5000) return;   /* (deja dit : appels imbriques) */
     snprintf(last, sizeof(last), "%s", id ? id : ""); last_t = now_ms();
-    char nm[160], m[260];
+    char nm[160], m[320];
     tp_any_utf8(name ? name : "", nm, sizeof(nm));
     for (char *p = nm; *p; p++) if (*p == '\t' || *p == '\n') *p = ' ';
-    snprintf(m, sizeof(m), "GCSG1\t%s\t%s\t%d\t%s\t%u\t%d\n", id ? id : "", nm, pj_left_min(), gp_name, (unsigned)na_padmask(), na_mem_on());   /* (+ ports des manettes du telephone ; v306 : chercheur de codes) */
+    snprintf(m, sizeof(m), "GCSG1\t%s\t%s\t%d\t%s\t%u\t%d\t%s\t%d\n", id ? id : "", nm, pj_left_min(), gp_name, (unsigned)na_padmask(), na_mem_on(), ra_cur_hash, ra_cur_cheats);   /* (v393 : + empreinte RetroAchievements ; v395 : + cheats appliques, pour le mode hardcore) */   /* (+ ports des manettes du telephone ; v306 : chercheur de codes) */
     for (int k = 0; k < 2; k++) { tpl_send_all(m); usleep(20000); }   /* (deux fois : UDP, et le jeu coupe le reseau juste apres) */
 }
 static void tpl_game_fail(void) { if (app_envoi) tpl_send_all("GCSE1\n"); }
@@ -2216,6 +2315,7 @@ static void phone_pump(void) {
         case PC_RADIO: if (cm.i >= 0 && cm.i < nstations) { net_start_async(); start_station(cm.i, 0); } break;
         case PC_PARTY: if (party_on) party_on = 0; else party_start(); break;
         case PC_LAYOUT: layout_next(); break;
+        case PC_SEEK: if (src == SRC_FILE && cur_track >= 0) track_seek(cm.i > 0 ? cm.i : 1); break;   /* v389 (0 : au debut ; track_seek ignore 0) */
         case PC_OPEN: web_open_from_phone(tp_open_url); tp_open_busy = 0; break;
         case PC_MENU:
             if (cm.i / 2 == MI_UPDATE) update_activate();
@@ -2248,6 +2348,7 @@ static void phone_pump(void) {
             if (cm.i >= 0 && cm.i < npf) { saver_on = 0; night_on = 0; last_input_ms = now_ms(); menu_open = 0; tl_screen = 0; kb_open = 0; tab = TAB_PHOTO; tab_enter(TAB_PHOTO); pv_open(cm.i); }
             break;
         case PC_TYPE: tp_type_apply(); tp_type_busy = 0; break;
+        case PC_NOTIF: ntf_ajouter(tp_nt_e, tp_nt_m, tp_nt_ic, tp_nt_img ? tp_nt_px : NULL); tp_nt_busy = 0; break;   /* v399 */
         case PC_TEST: sx_phone_start(cm.i); break;   /* v278 */
         case PC_MINIJEU: gm_phone_launch(cm.i); break;   /* v279 */
         case PC_SHOWNAME: {

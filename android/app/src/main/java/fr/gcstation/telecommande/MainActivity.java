@@ -85,7 +85,7 @@ public class MainActivity extends Activity implements Host {
     private LinearLayout offline, gameView, sendBar;
     private TextView sendText;
     private ProgressBar sendBarP;
-    private TextView offlineMsg, gameTitle, gameSub, gameClock, gameLeft, gamePad;
+    private TextView offlineMsg, gameTitle, gameSub, gameClock, gameLeft, gamePad, gameBongos, gameClavier;
     private android.widget.ImageView gameCover;
     private boolean gameHidden, wasOffline, rediscovering;
     private final Live.Listener live = new Live.Listener() {
@@ -447,6 +447,16 @@ public class MainActivity extends Activity implements Host {
         LinearLayout.LayoutParams gpl = new LinearLayout.LayoutParams(-1, -2);
         gpl.bottomMargin = dp(8);
         card.addView(gamePad, gpl);
+        // build 471 : les bongos de Donkey Konga / Jungle Beat imites par le telephone (variante privee seulement)
+        gameBongos = Neon.btn(this, "\uD83E\uDD41  Bongos (Donkey Konga)", 14, false, v -> { Live.Game g = Live.game; Prive.INSTANCE.bongosOuvrir(this, g != null ? g.padMask : 0xF); });
+        LinearLayout.LayoutParams gbl = new LinearLayout.LayoutParams(-1, -2);
+        gbl.bottomMargin = dp(8);
+        card.addView(gameBongos, gbl);
+        // build 474 : le clavier de la GameCube (Phantasy Star Online) imite par le telephone (variante privee seulement)
+        gameClavier = Neon.btn(this, "\u2328  Clavier (Phantasy Star Online)", 14, false, v -> { Live.Game g = Live.game; Prive.INSTANCE.clavierOuvrir(this, g != null ? g.padMask : 0xF); });
+        LinearLayout.LayoutParams gcl = new LinearLayout.LayoutParams(-1, -2);
+        gcl.bottomMargin = dp(8);
+        card.addView(gameClavier, gcl);
         card.addView(Neon.btn(this, "Masquer", 13, false, v -> { gameHidden = true; showGame(); }), new LinearLayout.LayoutParams(-1, -2));
         p.addView(card, new LinearLayout.LayoutParams(-1, -2));
         p.setVisibility(View.GONE);
@@ -468,6 +478,8 @@ public class MainActivity extends Activity implements Host {
         }
         Neon.set(gameTitle, g.name.isEmpty() ? g.id : g.name);
         gamePad.setVisibility(g.padMask != 0 ? View.VISIBLE : View.GONE);   // (reglage "Manettes du telephone" de la console)
+        gameBongos.setVisibility(Prive.ACTIF && g.padMask != 0 ? View.VISIBLE : View.GONE);   // (build 471)
+        gameClavier.setVisibility(Prive.ACTIF && g.padMask != 0 ? View.VISIBLE : View.GONE);   // (build 474)
         Neon.set(gameSub, g.id + (g.profile.isEmpty() ? "" : " · profil " + g.profile) + " · lancé à "
                  + new java.text.SimpleDateFormat("HH:mm", java.util.Locale.FRANCE).format(new java.util.Date(g.start)));
         updateGame();

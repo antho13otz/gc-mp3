@@ -54,10 +54,10 @@ static void ld_fetch(int loud) {
     ld_loud = loud;
     if (net_phase != NET_DONE) { net_start_async(); if (loud) snprintf(ld_msg, sizeof(ld_msg), "%s", TR("R\xC3\xA9seau en cours de connexion, r\xC3\xA9" "essaie")); return; }
     if (!net_ok) { if (loud) snprintf(ld_msg, sizeof(ld_msg), "%s", TR("Pas de r\xC3\xA9seau")); return; }
-    char url[256];
+    char url[512];
     ld_via_api = 0;
     upd_rel_url(url, sizeof(url), 0);                              /* v112 : release.json d'abord */
-    ld_hf.maxbytes = 512 * 1024; ld_hf.image = 0; ld_hf.accept = "application/vnd.github+json";
+    ld_hf.maxbytes = 512 * 1024; ld_hf.image = 0; ld_hf.accept = upd_is_gitlab() ? "application/json,*/*" : "application/vnd.github+json";   /* (build 907) */
     hf_start(&ld_hf, url, NULL);
     ld_state = LD_CHECK;
     if (loud) snprintf(ld_msg, sizeof(ld_msg), "%s", TR("Recherche du lanceur..."));
@@ -98,7 +98,7 @@ static void ld_pump(void) {
     hf_pump(&ld_hf);
     if (ld_hf.st == HF_FAIL) {
         if (ld_state == LD_CHECK && !ld_via_api) {                  /* v112 : puis l'API */
-            char url[256];
+            char url[512];
             hf_drop(&ld_hf); ld_hf.st = HF_IDLE;
             ld_via_api = 1;
             upd_rel_url(url, sizeof(url), 1);

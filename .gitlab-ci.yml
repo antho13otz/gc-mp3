@@ -1,0 +1,206 @@
+# GC Station sur GitLab (depuis la suspension du compte GitHub, 6 novembre 2026).
+#
+# REGLES (pour ne pas refaire ce qui a fait suspendre le compte GitHub) :
+#  - rien ne se compile tout seul : chaque compilation est un job MANUEL (bouton > dans Build > Pipelines) ;
+#  - on ne compile que ce que le proprietaire va installer ;
+#  - aucune tache planifiee (pas de "schedules"), pas de tests longs ;
+#  - quota gratuit : ~400 minutes de calcul par mois (console ~5 min ; simulateur ~15 min, a la main depuis le 8 novembre
+#    2026 ; appli ~9 min, PC ~5 min).
+#
+# Numeros de build : ci/numeros.env (change dans le meme commit que la version publiee).
+# L'APK et l'exe PC restent PRIVES : le projet est public, mais les compilations (journaux et fichiers) ne sont
+# visibles que par les membres (Settings > General > Visibility > CI/CD : "Only project members").
+
+workflow:
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "web"
+    - if: $CI_PIPELINE_SOURCE == "push" && $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+
+stages: [lanceur, compiler, apres, publier]
+
+default:
+  interruptible: true
+  timeout: 40m
+
+.prive: &prive
+  access: developer          # (fichiers telechargeables seulement par les membres du projet)
+
+# ---------- Console (GC Station .dol) : appuyer sur > de "console-lanceur" ; le reste suit ----------
+console-lanceur:
+  stage: lanceur
+  image: ghcr.io/extremscorner/libogc2:latest
+  when: manual
+  allow_failure: false
+  cache:
+    key: lanceur-swiss
+    paths: [ci-cache/loader]
+  script:
+    - bash ci/console-loader.sh
+  artifacts:
+    <<: *prive
+    paths: [gc-mp3-loader.bin, gc-mp3-igr.img]
+    expire_in: 7 days
+
+console:
+  stage: compiler
+  image: devkitpro/devkitppc:latest
+  needs: [console-lanceur]
+  script:
+    - . ci/numeros.env
+    - bash ci/console.sh "$CONSOLE_BUILD"
+  artifacts:
+    <<: *prive
+    paths: [sortie/, gc-mp3player.elf]
+    expire_in: 30 days
+
+console-compresse:
+  stage: apres
+  image: ghcr.io/extremscorner/libogc2:latest
+  needs: [console]
+  script:
+    - . ci/numeros.env
+    - bash ci/compresse.sh "$CONSOLE_BUILD"
+  artifacts:
+    <<: *prive
+    paths: [sortie/]
+    expire_in: 30 days
+
+# Build 907 : publication pour la mise a jour de la console (START > Mise a jour) : paquets generiques du projet
+# (publics), console/<N>/ + console/dernier/release.json (tools/publish_gitlab.py). Seulement depuis main.
+console-publier:
+  stage: publier
+  image: python:3.12-slim
+  needs: [console, console-compresse]   # (8 novembre 2026 : le simulateur n'est plus attendu, voir plus bas)
+  rules:
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+  script:
+    - . ci/numeros.env
+    - python3 -I tools/publish_gitlab.py console "$CONSOLE_BUILD" "sortie/gc-mp3player-b$CONSOLE_BUILD.dol" "sortie/gc-station-compresse-b$CONSOLE_BUILD.bin" sortie/gc-mp3-igr.img sortie/gc-mp3-loader.bin
+
+# ---------- Catalogue d'applis et fiches des jeux : a la main seulement (aucune tache planifiee) ----------
+catalogue:
+  stage: compiler
+  image: python:3.12-slim
+  allow_failure: false
+  needs: []
+  rules:
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+      when: manual
+  script:
+    - apt-get update -q >/dev/null && apt-get install -y -q --no-install-recommends p7zip-full curl >/dev/null
+    - pip install -q py7zr
+    - mkdir -p ancien && (curl -fsSL -o ancien/catalogue.json "$CI_API_V4_URL/projects/$CI_PROJECT_ID/packages/generic/catalogue/dernier/catalogue.json" || rm -f ancien/catalogue.json)
+    - python3 tools/catalogue.py --liste catalogue/applis.txt --sortie out $( [ -s ancien/catalogue.json ] && echo --ancien ancien/catalogue.json )
+    - python3 -I tools/publish_gitlab.py fichiers catalogue out/*
+
+fiches:
+  stage: compiler
+  image: python:3.12-slim
+  needs: []
+  rules:
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+      when: manual
+  allow_failure: false
+  script:
+    - mkdir -p out && python3 tools/fiches_gametdb.py --sortie out/fiches-gc.txt && wc -c out/fiches-gc.txt
+    - python3 -I tools/publish_gitlab.py fichiers fiches out/fiches-gc.txt
+
+# Disque de demarrage (mini-DVD, consoles avec puce) : a la main seulement, apres la console ; fichiers prives
+console-disque:
+  stage: apres
+  image: ubuntu:24.04
+  needs: [console]
+  when: manual
+  allow_failure: true
+  script:
+    - . ci/numeros.env
+    - export DEBIAN_FRONTEND=noninteractive && apt-get update -q >/dev/null && apt-get install -y -q --no-install-recommends xorriso git python3 ca-certificates >/dev/null
+    - git init -q work-swiss && git -C work-swiss remote add origin https://github.com/emukidid/swiss-gc.git
+    - git -C work-swiss sparse-checkout set buildtools/iso && git -C work-swiss fetch -q --depth 1 origin 99b59e7a042cb5633cd341d86b7b92a65cd39851 && git -C work-swiss checkout -q FETCH_HEAD
+    - python3 tools/mkdisc.py "sortie/gc-mp3player-b$CONSOLE_BUILD.dol" work-swiss/buildtools/iso "$CONSOLE_BUILD" disque
+  artifacts:
+    <<: *prive
+    paths: [disque/]
+    expire_in: 30 days
+
+# Simulateur (tools/pc-sim/ci.sh) : part avec la console (en meme temps) ; doit passer avant la publication
+# (8 novembre 2026 : a la main, comme la console : ~15 des ~20 minutes d'une compilation. Les essais du simulateur sont
+#  faits avant l'envoi, hors de GitLab ; ici, bouton > pour les relancer au besoin. Ne bloque pas la publication.)
+simulateur:
+  stage: compiler
+  image: ubuntu:24.04
+  when: manual
+  allow_failure: true
+  needs:
+    - job: console-lanceur
+      artifacts: false
+  cache:
+    key: pcsim-libs
+    paths: [tools/pc-sim/work/src, tools/pc-sim/work/libs]
+  script:
+    - bash ci/simulateur.sh
+  artifacts:
+    <<: *prive
+    when: always
+    paths: [tools/pc-sim/work/run/ci]
+    expire_in: 7 days
+
+# ---------- Appli Android (prive) ----------
+appli:
+  stage: compiler
+  image: cimg/android:2026.10.1-ndk
+  when: manual
+  allow_failure: false
+  needs: []
+  cache:
+    key: appli-gradle
+    paths: [ci-cache/gradle-8.11.1, ci-cache/gradle-home]
+  script:
+    - . ci/numeros.env
+    - bash ci/appli.sh "$APPLI_BUILD"
+  artifacts:
+    <<: *prive
+    name: gc-station-telecommande
+    paths: [gc-station-telecommande-*.apk]
+    expire_in: 90 days
+
+# Build 457 : version publique allegee (« GC Remote Lite ») : compilee avec sa propre cle, puis PUBLIEE dans le paquet
+# generique public « appli-publique » (lien public ; l'appli publique se met a jour seule depuis la). A la main seulement,
+# sur main ; jamais l'APK prive. Variables protegees : ANDROID_PUBLIC_KEYSTORE_B64, ANDROID_PUBLIC_KEYSTORE_PASS.
+appli-publique:
+  stage: compiler
+  image: cimg/android:2026.10.1-ndk
+  needs: []
+  rules:
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+      when: manual
+  allow_failure: true
+  cache:
+    key: appli-gradle
+    paths: [ci-cache/gradle-8.11.1, ci-cache/gradle-home]
+  script:
+    - . ci/numeros.env
+    - bash ci/appli-publique.sh "$APPLI_BUILD"
+  artifacts:
+    name: gc-remote-lite
+    paths: [gc-remote-lite-*.apk]
+    expire_in: 90 days
+
+# ---------- PC Windows (prive) ----------
+pc:
+  stage: compiler
+  image: ubuntu:24.04
+  when: manual
+  allow_failure: false
+  needs: []
+  cache:
+    key: pc-libs
+    paths: [pc/work/src, pc/work/libs]
+  script:
+    - . ci/numeros.env
+    - bash ci/pc.sh "$PC_BUILD"
+  artifacts:
+    <<: *prive
+    name: gc-station-pc
+    paths: [GC-Station-PC.zip, gcstation-symboles.exe]
+    expire_in: 90 days

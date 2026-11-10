@@ -6,6 +6,11 @@ package fr.gcstation.telecommande
 // Appli : Lecture (pochette, paroles synchronisees, progression, commandes, volume) et
 // Musique (morceaux, radios, file d'attente).
 
+import androidx.compose.foundation.layout.wrapContentWidth
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.foundation.border
 import androidx.compose.ui.draw.shadow
 import android.content.Intent
@@ -160,13 +165,38 @@ fun EcranLecture() {
                 }
             }
             // progression
-            val f = if (dur > 0) minOf(1f, el / dur.toFloat()) else 0f
-            val fa by animateFloatAsState(f, tween(if (f < 0.01f) 0 else 950, easing = LinearEasing), label = "pos")
-            Box(Modifier.fillMaxWidth().height(6.dp).clip(RoundedCornerShape(3.dp)).background(Color(0x26FFFFFF))) {
-                Box(Modifier.fillMaxHeight().fillMaxWidth(fa).clip(RoundedCornerShape(3.dp)).background(C.Neon))
+            // (appli 478 / console v389 : toucher ou glisser sur la barre : aller a cet endroit du morceau)
+            var glisse by remember { mutableStateOf<Float?>(null) }          // (doigt sur la barre : 0..1)
+            var vise by remember { mutableStateOf(-1) }                      // (secondes demandees, en attendant la console)
+            var viseAt by remember { mutableLongStateOf(0L) }
+            if (vise >= 0 && (SystemClock.uptimeMillis() - viseAt > 4000 || kotlin.math.abs(el - vise) <= 2)) vise = -1
+            val elVu = glisse?.let { (it * dur).toInt() } ?: if (vise >= 0) vise else el
+            val f = if (dur > 0) minOf(1f, elVu / dur.toFloat()) else 0f
+            val fa by animateFloatAsState(f, tween(if (f < 0.01f || glisse != null || vise >= 0) 0 else 950, easing = LinearEasing), label = "pos")
+            fun aller(x: Float) {
+                if (dur <= 0) return
+                val sec = (x.coerceIn(0f, 1f) * dur).toInt().coerceIn(0, maxOf(0, dur - 3))
+                vise = sec; viseAt = SystemClock.uptimeMillis()
+                Api.cmd("seek", sec)
             }
-            Row(Modifier.fillMaxWidth().padding(top = 4.dp)) {
-                Doux(horloge(el), Modifier.weight(1f), 12)
+            Box(Modifier.fillMaxWidth().height(28.dp)
+                .pointerInput(dur) { if (dur > 0) detectTapGestures { o -> aller(o.x / size.width) } }
+                .pointerInput(dur) {
+                    if (dur > 0) detectHorizontalDragGestures(
+                        onDragStart = { o -> glisse = (o.x / size.width).coerceIn(0f, 1f) },
+                        onDragEnd = { glisse?.let { aller(it) }; glisse = null },
+                        onDragCancel = { glisse = null },
+                        onHorizontalDrag = { ch, _ -> glisse = (ch.position.x / size.width).coerceIn(0f, 1f) })
+                }, contentAlignment = Alignment.CenterStart) {
+                Box(Modifier.fillMaxWidth().height(if (glisse != null) 10.dp else 6.dp).clip(RoundedCornerShape(5.dp)).background(Color(0x26FFFFFF))) {
+                    Box(Modifier.fillMaxHeight().fillMaxWidth(fa).clip(RoundedCornerShape(5.dp)).background(C.Neon))
+                }
+                if (dur > 0) Box(Modifier.fillMaxWidth(fa).wrapContentWidth(Alignment.End)) {
+                    Box(Modifier.size(if (glisse != null) 18.dp else 12.dp).clip(CircleShape).background(Color.White))
+                }
+            }
+            Row(Modifier.fillMaxWidth()) {
+                Doux(horloge(elVu), Modifier.weight(1f), 12)
                 Doux(if (dur > 0) horloge(dur) else "", taille = 12)
             }
             Spacer(Modifier.weight(1f))

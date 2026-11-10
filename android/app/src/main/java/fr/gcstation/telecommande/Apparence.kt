@@ -41,10 +41,21 @@ fun EcranApparence() {
     var vib by remember { mutableStateOf(C.vibrations) }
     var hz by remember { mutableStateOf(pr.getBoolean("hz_max", true)) }
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 14.dp).padding(bottom = 20.dp)) {
+        if (Prive.ACTIF) {                                   // (build 510 : style de l'appli)
+            Titre("Style")
+            Spacer(Modifier.height(8.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Puce("Verre liquide", C.liquide) { C.liquide = true; pr.edit().putBoolean("style_liquide", true).apply() }
+                Puce("Néon (d'origine)", !C.liquide) { C.liquide = false; pr.edit().putBoolean("style_liquide", false).apply() }
+            }
+            Spacer(Modifier.height(6.dp))
+            Doux("Verre liquide : surfaces transparentes avec reflets de lumière, boutons en verre teinté, appuis élastiques et bulle de la barre d'onglets qui s'étire en glissant.", taille = 11, couleur = C.Pale)
+            Spacer(Modifier.height(18.dp))
+        }
         Titre("Ambiance")
         Spacer(Modifier.height(8.dp))
         for ((i, nom) in Ambiances.NOMS.withIndex()) {
-            val p = when (i) { 1 -> Ambiances.SOBRE; 2 -> Ambiances.INDIGO; 3 -> C.duJeu ?: Ambiances.NEON; else -> Ambiances.NEON }
+            val p = when (i) { 1 -> Ambiances.SOBRE; 2 -> Ambiances.INDIGO; 3 -> C.duJeu ?: Ambiances.NEON; 4 -> Ambiances.AURORE; else -> Ambiances.NEON }
             val choisi = C.ambiance == i
             Row(Modifier.fillMaxWidth().padding(bottom = 8.dp).verre(RoundedCornerShape(18.dp), if (choisi) p.rose else C.Bord)
                 .appui { C.ambiance = i; pr.edit().putInt("ambiance", i).apply() }.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -62,6 +73,7 @@ fun EcranApparence() {
                         0 -> "Le néon rose, violet et cyan d'origine"
                         1 -> "Gris profond et bleu doux, discret"
                         2 -> "L'indigo de la GameCube"
+                        4 -> "Le fond noir et les rubans de lumière de la console"
                         else -> if (C.duJeu != null) "Celles de la jaquette du jeu en cours (ou de la dernière fiche ouverte)" else "Ouvre la fiche d'un jeu : ses couleurs viennent de sa jaquette"
                     }, taille = 12, lignes = 2)
                 }

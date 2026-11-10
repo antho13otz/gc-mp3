@@ -35,6 +35,8 @@ import java.net.InetAddress
 import java.net.SocketTimeoutException
 
 object MicTel {
+    /** build 458 : cache pour l'instant (ne marche pas encore chez le proprietaire, 7 novembre 2026) : true pour le remontrer */
+    const val VISIBLE = BuildConfig.PRIVE                        // (build 486 : version privee seulement tant que le micro de Mario Party 7 n'est pas valide)
     private const val PORT = 51237
     private const val RATE = 44100                          // (enregistrement ; ramene a la frequence du jeu)
 
@@ -97,6 +99,7 @@ object MicTel {
             val sortie = java.io.ByteArrayOutputStream()
             val rx = ByteArray(256)
             var seq = 0L; var tPub = 0L; var tVide = 0L; var vuAvant = false; var stAvant = -1L
+            var hzDernier = 11025
             var acc = 0; var nacc = 0                          // (moyenne de 1, 2 ou 4 echantillons : 44100 -> frequence du jeu)
             while (marche) {
                 val n = rec.read(bloc, 0, bloc.size)
@@ -124,8 +127,14 @@ object MicTel {
                 for (i in 0 until n) { val a = kotlin.math.abs(bloc[i].toInt()); if (a > m) m = a }
                 niveau = m / 32768f
                 val st = mstat
-                if (dst != null && st and 0x8000L != 0L) {
-                    val f = RATE / hz(st)
+                // build 477 : le son part aussi micro du jeu eteint (des que Pulse repond), a la derniere frequence vue (11025 Hz
+                // au depart : Mario Party 6 et 7) : Pulse garde les ~50 dernieres ms et les donne des que le jeu allume le micro.
+                // Avant, le son n'arrivait que ~250 ms apres (etat renvoye toutes les 10 images) : Mario Party 7 teste son micro
+                // pendant ~0,35 s et ne recevait presque rien (micro juge « mort »)
+                if (st and 0x8000L != 0L) hzDernier = hz(st)
+                val flux = st and 0x8000L != 0L || System.currentTimeMillis() - vuPulse < 2000
+                if (dst != null && flux) {
+                    val f = RATE / hzDernier
                     for (i in 0 until n) {
                         acc += bloc[i]; nacc++
                         if (nacc == f) {
@@ -134,7 +143,7 @@ object MicTel {
                             acc = 0; nacc = 0
                         }
                     }
-                    if (sortie.size() >= 2 * hz(st) / 50) {           // (20 ms par paquet ; 1400 octets au plus)
+                    if (sortie.size() >= 2 * hzDernier / 50) {           // (20 ms par paquet ; 1400 octets au plus)
                         val d = sortie.toByteArray(); sortie.reset()
                         var o = 0
                         while (o < d.size) {

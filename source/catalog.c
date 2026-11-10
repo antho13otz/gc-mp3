@@ -20,7 +20,7 @@ static void ct_url(char *out, int cap, const char *file) {
 #ifndef GEKKO
     if (getenv("PCSIM_CATA")) { snprintf(out, cap, "%s/%s", getenv("PCSIM_CATA"), file); return; }   /* (simulateur : serveur de test) */
 #endif
-    snprintf(out, cap, "https://github.com/%s/releases/download/catalogue/%s", upd_repo, file);
+    upd_pub_url(out, cap, "catalogue", "catalogue", file);       /* (build 907 : GitHub ou GitLab, selon maj_depot) */
 }
 static int ct_safe_id(const char *s) {
     if (!s[0] || strlen(s) > 20) return 0;

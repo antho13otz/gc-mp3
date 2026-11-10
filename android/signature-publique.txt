@@ -1,0 +1,4 @@
+# Empreinte SHA-256 du certificat qui signe l'appli PUBLIQUE (GC Remote Lite, CN=GCRemoteLite ; publique, ce n'est pas un secret).
+# Lue sur les APK publies 486 et 493. Verifiee par ci/appli-publique.sh avant toute publication (build 512) : une autre
+# cle (par exemple l'ancienne, CN=GC Remote Lite) ferait refuser la mise a jour par Android.
+ccbb9fb3b8166d24dab74fca1287763ab4a7ecb4033eb80643aafac5c18731c7

@@ -42,6 +42,7 @@ object Upscale {
         uniform float t;
         uniform float interp;
         uniform float force;
+        uniform float fin;
         float4 tx(float2 c, float2 mv) {
             float4 b = float4(imgB.eval(clamp(c + (1.0 - t) * mv, float2(0.5), src - float2(0.5))));
             if (interp < 0.5) return b;
@@ -58,6 +59,7 @@ object Upscale {
             float2 q = p / dst * src;
             float2 mv = float2(0.0);
             if (interp > 0.5) { float4 m = float4(champ.eval(q / src * tch)); mv = (m.rg * 255.0 - float2(128.0)) / 4.0; }
+            if (fin < 0.5) return half4(clamp(tx(q, mv), 0.0, 1.0));   // (build 506 : interpolation sans upscaling, lissage simple)
             float2 i0 = floor(q - float2(0.5));
             float2 f = q - float2(0.5) - i0;
             float2 b = i0 + float2(0.5);
@@ -102,25 +104,26 @@ class Vue(val a: Bitmap?, val b: Bitmap, val champ: Bitmap?, val t: Float)
 /** l'image de la tele : agrandie par le telephone (upscaling) si demande et possible, sinon lissage normal */
 @Composable
 fun ImageTele(v: Vue, upscaling: Boolean, modifier: Modifier = Modifier) {
-    if (upscaling && Upscale.possible) {
+    // (build 506 : le shader sert aussi sans upscaling quand il y a des images intermediaires a dessiner)
+    if (Upscale.possible && (upscaling || v.a != null)) {
         val ok = remember { try { RuntimeShader(Upscale.AGSL); true } catch (e: Exception) { false } }   // (shader refuse : lissage normal)
-        if (ok) { ImageAgrandie(v, modifier); return }
+        if (ok) { ImageAgrandie(v, upscaling, modifier); return }
     }
     Image(v.b.asImageBitmap(), null, modifier, contentScale = ContentScale.FillBounds, filterQuality = FilterQuality.High)
 }
 
 @RequiresApi(33)
 @Composable
-private fun ImageAgrandie(v: Vue, modifier: Modifier) {
+private fun ImageAgrandie(v: Vue, fin: Boolean, modifier: Modifier) {
     val rs = remember { RuntimeShader(Upscale.AGSL) }
     Box(modifier.fillMaxSize().drawBehind {                  // (a chaque image et a chaque instant t : nouveau dessin)
         fun bs(b: Bitmap, lisse: Boolean) = BitmapShader(b, Shader.TileMode.CLAMP, Shader.TileMode.CLAMP).also {
             it.filterMode = if (lisse) BitmapShader.FILTER_MODE_LINEAR else BitmapShader.FILTER_MODE_NEAREST
         }
         val interp = v.a != null && v.champ != null && v.a.width == v.b.width && v.a.height == v.b.height
-        val sb = bs(v.b, false)
+        val sb = bs(v.b, !fin)
         rs.setInputShader("imgB", sb)
-        rs.setInputShader("imgA", if (interp) bs(v.a!!, false) else sb)
+        rs.setInputShader("imgA", if (interp) bs(v.a!!, !fin) else sb)
         rs.setInputShader("champ", if (interp) bs(v.champ!!, true) else sb)
         rs.setFloatUniform("src", v.b.width.toFloat(), v.b.height.toFloat())
         // (la place a deja la forme de la tele (4:3 ou 16:9, reglage de la console) : l'image la remplit, comme sur la
@@ -131,6 +134,7 @@ private fun ImageAgrandie(v: Vue, modifier: Modifier) {
         rs.setFloatUniform("t", if (interp) v.t else 1f)
         rs.setFloatUniform("interp", if (interp) 1f else 0f)
         rs.setFloatUniform("force", 0.6f)
+        rs.setFloatUniform("fin", if (fin) 1f else 0f)
         translate((size.width - dw) / 2, (size.height - dh) / 2) { drawRect(ShaderBrush(rs), size = androidx.compose.ui.geometry.Size(dw, dh)) }
     })
 }

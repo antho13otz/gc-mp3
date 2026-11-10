@@ -77,7 +77,7 @@ class StationActivity : ComponentActivity(), Host {
 
     private val live = object : Live.Listener {
         override fun changed() { if (St.connecte && St.visible) { ui.removeCallbacks(poll); ui.post(poll) } }
-        override fun game(g: Live.Game?) { St.jeuMasque = false; St.jeu = g; if (g != null) MemoireJeu.veiller(this@StationActivity) }
+        override fun game(g: Live.Game?) { St.jeuMasque = false; St.jeu = g; if (g != null) MemoireJeu.veiller(this@StationActivity); RetroSucces.partie(this@StationActivity, g) }   // (build 491 : RetroAchievements ; 493 : aussi dans la version publique)
     }
 
     override fun onCreate(b: Bundle?) {
@@ -98,7 +98,12 @@ class StationActivity : ComponentActivity(), Host {
         start()
     }
 
-    override fun onDestroy() { super.onDestroy(); if (St.activite === this) St.activite = null }
+    override fun onDestroy() {
+        super.onDestroy(); if (St.activite === this) St.activite = null
+        // build 487 : appli fermee (pas un simple passage a une autre appli) : la GBA du telephone et le micro s'arretent ;
+        // avant, le service de lecture gardait l'appli en vie et la GBA continuait a jouer son son
+        if (isFinishing) arreterAccessoires()
+    }
 
     @Suppress("DEPRECATION")
     private fun hauteFrequence() {
@@ -203,6 +208,8 @@ class StationActivity : ComponentActivity(), Host {
         Live.add(this, live)
         St.jeu = Live.game
         MemoireJeu.veiller(this)
+        RetroSucces.demarrer(this); Live.game?.let { RetroSucces.partie(this, it) }
+        Prive.discord(this)                                        // (build 498 : presence Discord, appli privee)   // (build 491 ; 493 : aussi la version publique)
         ui.removeCallbacks(poll); if (St.connecte) ui.post(poll)
         ui.removeCallbacks(tick); ui.postDelayed(tick, 1000)
     }
@@ -231,7 +238,7 @@ class StationActivity : ComponentActivity(), Host {
         Live.resubscribe()
         PlaybackService.start(this)
         BuildCheck.run(this)
-        ui.postDelayed({ CarteMarineWW.telecharger(this) }, 5000)   // (v313 : la vraie carte marine de Wind Waker, hors partie)
+        if (Prive.ACTIF) ui.postDelayed({ Prive.carteMarine(this) }, 5000)   // (v313 : la vraie carte marine de Wind Waker, hors partie)
         ui.removeCallbacks(poll)
         ui.post(poll)
         pendingShare?.let { pendingShare = null; share(it) }
@@ -316,7 +323,7 @@ class StationActivity : ComponentActivity(), Host {
     fun manetteEnJeu() {
         if (Api.host == null) { Lang.toast(this, "Tape d'abord l'adresse de la console", Toast.LENGTH_SHORT).show(); return }
         val g = Live.game
-        ManetteActivity.open(this, if (g != null && g.padMask != 0) g.padMask else 0xF)
+        Prive.manetteOuvrir(this, if (g != null && g.padMask != 0) g.padMask else 0xF)
     }
 
     fun actualiser() { St.listes++; QueueTab.tracks = null }
@@ -332,10 +339,10 @@ class StationActivity : ComponentActivity(), Host {
             MainActivity.T_PHOTOS -> { St.onglet = 4; St.sous = "Photos" }
             MainActivity.T_QUEUE -> { St.onglet = 1 }
             MainActivity.T_SETTINGS -> { St.onglet = 4; St.sous = "Réglages" }
-            MainActivity.T_CARDS -> { St.onglet = 4; St.sous = "Cartes mémoire" }
+            MainActivity.T_CARDS -> { St.onglet = 4; St.sous = "Cartes virtuelles" }
             MainActivity.T_SALON -> { St.onglet = 4; St.sous = "Salon" }
             MainActivity.T_TOOLS -> { St.onglet = 4; St.sous = "Outils" }
-            MainActivity.T_SEARCH -> { St.onglet = 4; St.sous = "Recherche" }
+            MainActivity.T_SEARCH -> { St.onglet = 4; St.sous = "Rechercher" }
             MainActivity.T_COPIES -> { St.onglet = 4; St.sous = "Copies" }
             else -> { St.onglet = 4; St.sous = "" }
         }
@@ -410,8 +417,12 @@ class StationActivity : ComponentActivity(), Host {
     @Suppress("DEPRECATION")
     override fun onActivityResult(req: Int, res: Int, data: Intent?) {
         super.onActivityResult(req, res, data)
+        if (req == Reglages.REQ_PACKS && (res != RESULT_OK || data == null)) { Reglages.installerPacks(this, emptyList()); return }   // (build 456 : rien choisi : redemarrer quand meme)
         if (res != RESULT_OK || data == null) return
         val u = data.data
+        if (req == Reglages.REQ_PACKS) { val c = data.clipData                                  // (build 456 : packs a remettre)
+            Reglages.installerPacks(this, if (c != null) (0 until c.itemCount).mapNotNull { c.getItemAt(it).uri } else listOfNotNull(u)); return }
+        if (req == Reglages.REQ_IMPORT && u != null) { Reglages.importer(this, u); return }   // (build 452)
         if ((req == CardsTab.REQ_GCI || req == CardsTab.REQ_RAW) && u != null && CardsTab.pendingCard != null) carte(u, CardsTab.pendingCard, req == CardsTab.REQ_RAW)
     }
 
@@ -614,4 +625,10 @@ object Plantage {
                 .setNegativeButton("Fermer", null).show()
         } catch (e: Exception) { }
     }
+}
+
+/** build 487 : arrete la GBA du telephone et le micro (appli fermee ou balayee des applis recentes) */
+fun arreterAccessoires() {
+    try { GbaTel.debrancher() } catch (e: Exception) { }
+    try { MicTel.debrancher() } catch (e: Exception) { }
 }

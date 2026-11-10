@@ -905,7 +905,7 @@ static void draw_list_retro(void) {
         gx_text1(F_SMALL, 30, 214, "MOD, XM, IT, S3M (modules), MIDI (.mid)", RGBA(190, 180, 235, 255));
     }
     gx_rect(25, 430, 241, 1, RGBA(76, 52, 150, 200));
-    if (src == SRC_FILE && playing && gme && gme_tracks > 1) snprintf(buf, sizeof(buf), "Piste %d / %d   (L / R)", gme_track + 1, gme_tracks);
+    if (src == SRC_FILE && playing && gme && gme_tracks > 1) snprintf(buf, sizeof(buf), "Piste %d / %d   (Z)", gme_track + 1, gme_tracks);
     else if (jb_filter[0]) snprintf(buf, sizeof(buf), "X : toutes les musiques r\xC3\xA9tro");   /* v207 */
     else snprintf(buf, sizeof(buf), "%s", playing && cur_track >= 0 && is_retro[cur_track] ? retro_sys : "Musiques de jeux vid\xC3\xA9o");
     gx_text1(F_SMALL, 26, 447, buf, RGBA(170, 155, 225, 255));

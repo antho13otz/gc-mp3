@@ -92,7 +92,23 @@ import java.util.concurrent.atomic.AtomicLong
 import kotlin.math.abs
 
 /** une image de la tele et l'instant ou elle est arrivee */
-private class Trame(val bmp: Bitmap, val t: Long) { @Volatile var champ: Bitmap? = null }   // (champ : mouvement depuis la trame d'avant)
+private class Trame(val bmp: Bitmap, val t: Long) { @Volatile var champ: Bitmap? = null }
+
+/** build 507 : ecart moyen de luminosite (0 a 255) entre deux images, sur une version 80x60 ; -1 : pas comparable */
+private fun ecartImages(a: Bitmap?, b: Bitmap?): Float {
+    if (a == null || b == null) return -1f
+    return try {
+        val pa = IntArray(80 * 60); val pb = IntArray(80 * 60)
+        Bitmap.createScaledBitmap(a, 80, 60, true).getPixels(pa, 0, 80, 0, 0, 80, 60)
+        Bitmap.createScaledBitmap(b, 80, 60, true).getPixels(pb, 0, 80, 0, 0, 80, 60)
+        var s = 0L
+        for (k in pa.indices) {
+            val x = pa[k]; val y = pb[k]
+            s += kotlin.math.abs(((x shr 16 and 255) + (x shr 8 and 255) * 2 + (x and 255)) - ((y shr 16 and 255) + (y shr 8 and 255) * 2 + (y and 255))) / 4
+        }
+        s.toFloat() / pa.size
+    } catch (e: Exception) { -1f }
+}   // (champ : mouvement depuis la trame d'avant)
 
 /** reglages de l'image : Rapide (320x240), Net (640x480), Max (640x480, compression tres legere) */
 private val QUALITES = arrayOf(Triple("Rapide", 320, 62), Triple("Net", 640, 80), Triple("Max", 640, 92))
@@ -106,8 +122,30 @@ private class Flux {
     var web = false
     var msConsole = 0                                     // (temps de preparation de l'image par la console)
     var ko = 0                                            // (taille recue)
+    var plein = false                                     // (build 506 : la derniere image etait entiere / combien de blocs)
+    var blocs = 0
     /** 1 : nouvelle image (dans img), 0 : rien de change, -1 : pas de reponse */
     var img: Bitmap? = null
+    /** build 507 : une image entiere (GET /api/ecran), sans toile : pendant que tout l'ecran bouge, en 320x240 (la console
+     *  v396 la prepare pendant l'envoi de la precedente). 1 : nouvelle image, -1 : pas de reponse */
+    fun entiere(w: Int, q: Int): Int {
+        var c: HttpURLConnection? = null
+        try {
+            c = URL("http://" + Api.host + "/api/ecran?w=$w&q=$q").openConnection() as HttpURLConnection
+            c.connectTimeout = 2500; c.readTimeout = 4000; c.useCaches = false
+            if (c.responseCode != 200) return -1
+            web = c.getHeaderField("X-Web") == "1"
+            val b = c.inputStream.use { it.readBytes() }
+            msConsole = c.getHeaderField("X-Ms")?.toIntOrNull() ?: 0; ko = (b.size + 512) / 1024
+            img = BitmapFactory.decodeByteArray(b, 0, b.size) ?: return -1
+            plein = true; blocs = 0
+            return 1
+        } catch (e: Exception) {
+            return -1
+        } finally {
+            c?.disconnect()
+        }
+    }
     fun suivante(w: Int, q: Int): Int {
         var c: HttpURLConnection? = null
         try {
@@ -117,10 +155,11 @@ private class Flux {
             val code = c.responseCode
             if (partiel && code == 404) { partiel = false; return 0 }
             web = c.getHeaderField("X-Web") == "1"
-            if (code == 204) { seq = c.getHeaderField("X-Seq")?.toLongOrNull() ?: 0L; return 0 }
+            if (code == 204) { seq = c.getHeaderField("X-Seq")?.toLongOrNull() ?: 0L; plein = false; blocs = 0; return 0 }
             if (code != 200) return -1
             val b = c.inputStream.use { it.readBytes() }
             msConsole = c.getHeaderField("X-Ms")?.toIntOrNull() ?: 0; ko = (b.size + 512) / 1024
+            plein = !partiel || c.getHeaderField("X-Plein") == "1"; blocs = c.getHeaderField("X-N")?.toIntOrNull() ?: 0
             if (!partiel || c.getHeaderField("X-Plein") == "1") {
                 val bm = BitmapFactory.decodeByteArray(b, 0, b.size) ?: return -1
                 if (partiel) { toile = bm.copy(Bitmap.Config.ARGB_8888, true); seq = c.getHeaderField("X-Seq")?.toLongOrNull() ?: 0L }
@@ -158,7 +197,16 @@ fun EcranTele() {
     var qualite by remember { mutableIntStateOf(prefs.getInt("tele_qualite", 1).coerceIn(0, 2)) }
     var upscaling by remember { mutableStateOf(prefs.getBoolean("tele_upscaling", Upscale.possible)) }   // (agrandie par le telephone)
     var fluide by remember { mutableStateOf(prefs.getBoolean("tele_fluide", true)) }                    // (images intermediaires 120 Hz)
-    var enDirect by remember { mutableStateOf(false) }      // (l'image ne part que si on la demande : bouton Afficher la tele)
+    var auto by remember { mutableStateOf(prefs.getBoolean("tele_auto", true)) }                       // (build 506 / 507 : image plus legere pendant le mouvement)
+    var vite by remember { mutableStateOf(false) }                                                     // (en ce moment : qualite de mouvement)
+    var enDirect by remember { mutableStateOf(Rangee.ACTIF && prefs.getBoolean("tele_direct", false)) }   // (l'image ne part que si on la demande ; build 505, appli privee : le dernier choix est garde)
+    // build 505 (appli privee) : l'onglet Tele range. Sous l'image, une seule ligne : en direct / arrete, la qualite, puis a
+    // droite les reglages (⚙ : upscaling, 120 Hz, tactile, details, aide) et le plein ecran. L'etiquette sur l'image ne montre
+    // que les images par seconde (les details : en la touchant). L'aide des gestes se masque. La manette est dans un cadre.
+    var details by remember { mutableStateOf(!Rangee.ACTIF || prefs.getBoolean("tele_details", false)) }
+    var aide by remember { mutableStateOf(!Rangee.ACTIF || prefs.getBoolean("tele_aide", true)) }
+    var reglages by remember { mutableStateOf(false) }
+    LaunchedEffect(enDirect) { if (Rangee.ACTIF) prefs.edit().putBoolean("tele_direct", enDirect).apply() }
     var tactile by remember { mutableStateOf(prefs.getBoolean("tele_tactile", true)) }   // (v303 : toucher l'image = cliquer a cet endroit)
     // (les dernieres images recues ; affichees avec un leger retard regulier, pour lisser les arrivees irregulieres)
     val trames = remember { java.util.ArrayDeque<Trame>() }
@@ -190,21 +238,40 @@ fun EcranTele() {
             delay(15000)
         }
     }
-    val interpole = fluide && upscaling && Upscale.possible
+    val interpole = fluide && Upscale.possible && (upscaling || Rangee.ACTIF)   // (build 506, appli privee : aussi sans upscaling)
 
     // (on quitte l'onglet : l'orientation redevient libre)
     DisposableEffect(Unit) { onDispose { if (pleinEcran) act.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED } }
 
-    LaunchedEffect(qualite, enDirect, St.connecte, interpole) {
+    LaunchedEffect(qualite, enDirect, St.connecte, interpole, auto) {
         if (!enDirect || !St.connecte) return@LaunchedEffect
         val flux = Flux()
         trames.clear()
         val (_, w, q) = QUALITES[qualite]
         var n = 0
         var t0 = SystemClock.uptimeMillis()
+        // build 507 (appli privee) : quand tout l'ecran bouge (la console renvoie l'image entiere ou beaucoup de blocs), les
+        // images suivantes sont demandees entieres en 320x240 : quatre fois moins de travail pour la console, quatre fois
+        // moins a envoyer, et la console v396 prepare la suivante pendant l'envoi. Le telephone l'agrandit (et dessine les
+        // images intermediaires). Trois images presque pareilles de suite, ou 4 s passees : retour aux images partielles
+        // en 640, en commencant par une image entiere nette (s=0). (506 : seulement une qualite plus basse.)
+        val qVite = minOf(q, 80)
+        var calme = 0
+        var depuis = 0L
+        var avant: Bitmap? = null
+        vite = false
         while (isActive) {
             if (!St.visible || St.jeu != null && St.horsLigne) { delay(500); continue }
-            val r = withContext(Dispatchers.IO) { flux.suivante(w, q) }
+            val r = withContext(Dispatchers.IO) { if (vite) flux.entiere(320, qVite) else flux.suivante(w, q) }
+            if (Rangee.ACTIF && auto && w > 320) {
+                if (!vite) {
+                    if (r == 1 && (flux.plein || flux.blocs > 120)) { vite = true; calme = 0; avant = null; depuis = SystemClock.uptimeMillis() }
+                } else if (r == 1) {
+                    val e = ecartImages(avant, flux.img); avant = flux.img
+                    calme = if (e in 0f..2f) calme + 1 else 0
+                    if (calme >= 3 || SystemClock.uptimeMillis() - depuis > 4000) { vite = false; calme = 0; avant = null; flux.seq = 0 }
+                }
+            } else vite = false
             web = flux.web
             if (r < 0) { rate = true; delay(800); continue }
             rate = false
@@ -264,18 +331,42 @@ fun EcranTele() {
                 else if (rate) Doux("La console n'envoie pas son image : mets-la à jour (build 774 ou plus)", Modifier.padding(20.dp), centre = true)
                 else CircularProgressIndicator(color = C.Rose)
             }
-            if (bb != null) Row(Modifier.align(Alignment.TopStart).padding(8.dp).clip(RoundedCornerShape(8.dp)).background(Color(0x99000000)).padding(horizontal = 7.dp, vertical = 3.dp)) {
+            if (bb != null) Row(Modifier.align(Alignment.TopStart).padding(8.dp).clip(RoundedCornerShape(8.dp)).background(Color(0x99000000))
+                .then(if (Rangee.ACTIF) Modifier.appui { details = !details; prefs.edit().putBoolean("tele_details", details).apply() } else Modifier).padding(horizontal = 7.dp, vertical = 3.dp)) {
                 Box(Modifier.align(Alignment.CenterVertically).size(7.dp).clip(CircleShape).background(if (rate) C.Rouge else C.Vert))
                 Spacer(Modifier.width(5.dp))
-                Text(String.format(java.util.Locale.FRANCE, "%.0f img/s", ips) + (if (interpole) " → 120 Hz" else "") + (if (diag.isNotEmpty()) " · $diag" else "") + (if (upscaling && Upscale.possible) " · upscaling" else "") + if (web) " · pointeur" else "", color = Color.White, fontSize = 10.sp)
+                Text(String.format(java.util.Locale.FRANCE, "%.0f img/s", ips) + (if (interpole) " → fluide" else "") + (if (vite) " · mouvement" else "") + (if (!details) "" else (if (diag.isNotEmpty()) " · $diag" else "") + (if (upscaling && Upscale.possible) " · upscaling" else "") + if (web) " · pointeur" else ""), color = Color.White, fontSize = 10.sp)
             }
             if (!enDirect && St.connecte) Box(Modifier.fillMaxSize().background(Color(0x99000000)), contentAlignment = Alignment.Center) {
                 Bouton("Afficher la télé", plein = true, icone = Ic.Lecture) { enDirect = true }
             }
         }
     }
+    val pleinEcranBascule = {
+        pleinEcran = !paysage
+        act.requestedOrientation = if (paysage) ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED else ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
+    }
     val barre: @Composable () -> Unit = {
-        Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        if (Rangee.ACTIF) Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+            Puce(if (enDirect) "● En direct" else "Arrêtée", enDirect) { enDirect = !enDirect }
+            Puce(QUALITES[qualite].first, qualite > 0) { qualite = (qualite + 1) % 3; prefs.edit().putInt("tele_qualite", qualite).apply() }
+            Spacer(Modifier.weight(1f))
+            Box {
+                Box(Modifier.size(40.dp).verre(CircleShape).appui { reglages = true }, contentAlignment = Alignment.Center) { Icon(Ic.Reglages, "Réglages de l'image", tint = C.Texte, modifier = Modifier.size(20.dp)) }
+                androidx.compose.material3.DropdownMenu(expanded = reglages, onDismissRequest = { reglages = false }) {
+                    @Composable fun choix(nom: String, on: Boolean, faire: () -> Unit) =
+                        androidx.compose.material3.DropdownMenuItem(text = { Text((if (on) "☑  " else "☐  ") + nom) }, onClick = faire)
+                    if (Upscale.possible) choix("Upscaling (image agrandie par le téléphone)", upscaling) { upscaling = !upscaling; prefs.edit().putBoolean("tele_upscaling", upscaling).apply() }
+                    if (Upscale.possible) choix("Fluide (images intermédiaires, 120 Hz)", fluide) { fluide = !fluide; prefs.edit().putBoolean("tele_fluide", fluide).apply() }
+                    choix("Image réduite pendant le mouvement (plus fluide)", auto) { auto = !auto; prefs.edit().putBoolean("tele_auto", auto).apply() }
+                    choix("Tactile (toucher = cliquer à cet endroit)", tactile) { tactile = !tactile; prefs.edit().putBoolean("tele_tactile", tactile).apply() }
+                    choix("Détails sur l'image (débit, délai)", details) { details = !details; prefs.edit().putBoolean("tele_details", details).apply() }
+                    choix("Aide des gestes", aide) { aide = !aide; prefs.edit().putBoolean("tele_aide", aide).apply() }
+                }
+            }
+            Box(Modifier.size(40.dp).verre(CircleShape, C.Rose.copy(alpha = 0.5f)).appui(pleinEcranBascule), contentAlignment = Alignment.Center) { Icon(Ic.PleinEcran, "Plein écran", tint = C.Texte, modifier = Modifier.size(20.dp)) }
+        }
+        else Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Puce(QUALITES[qualite].first, qualite > 0) { qualite = (qualite + 1) % 3; prefs.edit().putInt("tele_qualite", qualite).apply() }
             if (Upscale.possible) Puce("Upscaling", upscaling) { upscaling = !upscaling; prefs.edit().putBoolean("tele_upscaling", upscaling).apply() }
             if (Upscale.possible && upscaling) Puce("Fluide 120 Hz", fluide) { fluide = !fluide; prefs.edit().putBoolean("tele_fluide", fluide).apply() }
@@ -336,20 +427,23 @@ fun EcranTele() {
             Spacer(Modifier.height(10.dp))
             barre()
             Spacer(Modifier.height(6.dp))
-            Doux(if (tactile) "Sur l'image : toucher = cliquer à cet endroit, appui long = retour, glisser = déplacer la flèche."
+            if (aide) Doux((if (tactile) "Sur l'image : toucher = cliquer à cet endroit, appui long = retour, glisser = déplacer la flèche."
                  else if (web) "Onglet WEB : glisse pour bouger le pointeur, touche pour cliquer."
-                 else "Sur l'image : toucher = A, appui long = B, glisser = la croix.", taille = 11, couleur = C.Pale)
+                 else "Sur l'image : toucher = A, appui long = B, glisser = la croix.") + (if (Rangee.ACTIF) "  (toucher ce texte pour le masquer)" else ""),
+                 if (Rangee.ACTIF) Modifier.appui { aide = false; prefs.edit().putBoolean("tele_aide", false).apply() } else Modifier, taille = 11, couleur = C.Pale)
             Spacer(Modifier.height(12.dp))
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                Gachette("L", "l", Modifier.weight(1f)); Gachette("Z", "z", Modifier.weight(1f)); Gachette("R", "r", Modifier.weight(1f))
+            Column(if (Rangee.ACTIF) Modifier.fillMaxWidth().verre(RoundedCornerShape(26.dp)).padding(horizontal = 14.dp, vertical = 14.dp) else Modifier.fillMaxWidth()) {
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Gachette("L", "l", Modifier.weight(1f)); Gachette("Z", "z", Modifier.weight(1f)); Gachette("R", "r", Modifier.weight(1f))
+                }
+                Spacer(Modifier.height(14.dp))
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
+                    Croix(50.dp)
+                    Boutons(0.92f)
+                }
+                Spacer(Modifier.height(10.dp))
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center) { Touche("START", "start", Modifier.size(width = 120.dp, height = 40.dp), C.Doux) }
             }
-            Spacer(Modifier.height(14.dp))
-            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
-                Croix(50.dp)
-                Boutons(0.92f)
-            }
-            Spacer(Modifier.height(10.dp))
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center) { Touche("START", "start", Modifier.size(width = 120.dp, height = 40.dp), C.Doux) }
             Spacer(Modifier.height(16.dp))
         }
     }

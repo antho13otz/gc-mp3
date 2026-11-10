@@ -448,3 +448,45 @@ object JeuKAR : ModuleJeu("Kirby Air Ride", "GKYP01") {
             grands = (0 until 3).map { coches[it].toString() to MODES[it] }, blocs = blocs)
     }
 }
+
+// ---------------------------------------------------------------- Donkey Konga 2 (GY2E01) : build 480
+// Lu dans deux photos de la memoire du proprietaire (8 novembre 2026, en plein morceau) : un pointeur fixe (zone bss du jeu,
+// 0x80143CD4) mene a la partie en cours (CLive, table virtuelle 0x800E32C8 en +0xF4) ; +0x120 : la partition chargee (son
+// nom de fichier en +0x1C, ex. « Score/12youdonthave_1e.mid » : numero du morceau, nom, mode et difficulte) ; +0x124 : le
+// juge des coups (CJudge, table virtuelle 0x800E2EC8 en +0xF4) ; +0x154 : le porte-monnaie (CWallet). Le score, le combo et
+// les pieces ne sont PAS encore identifies (les deux photos ont ete prises a 0) : la fiche montre les compteurs du juge
+// tels quels, pour les reperer avec une capture d'ecran du jeu.
+object JeuDK2 : ModuleJeu("Donkey Konga 2", "GY2E01") {
+    private const val LIVE = 0x80143CD4L
+    private val MORCEAUX = arrayOf("", "Predictable", "The Anthem", "Drive", "Wish", "Trouble", "Road Trip", "Sidewalks", "La Bamba",
+        "Boombastic", "I Don't Want…", "Unpretty", "You Don't Have…", "Hit 'Em Up", "All Star", "Why…", "No More…", "Contact…",
+        "Come…", "Born…", "Rock…", "Send the Pain Below", "Thème de DK2", "Headstrong", "Pieces", "Full Moon…", "Losing…", "Shiny…",
+        "It's Been…", "High…", "Kurumi", "Habanera", "Koinu")
+    private fun mode(s: String) = when (s) {
+        "1e" -> "1 joueur · facile"; "1h" -> "1 joueur · difficile"; "1x" -> "1 joueur · expert"
+        "2e" -> "2 joueurs · facile"; "2h" -> "2 joueurs · difficile"; "2x" -> "2 joueurs · expert"
+        "4" -> "4 joueurs"; "b" -> "duel"; "c" -> "défi"; else -> s
+    }
+    override fun lire(l: Lecteur, id: String): Fiche? {
+        val b = l.ptr(LIVE)
+        if (b == null || l.u32(b + 0xF4) != 0x800E32C8L) return Fiche(id, "Donkey Konga 2", "Pas de morceau en cours", 0xFFB5651D, 0xFF2A1406,
+            message = "La fiche se remplit pendant un morceau (menus et mini-jeux : rien à lire pour l'instant).")
+        val p = l.ptr(b + 0x120)
+        val fichier = p?.let { l.texte(it + 0x1C, 40) }?.takeIf { it.startsWith("Score/") } ?: ""
+        val m = Regex("Score/(\\d\\d)([A-Za-z0-9]+)_([0-9a-z]+)\\.mid").find(fichier)
+        val no = m?.groupValues?.get(1)?.toIntOrNull() ?: 0
+        val nom = MORCEAUX.getOrElse(no) { "" }.ifEmpty { m?.groupValues?.get(2) ?: "?" }
+        val blocs = ArrayList<Bloc>()
+        blocs.add(Bloc("Morceau", listOf(Ligne("Titre", if (no > 0) "$no · $nom" else nom), Ligne("Mode", m?.let { mode(it.groupValues[3]) } ?: "?"),
+            Ligne("Partition", fichier.removePrefix("Score/")))))
+        val j = l.ptr(b + 0x124)
+        if (j != null && l.u32(j + 0xF4) == 0x800E2EC8L) {
+            val v = (0 until 32).map { k -> l.s32(j + 0xF4 + 4L * k) }
+            blocs.add(Bloc("Compteurs du juge (à identifier)", v.withIndex().filter { (k, x) -> k > 0 && x != null && x in 0..9_999_999 }
+                .map { (k, x) -> Ligne("+" + Integer.toHexString(4 * k).uppercase(), x.toString()) },
+                texte = "Le score, le combo et les pièces ne sont pas encore repérés. Fais une capture de cet écran ET une photo du jeu au même moment (en pause, après un peu de jeu) : je saurai lequel est lequel."))
+        }
+        return Fiche(id, "Donkey Konga 2", if (no > 0) "Morceau $no · $nom" else "Morceau en cours", 0xFFB5651D, 0xFF2A1406,
+            grands = listOf("morceau" to (if (no > 0) no.toString() else "?"), "mode" to (m?.groupValues?.get(3) ?: "?")), blocs = blocs)
+    }
+}

@@ -1,11 +1,14 @@
 // Telecommande GC Station : application Android. Ecrans en Jetpack Compose (Kotlin : StationActivity, App, Ecran*) ;
 // reseau, en direct, lecture en fond, manette en jeu, globe, jeu de cartes, mini-jeux, widget : en Java.
-// Compilee par GitHub (.github/workflows/android.yml) ; numero de version = numero de la compilation.
+// Compilee par GitLab (.gitlab-ci.yml, job manuel "appli", ci/appli.sh) ; numero de version = APPLI_BUILD de ci/numeros.env.
 plugins {
     id 'com.android.application'
     id 'org.jetbrains.kotlin.android'
     id 'org.jetbrains.kotlin.plugin.compose'
 }
+
+// (build 498 : identifiant de l'application Discord, voir la variante prive)
+def DISCORD_ID = '1569385821276999721'
 
 android {
     namespace 'fr.gcstation.telecommande'
@@ -21,6 +24,7 @@ android {
         buildConfigField 'String', 'MAJ_BRANCHE', '"main"'
         buildConfigField 'String', 'MAJ_PREFIXE', '""'
         buildConfigField 'String', 'MAJ_ARTEFACT', '"gc-station-telecommande"'
+        buildConfigField 'String', 'MAJ_PAQUET', '""'
         // (agrandissement par IA de l'image du disque, ONNX Runtime : telephones ARM seulement, l'appli reste legere)
         ndk { abiFilters 'arm64-v8a', 'armeabi-v7a' }
     }
@@ -33,8 +37,48 @@ android {
         compose true
         buildConfig true
     }
+    // build 457 : deux variantes (choix du proprietaire, 7 novembre 2026) :
+    //  - prive : l'appli complete du proprietaire (memes nom, identifiant et cle qu'avant : s'installe par-dessus) ;
+    //  - publique : version allegee a diffuser (autre nom, autre identifiant, sa propre cle) ; les fonctions privees ne sont
+    //    PAS dans son code : leurs fichiers sont dans src/prive/ (compiles seulement pour prive), src/publique/ donne a la
+    //    place des remplacants vides ou la carte simplifiee faite maison (aucun fichier de jeu).
+    signingConfigs {
+        publique {
+            // (cle de la version publique, a part : fichier donne par la variable ANDROID_PUBLIC_KEYSTORE_B64 de GitLab)
+            def f = System.getenv('PUBLIC_KEYSTORE')
+            if (f != null && new File(f).exists()) {
+                storeFile new File(f)
+                storePassword System.getenv('PUBLIC_KEYSTORE_PASS') ?: 'android'
+                keyAlias System.getenv('PUBLIC_KEY_ALIAS') ?: 'gcremote'
+                keyPassword System.getenv('PUBLIC_KEYSTORE_PASS') ?: 'android'
+            }
+        }
+    }
+    // (build 467 : la cle vient de la variante : sinon le type « debug » imposait la cle de test d'Android a la publique aussi)
+    buildTypes { debug { signingConfig null } }
+    flavorDimensions 'version'
+    productFlavors {
+        prive {
+            dimension 'version'
+            signingConfig signingConfigs.debug                      // (cle de test d'Android, gardee par GitLab : comme avant)
+            buildConfigField 'boolean', 'PRIVE', 'true'
+            // (build 498 : presence Discord : identifiant de l'application GC Station du portail developpeur de Discord ;
+            //  ce n'est pas un secret. Le SDK, lui, est dans libs-prive/, hors du depot.)
+            buildConfigField 'long', 'DISCORD_ID', DISCORD_ID + 'L'
+            manifestPlaceholders = [nomAppli: 'GC Remote', discordSchema: 'discord-' + DISCORD_ID]
+        }
+        publique {
+            dimension 'version'
+            applicationId 'fr.gcstation.remote'
+            buildConfigField 'boolean', 'PRIVE', 'false'
+            // (mise a jour : paquet generique public du projet, sans jeton)
+            buildConfigField 'String', 'MAJ_PAQUET', '"appli-publique"'
+            manifestPlaceholders = [nomAppli: 'GC Remote Lite']
+            if (System.getenv('PUBLIC_KEYSTORE') != null) signingConfig signingConfigs.publique
+        }
+    }
     // (appli gardee pour soi : signee avec la cle de test d'Android, creee par les outils Android et gardee
-    //  dans le cache de GitHub pour qu'une nouvelle version s'installe par-dessus l'ancienne)
+    //  dans la variable protegee ANDROID_DEBUG_KEYSTORE_B64 de GitLab pour qu'une nouvelle version s'installe par-dessus)
     compileOptions {
         sourceCompatibility JavaVersion.VERSION_17
         targetCompatibility JavaVersion.VERSION_17
@@ -57,4 +101,6 @@ dependencies {
     implementation 'com.microsoft.onnxruntime:onnxruntime-android:1.20.0'   // (Real-ESRGAN : AgrandirIA.kt)
     implementation 'com.google.mlkit:translate:17.0.3'                      // (traduction hors ligne : Traduction.kt)
     implementation 'com.google.mlkit:language-id:17.0.6'
+    // (build 498 : Social SDK de Discord pour la presence, appli privee seulement ; pas dans le depot, ajoute a la main)
+    if (file('libs-prive/discord_partner_sdk.aar').exists()) priveImplementation files('libs-prive/discord_partner_sdk.aar')
 }

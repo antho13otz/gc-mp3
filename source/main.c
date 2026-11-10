@@ -282,6 +282,9 @@ static void x73_menu_change(int i, int d);
 static void x73_pump(void);
 static void rh_open(void);
 static void gb_open(void);                               /* v207 : globe.c */
+/* v386 : stick C pousse (bord : -1 / 1, une fois par geste) cette image, pour les onglets ou il remplace L / R (JEUX,
+   PHOTOS) : L / R changent d'onglet, Z change de morceau */
+static int cs_ex = 0, cs_ey = 0;
 static void gb_kb_done(const char *t);                   /* v213 : globe.c (recherche) */
 static void gb_prefetch(void);
 static void gb_bg(void);
@@ -294,6 +297,9 @@ static int nat_card = 1;                                /* v65 : carte memoire v
 static int nat_card_reg;                                 /* v122 : une carte par region (natif.c) */
 static int nat_card_game = 0;                            /* v239 : une carte par jeu (natif.c) */
 static int nat_memtel = 0;                               /* v306 : chercheur de codes de l'appli (memoire du jeu par le reseau) */
+static int nat_tvsucc = 1;                               /* v397 : bandeau des succes sur la tele pendant les jeux (Pulse) */
+static int nat_tvbas = 0;                                /* v400 : bandeau en bas de l'image (0 : en haut, au milieu) */
+static int ntf_son = 1;                                  /* v400 : petit son quand une notification du telephone descend (menu) */
 static int app_envoi = 1;                                /* v330 : envoi vers l'appli : 0 coupe, 1 si l'appli est connectee, 2 toujours */
 static int nat_gbatel = 0;                               /* v331 : GBA du telephone (Tingle Tuner de Wind Waker...) */
 static int nat_gbaport = 2;                              /* v334 : son port (1-4 ; avant : toujours le 2) */
@@ -412,6 +418,10 @@ static GXRModeObj *rmode = NULL;
 static int displayed_fb = 0;
 
 static u64 now_ms(void) { return ticks_to_millisecs(gettime()); }
+/* v390 : fil de la bibliotheque (lsc_thread) en pause pendant un lancement (carte SD demontee) : voir bg_quiesce ;
+   v391 : les parcours de dossiers s'arretent aussi en cours de route (lsc_hold) */
+static volatile int lsc_hold = 0, lsc_busy = 0;
+static volatile u64 lsc_hold_t = 0;                       /* (au plus 120 s : un lancement rate qui revient ne l'arrete pas pour toujours) */
 
 /* ---------- v69 : mesure de fluidite (START > « Mesure de fluidite ») ----------
    Chaque image : temps de chaque tache de la boucle (reseau, pochettes, decodage, dessin,
@@ -505,7 +515,27 @@ static int ap_noimg = 1;                               /* v227 : montrer les app
 static int upd_xz = 1;                                 /* v226 : mise a jour = version compressee (demarrage plus rapide ; v232 : par defaut) */
 static int upd_xz_set = 0;                             /* v232 : choisi a la main (sinon : Oui, meme si "non" etait enregistre) */
 static int upd_xz_file = 0;
-static char upd_repo[96] = "antho13otz/gc-mp3";
+/* build 907 : ou chercher les mises a jour, le catalogue et les fiches (compte GitHub suspendu le 6 novembre 2026).
+   maj_depot = "gitlab:<groupe/projet>" : paquets du projet GitLab (gitlab.com/<groupe/projet>, Deploy > Package registry) ;
+   "github:<proprietaire/depot>" ou "<proprietaire/depot>" : releases GitHub, comme avant. L'ancien reglage par defaut
+   (antho13otz/gc-mp3, ecrit dans gc-mp3.txt) passe sur GitLab ; pour revenir sur GitHub : "github:antho13otz/gc-mp3". */
+#define UPD_DEF_GITLAB "gitlab:gc-station-group/gc-station"
+static char upd_repo[96] = UPD_DEF_GITLAB;
+static int upd_is_gitlab(void) { return !strncasecmp(upd_repo, "gitlab:", 7); }
+static const char *upd_host_name(void) { return upd_is_gitlab() ? "GitLab" : "GitHub"; }
+static const char *upd_gh_repo(void) { return !strncasecmp(upd_repo, "github:", 7) ? upd_repo + 7 : upd_repo; }
+/* adresse d'un fichier publie : release <gh_tag> sur GitHub, paquet <gl_pkg> (version "dernier") sur GitLab */
+static void upd_pub_url(char *out, int cap, const char *gh_tag, const char *gl_pkg, const char *file) {
+    if (upd_is_gitlab()) {
+        char p[300];
+        int n = 0;
+        for (const char *s = upd_repo + 7; *s && n < (int)sizeof(p) - 4; s++) {
+            if (*s == '/') { memcpy(p + n, "%2F", 3); n += 3; } else p[n++] = *s;
+        }
+        p[n] = 0;
+        snprintf(out, cap, "https://gitlab.com/api/v4/projects/%s/packages/generic/%s/dernier/%s", p, gl_pkg, file);
+    } else snprintf(out, cap, "https://github.com/%s/releases/download/%s/%s", upd_gh_repo(), gh_tag, file);
+}
 static char upd_file[256] = "";
 static int stream_codec = 0;                /* radio : 0 = MP3, 1 = AAC, 2 = OGG Vorbis */
 static int hls_on = 0;                      /* radio HLS (.m3u8) en cours */
@@ -653,6 +683,8 @@ static double audio_ms(void) {
     if (el > c) el = c;
     return (double)(b + el) / 48.0;
 }
+static void ntf_son_mix(s16 *buf);                       /* v400 : carillon des notifications (notif_tele.c) */
+static void ntf_son_jouer(void);
 static void dma_cb(void) {
     u32 blk = cb_n;
     s16 *buf = dmabuf[blk % NUM_BUFS];
@@ -677,6 +709,7 @@ static void dma_cb(void) {
         memset(viz + viz_pos, 0, VIZ_BLK * sizeof(s16));
     } else memcpy(viz + viz_pos, vizbuf[blk % NUM_BUFS], VIZ_BLK * sizeof(s16));   /* le spectre suit ce qu'on entend */
     viz_pos = (viz_pos + VIZ_BLK) & (VIZ_N - 1);            /* (anneau : viz_pos = le plus ancien) */
+    ntf_son_mix(buf);                                       /* v400 : par-dessus la musique, s'il y a un carillon en cours */
     AUDIO_InitDMA((u32)buf, DMA_BYTES);
     cb_n = blk + 1;
 }
@@ -1426,6 +1459,30 @@ static int sd_mount_cnt(const DISC_INTERFACE *i) {
     return fatMount("sd", &sd_cnt_if, 0, 8, 64);
 }
 #include "exfat_sd.c"                                  /* v326 : cartes SD en exFAT (FatFs) */
+/* v386 : SD2SP2 a 32 MHz (libogc demarre la carte a 16 MHz) : toute lecture ou ecriture de la carte SD va deux fois plus
+   vite sur le fil (Pulse lit deja la carte a 32 MHz pendant les jeux, sans erreur chez le proprietaire). Essai d'abord :
+   trois endroits de la carte lus a 16 puis a 32 MHz doivent etre identiques (et sans erreur : les lectures sont controlees
+   par CRC) ; sinon, retour a 16 MHz. Seulement le port serie 2 (SD2SP2) : les adaptateurs du slot de carte memoire (SD
+   Gecko) sont moins surs a cette vitesse. sd_mhz : vitesse gardee (demarrage.txt, journal) */
+static int sd_mhz = 16;
+#ifdef GEKKO
+void sdgecko_setSpeed(s32 drv_no, u32 freq);           /* (libogc, sdgecko_io.c ; son en-tete card_io.h ne se compile pas seul : MAX_DRIVE) */
+static void sd_fast(void) {
+    static u8 a[8 * 512] ATTRIBUTE_ALIGN(32), b[8 * 512] ATTRIBUTE_ALIGN(32);
+    static const sec_t at[3] = { 0, 2048, 65536 };
+    int ok = 1;
+    for (int k = 0; k < 3 && ok; k++) {
+        sdgecko_setSpeed(2, EXI_SPEED16MHZ);
+        if (!__io_gcsd2.readSectors(at[k], 8, a)) { if (k == 0) ok = 0; break; }   /* (petite carte : la fin suffit) */
+        sdgecko_setSpeed(2, EXI_SPEED32MHZ);
+        if (!__io_gcsd2.readSectors(at[k], 8, b) || memcmp(a, b, sizeof(a))) ok = 0;
+    }
+    sdgecko_setSpeed(2, ok ? EXI_SPEED32MHZ : EXI_SPEED16MHZ);
+    sd_mhz = ok ? 32 : 16;
+}
+#else
+static void sd_fast(void) { }
+#endif
 static int mount_sd(void) {
     /* v97 : cache de libfat double (8 pages de 64 secteurs = 256 Ko au lieu de 128) : sur une grosse carte
        (1 To, FAT de 120 Mo), les chaines de clusters et les dossiers sont relus bien moins souvent */
@@ -4279,7 +4336,7 @@ static int cw_search(const char *trk) {
             size_t bl = strlen(base);
             struct dirent *e;
             int guard = 0;
-            while ((e = readdir(dp)) && guard++ < 4096) {
+            while (!lsc_hold && (e = readdir(dp)) && guard++ < 4096) {   /* (v391) */
                 const char *n = e->d_name;
                 size_t nl = strlen(n);
                 if (nl < 5 || nl >= sizeof(cw_have[0])) continue;
@@ -4362,7 +4419,7 @@ static void load_cover(int idx) {
             size_t bl = strlen(base);
             struct dirent *e;
             int guard = 0;
-            while ((e = readdir(dp)) && guard++ < 4096) {
+            while (!lsc_hold && (e = readdir(dp)) && guard++ < 4096) {   /* (v391) */
                 const char *n = e->d_name;
                 size_t nl = strlen(n);
                 if (nl < 5 || nl >= sizeof(cv_have[0])) continue;
@@ -5180,7 +5237,7 @@ static void lv_walk(const char *dir, int depth, u32 *h, int *n, FILE *out) {
     if (!d) return;
     struct dirent *e;
     char path[NAME_LEN];
-    while ((e = readdir(d)) != NULL && *n < MAX_FILES) {
+    while (!lsc_hold && (e = readdir(d)) != NULL && *n < MAX_FILES) {   /* (v391 : !lsc_hold) */
         if (e->d_name[0] == '.') continue;
         int l = snprintf(path, sizeof(path), "%s/%s", dir, e->d_name);
         if (l <= 0 || l >= (int)sizeof(path)) continue;
@@ -5195,7 +5252,7 @@ static void lv_zipscan(const char *dir, int depth) {
     if (!d) return;
     struct dirent *e;
     char path[NAME_LEN];
-    while (!lv_zipnew && (e = readdir(d)) != NULL) {
+    while (!lv_zipnew && !lsc_hold && (e = readdir(d)) != NULL) {   /* (v391 : !lsc_hold) */
         if (e->d_name[0] == '.') continue;
         int l = snprintf(path, sizeof(path), "%s/%s", dir, e->d_name);
         if (l <= 4 || l >= (int)sizeof(path)) continue;
@@ -5251,10 +5308,16 @@ static void fxb_run(void);
 static volatile int apq_state = 0;                        /* v376 : applis lues en fond (tools.c) : 0 rien, 1 demandee, 2 en cours, 3 prete */
 static void ap_scan_bg(void);
 static int ap_bg;
+/* v390 : lancement d'un jeu : la carte SD va etre demontee ; le fil ne commence plus rien (lsc_hold) et bg_quiesce attend
+   qu'il ait fini ce qu'il faisait (lsc_busy). Avant, il pouvait parcourir un dossier pendant le demontage : ecran rouge
+   dans __dirnext <- readdir <- lsc_thread (build 918, Pac-Man vs., le 8 novembre 2026) */
 static void *lsc_thread(void *arg) {
     (void)arg;
     static char path[NAME_LEN];
     for (;;) {
+        if (lsc_hold && now_ms() - lsc_hold_t < 120000) { lsc_busy = 0; usleep(20000); continue; }
+        lsc_hold = 0;
+        lsc_busy = 1;
         if (gqb_state == 1) { gqb_state = 2; gqb_walk(); gqb_state = 3; continue; }   /* v375 */
         if (fxb_state == 1) { fxb_state = 2; fxb_run(); fxb_state = 3; continue; }   /* v375 */
         if (apq_state == 1) { apq_state = 2; ap_bg = 1; ap_scan_bg(); ap_bg = 0; apq_state = 3; continue; }   /* v376 */
@@ -5281,7 +5344,7 @@ static void *lsc_thread(void *arg) {
             cw_state = 3;
             continue;
         }
-        if (lsc_qh == lsc_qt) { LWP_SemWait(lsc_sem); continue; }
+        if (lsc_qh == lsc_qt) { lsc_busy = 0; LWP_SemWait(lsc_sem); continue; }
         u32 i = lsc_qh % LSC_Q;
         int k = lsc_qk[i];
         u32 g = lsc_qg[i];
@@ -5946,7 +6009,7 @@ static void setting_apply(const char *k, char *v) {
         else if (!strcasecmp(k, "maj_compresse")) upd_xz_file = yes(v);
         else if (!strcasecmp(k, "maj_compresse_choisi")) upd_xz_set = yes(v);
         else if (!strcasecmp(k, "applis_sans_image")) ap_noimg = yes(v);
-        else if (!strcasecmp(k, "maj_depot")) { if (strchr(v, '/') && !strchr(v, ' ')) snprintf(upd_repo, sizeof(upd_repo), "%s", v); }
+        else if (!strcasecmp(k, "maj_depot")) { if (strchr(v, '/') && !strchr(v, ' ')) snprintf(upd_repo, sizeof(upd_repo), "%s", strcasecmp(v, "antho13otz/gc-mp3") ? v : UPD_DEF_GITLAB); }   /* (build 907 : l'ancien defaut -> GitLab) */
         else if (!strcasecmp(k, "maj_fichier")) snprintf(upd_file, sizeof(upd_file), "%s", v);
         else if (!strcasecmp(k, "disposition")) { for (int i = 0; i < LAYOUT_COUNT; i++) if (!strcasecmp(v, layout_keys[i])) for (int t = 0; t < TAB_COUNT; t++) layout_tab[t] = i; }
         else if (!strncasecmp(k, "disposition_", 12)) {
@@ -6011,6 +6074,9 @@ static void setting_apply(const char *k, char *v) {
         else if (!strcasecmp(k, "resident_carte_par_region")) nat_card_reg = !has_word(v, "non");
         else if (!strcasecmp(k, "resident_carte_par_jeu")) nat_card_game = !has_word(v, "non");
         else if (!strcasecmp(k, "chercheur_codes")) nat_memtel = atoi(v) ? 1 : 0;
+        else if (!strcasecmp(k, "succes_tele")) nat_tvsucc = atoi(v) ? 1 : 0;   /* v397 */
+        else if (!strcasecmp(k, "succes_tele_bas")) nat_tvbas = atoi(v) ? 1 : 0;   /* v400 */
+        else if (!strcasecmp(k, "notif_son")) ntf_son = atoi(v) ? 1 : 0;           /* v400 */
         else if (!strcasecmp(k, "envoi_appli")) { int x = atoi(v); app_envoi = x < 0 ? 0 : x > 2 ? 2 : x; }
         else if (!strcasecmp(k, "gba_telephone")) nat_gbatel = atoi(v) ? 1 : 0;   /* v331 */
         else if (!strcasecmp(k, "gba_port")) { nat_gbaport = atoi(v); if (nat_gbaport < 1 || nat_gbaport > 4) nat_gbaport = 2; }   /* v334 */
@@ -6150,6 +6216,9 @@ static void settings_print(FILE *f) {                   /* v194 : le texte de gc
     fprintf(f, "# Pulse : une carte par jeu (carte-A-GALE01.raw ; le reglage du jeu passe avant)\nresident_carte_par_jeu = %s\n", nat_card_game ? "oui" : "non");
     fprintf(f, "# manettes du telephone dans les jeux : 0 non, 1 port 2, 2 ports 2-3, 3 ports 2-4, 4 port 1\nmanettes_telephone = %d\n", nat_padtel);
     fprintf(f, "# chercheur de codes de l'appli : le telephone lit la memoire du jeu (Pulse, BBA) : 0 non, 1 oui\nchercheur_codes = %d\n", nat_memtel);
+    fprintf(f, "# v397 : succes sur la tele pendant les jeux (bandeau dessine par Pulse ; ~10 Ko de memoire pris au jeu) : 0 non, 1 oui\nsucces_tele = %d\n", nat_tvsucc);
+    fprintf(f, "# v400 : place du bandeau : 0 en haut (au milieu), 1 en bas\nsucces_tele_bas = %d\n", nat_tvbas);
+    fprintf(f, "# v400 : petit son quand une notification du telephone s'affiche dans GC Station : 0 non, 1 oui\nnotif_son = %d\n", ntf_son);
     fprintf(f, "# GBA du telephone (Tingle Tuner de Wind Waker... ; Pulse, BBA) : 0 non, 1 oui ; son port (1-4)\ngba_telephone = %d\ngba_port = %d\n", nat_gbatel, nat_gbaport);
     fprintf(f, "# micro du telephone dans le slot B (Mario Party 6 et 7... ; Pulse, BBA) : 0 non, 1 oui\nmicro_telephone = %d\n", nat_mictel);
     fprintf(f, "# envoi vers l'appli du telephone : 0 coupe, 1 si l'appli est connectee, 2 toujours\nenvoi_appli = %d\n", app_envoi);
@@ -7232,7 +7301,7 @@ static void draw_header_modern(void) {
     total = 0;
     FOR_TABS(t) if (tab_shown(t)) total += text_width(F_SMALL, tab_names[t], 1) + (int)(18 * sc);
     f32 x = 320 - total / 2.0f + 14;
-    draw_mini_badge(x - 16, 56, "Z");
+    draw_mini_badge(x - 16, 56, "R");                    /* (v386 : L / R changent d'onglet) */
     FOR_TABS(t) {
         if (!tab_shown(t)) continue;
         int w = text_width(F_SMALL, tab_names[t], 1) + (int)(18 * sc);
@@ -7327,10 +7396,10 @@ static int draw_tabs(const char *count) {
                 on ? RGBA(255, 255, 255, 255) : RGBA(150, 135, 210, 255), 1);
         x += w + 4;
     }
-    gp_zone(18, 84, (f32)x - 14, 22, NULL, PAD_TRIGGER_Z, GPZ_KEY);   /* (curseur : onglet suivant) */
+    gp_zone(18, 84, (f32)x - 14, 22, NULL, PAD_TRIGGER_R, GPZ_KEY);   /* (curseur : onglet suivant ; v386 : R) */
     /* rappel de la touche Z, et position parmi les onglets */
     gx_rrect_fill(x + 1, 88, 14, 14, 4, RGBA(110, 90, 190, 255), RGBA(70, 50, 140, 255));
-    gx_text_c(F_SMALL, x + 8, 99, "Z", RGBA(255, 255, 255, 255));
+    gx_text_c(F_SMALL, x + 8, 99, "R", RGBA(255, 255, 255, 255));   /* (v386 : L / R changent d'onglet) */
     for (int i = 0; i < nshown && i < 9; i++)
         gx_circle(x + 24 + i * 7, 95, 2.2f, i == pos ? RGBA(230, 210, 255, 255) : RGBA(90, 70, 160, 255), i == pos ? RGBA(230, 210, 255, 255) : RGBA(90, 70, 160, 255));
     x += nshown * 7 + 6;
@@ -7509,7 +7578,7 @@ static void draw_player_radio(void) {
         fmt_listen(td, pod_dur);
         snprintf(lb, sizeof(lb), "%s / %s", tb, pod_dur > 0 ? td : "--:--");
         gx_text1(F_SMALL, 457, 222, lb, RGBA(170, 155, 225, 255));
-        gx_text1(F_SMALL, 457, 238, "L / R : -15 s / +30 s", RGBA(130, 115, 200, 255));
+        gx_text1(F_SMALL, 457, 238, "Z : +30 s  (2x : -15 s)", RGBA(130, 115, 200, 255));   /* (v386) */
     } else if (state == ST_PLAY || state == ST_BUFFER) {
         if (frac > 0.0f) gx_hgrad(px, py, pw * frac, 3, RGBA(120, 64, 255, 255), RGBA(180, 100, 255, 255));
         char tb[16], lb[64];
@@ -7593,7 +7662,7 @@ static void draw_legend(void) {
         case 2: draw_badge(cx, cy, "B", RGBA(236, 70, 90, 255), RGBA(170, 30, 50, 255)); break;
         case 3:
             gx_rrect_fill(cx - 8, cy - 7, 16, 14, 4, RGBA(110, 90, 190, 255), RGBA(70, 50, 140, 255));
-            gx_text_c(F_SMALL, cx, cy + 4.5f, "Z", RGBA(255, 255, 255, 255));
+            gx_text_c(F_SMALL, cx, cy + 4.5f, "R", RGBA(255, 255, 255, 255));   /* (v386 : L / R : onglets) */
             break;
         default:
             gx_rrect_fill(x, cy - 6.5f, 20, 13, 6.5f, RGBA(140, 140, 165, 255), RGBA(84, 84, 110, 255));
@@ -7635,6 +7704,7 @@ static void draw_layout_minimal(void);
 static void draw_layout_bigviz(void);
 static void draw_layout_list(void);
 static void draw_layout_toast(void);
+static void ntf_draw(void);                              /* v399 : notifications du telephone (notif_tele.c) */
 static void draw_layout_hint(void);
 static void draw_tab_strip(void);
 static void draw_checklist(void);
@@ -7821,6 +7891,7 @@ static void draw(void) {
     else au_menu_closed();
     if (kb_is_open()) draw_keyboard();             /* (v35 : par-dessus la page Reglages) */
     DP("draw_checklist", draw_checklist());
+    DP("notif_tele", ntf_draw());                        /* v399 : notifications du telephone, par-dessus le menu */
     if (!menu_open && !kb_is_open() && tab != TAB_WEB) DP("decor", season_overlay());
     DP("draw_actions", draw_actions());
     if (tab != TAB_FILES) DP("share_draw", share_draw());   /* v137 : QR code d'un partage, dans tous les onglets (journal du jeu) */
@@ -8214,6 +8285,7 @@ static void tag_scan_one(int k);
 static void save_settings(void);
 static int settings_dirty;
 #include "ui_extra.c"
+#include "notif_tele.c"                                  /* v399 : notifications du telephone dans le menu */
 #include "ui_aurore2.c"                         /* v103 : Aurore : lecteur de MUSIQUE */
 
 // ====================================================================
@@ -10889,8 +10961,9 @@ static void tp_park(void);                                /* (tab_phone.c) */
 static void bg_quiesce(void) {
     tp_park();                                            /* v247 : et le serveur du telephone (ecran rouge dans _fstat_r <- fseek <- tp_handle) */
     gj_hold = 1;
+    lsc_hold_t = now_ms(); lsc_hold = 1;                  /* v390 : le fil de la bibliotheque aussi (parcours de dossiers) */
     u64 t0 = now_ms();
-    while ((gj_state == 1 || tj_state == 1) && now_ms() - t0 < 3000) usleep(2000);
+    while ((gj_state == 1 || tj_state == 1 || lsc_busy) && now_ms() - t0 < 15000) usleep(2000);   /* (v391 : 15 s, et les parcours s'arretent tout de suite) */
 }
 /* v118 : jusqu'a 3 images telechargees en meme temps (avant : une a la fois) ; le decodage reste un a un */
 #define IL_N 3
@@ -12508,7 +12581,7 @@ static void draw_list_radio(void) {
 // ---------- Menu (START) : reglages et Quitter ----------
 enum { MI_SHUFFLE, MI_REPEAT, MI_XFADE, MI_VIEW, MI_VOLUME, MI_RG, MI_EQ, MI_BASS, MI_LOWMID, MI_MID, MI_PRES, MI_TREBLE, MI_SKIN, MI_THEME, MI_WALL, MI_SEASON, MI_SAVER, MI_SAVERSTYLE,
        MI_COVERS, MI_LYRICS, MI_PODAUTO, MI_PODSPEED, MI_PODSIL, MI_RESUME, MI_RADIORES, MI_GAPLESS, MI_TV, MI_VIDEO, MI_SCREEN, MI_SCREENH, MI_SCREENY, MI_SCREENX, MI_WIDE, MI_UILANG, MI_LANG, MI_GAMES, MI_GLVIEW, MI_GLANIM, MI_TITLES, MI_PARTY, MI_RUMBLE, MI_SLEEP, MI_NIGHT, MI_LAYOUT, MI_VIZ, MI_SGPAL, MI_LYRSHOW, MI_FLASH, MI_ELEMS, MI_TABS, MI_REC, MI_RECAT, MI_RECLEN, MI_AUTOSTART, MI_IGR, MI_NATIGR, MI_NATCARD, MI_PULSELD, MI_PERF, MI_LAUNCHER, MI_UPDATE,
-       MI_HIDDEN, MI_UNKNOWN, MI_GLANG, MI_GSOUND, MI_DHCP, MI_IP, MI_MASK, MI_GW, MI_PHONEAUTO, MI_UPDAUTO, MI_NETSMB, MI_NETFTP, MI_NETFSP, MI_NATCARDREG, MI_SALON, MI_CLOCK, MI_GLAUTO, MI_PLAYLIM, MI_UPDXZ, MI_APNOIMG, MI_THEMEDL, MI_UPDOLD, MI_NATCARDGAME, MI_PADTEL, MI_QUIT, MI_GLCOVALL, MI_MEMTEL, MI_APPENV, MI_GBATEL, MI_MICTEL, MI_SALONAMI, MI_SALONCODE, MI_COUNT };   /* (MI_GLCOVALL : v289, retire en v293 ; garde pour la table des noms) */
+       MI_HIDDEN, MI_UNKNOWN, MI_GLANG, MI_GSOUND, MI_DHCP, MI_IP, MI_MASK, MI_GW, MI_PHONEAUTO, MI_UPDAUTO, MI_NETSMB, MI_NETFTP, MI_NETFSP, MI_NATCARDREG, MI_SALON, MI_CLOCK, MI_GLAUTO, MI_PLAYLIM, MI_UPDXZ, MI_APNOIMG, MI_THEMEDL, MI_UPDOLD, MI_NATCARDGAME, MI_PADTEL, MI_QUIT, MI_GLCOVALL, MI_MEMTEL, MI_APPENV, MI_GBATEL, MI_MICTEL, MI_SALONAMI, MI_SALONCODE, MI_TVSUCC, MI_TVBAS, MI_NTFSON, MI_COUNT };   /* (MI_GLCOVALL : v289, retire en v293 ; garde pour la table des noms) */
 static void pj_limit_text(char *o, int cap);            /* v191 (profils.c) */
 static void pj_limit_next(int d);
 static int ipl_get(void);                                  /* v57 : la console demarre sur GC Station (gclib.c) */
@@ -12522,7 +12595,7 @@ static const s8 sec_items[6][32] = {
     { -6, MI_RADIORES, MI_TITLES, -7, MI_REC, MI_RECAT, MI_RECLEN, -8, MI_PODAUTO, MI_PODSPEED, MI_PODSIL, -1 },
     { -9, MI_UILANG, MI_LANG, -10, MI_SKIN, MI_THEME, MI_THEMEDL, MI_WALL, MI_SEASON, MI_TABS, -11, MI_LAYOUT, MI_ELEMS, MI_VIZ, MI_SGPAL, MI_LYRSHOW, -12, MI_SAVER, MI_SAVERSTYLE, MI_NIGHT, -13, MI_HIDDEN, MI_UNKNOWN, -14, MI_PERF, -1 },
     { -15, MI_TV, MI_VIDEO, MI_WIDE, -16, MI_SCREEN, MI_SCREENH, MI_SCREENY, MI_SCREENX, -1 },
-    { -17, MI_GLANG, MI_GSOUND, MI_CLOCK, MI_RUMBLE, MI_AUTOSTART, -18, MI_GLVIEW, MI_GLANIM, MI_GLAUTO, MI_APNOIMG, MI_PLAYLIM, -19, MI_NATIGR, MI_NATCARD, MI_NATCARDREG, MI_NATCARDGAME, MI_PADTEL, MI_GBATEL, MI_MICTEL, MI_MEMTEL, MI_PULSELD, -20, MI_LAUNCHER, MI_IGR, -1 },
+    { -17, MI_GLANG, MI_GSOUND, MI_CLOCK, MI_RUMBLE, MI_AUTOSTART, -18, MI_GLVIEW, MI_GLANIM, MI_GLAUTO, MI_APNOIMG, MI_PLAYLIM, -19, MI_NATIGR, MI_NATCARD, MI_NATCARDREG, MI_NATCARDGAME, MI_PADTEL, MI_GBATEL, MI_MICTEL, MI_MEMTEL, MI_TVSUCC, MI_TVBAS, MI_NTFSON, MI_PULSELD, -20, MI_LAUNCHER, MI_IGR, -1 },
     { -21, MI_DHCP, MI_IP, MI_MASK, MI_GW, -22, MI_NETSMB, MI_NETFTP, MI_NETFSP, -23, MI_SALON, MI_SALONAMI, MI_SALONCODE, MI_PHONEAUTO, MI_APPENV, -24, MI_UPDAUTO, MI_UPDXZ, MI_UPDATE, MI_UPDOLD, -1 } };
 static int sec_n(int sec) { int n = 0; if (sec < 0 || sec >= SEC_TOOLS) return 0; while (n < 32 && sec_items[sec][n] != -1) n++; return n; }
 static int sec_pos(int sec, int mi) { if (mi < 0) return -1; for (int i = 0; i < sec_n(sec); i++) if (sec_items[sec][i] == mi) return i; return -1; }   /* (v321 : jamais un sous-titre) */
@@ -12531,6 +12604,35 @@ static int sec_step(int sec, int p, int d) {             /* reglage suivant / pr
     int n = sec_n(sec);
     for (int k = 0; k < n; k++) { p = (p + d + n) % n; if (sec_items[sec][p] >= 0) return sec_items[sec][p]; }
     return sec_first(sec);
+}
+/* v394 : reglages caches quand ils ne servent a rien (selon un autre reglage) : moins de lignes. Le menu se parcourt et
+   se dessine avec cette liste filtree (vis_l) ; sec_items reste la liste complete (tests des touches, appli) */
+static int rp_on;                                          /* (extras73.c : enregistrement programme) */
+static int mi_shown(int mi) {
+    switch (mi) {
+    case MI_BASS: case MI_LOWMID: case MI_MID: case MI_PRES: case MI_TREBLE: return eq_preset == 0;   /* (egaliseur Personnalise) */
+    case MI_IP: case MI_MASK: case MI_GW: return !net_dhcp;                                           /* (adresse fixe) */
+    case MI_RECLEN: return rp_on;                                                                     /* (enregistrement programme) */
+    case MI_SAVERSTYLE: return saver_min != 0;                                                        /* (economiseur) */
+    case MI_SALONAMI: case MI_SALONCODE: return salon_on;                                             /* (Salon par Internet : Salon d'abord) */
+    case MI_NATCARDREG: case MI_NATCARDGAME: return nat_card != 0;                                    /* (carte memoire virtuelle) */
+    case MI_PADTEL: case MI_GBATEL: case MI_MICTEL: case MI_MEMTEL: return app_envoi != 0;            /* (rien vers l'appli) */
+    default: return 1;
+    }
+}
+static s8 vis_l[32];
+static int vis_build(int sec) {                             /* rend le nombre de lignes ; sous-titre sans reglage visible : retire */
+    int n = 0, N = sec_n(sec);
+    for (int i = 0; i < N; i++) { int mi = sec_items[sec][i]; if (mi >= 0 && !mi_shown(mi)) continue; vis_l[n++] = (s8)mi; }
+    int k = 0;
+    for (int i = 0; i < n; i++) { if (vis_l[i] <= -2 && (i + 1 >= n || vis_l[i + 1] <= -2)) continue; vis_l[k++] = vis_l[i]; }
+    return k;
+}
+static int vis_pos(int n, int mi) { if (mi < 0) return -1; for (int i = 0; i < n; i++) if (vis_l[i] == mi) return i; return -1; }
+static int vis_first(int n) { for (int i = 0; i < n; i++) if (vis_l[i] >= 0) return vis_l[i]; return 0; }
+static int vis_step(int n, int p, int d) {
+    for (int k = 0; k < n; k++) { p = (p + d + n) % n; if (vis_l[p] >= 0) return vis_l[p]; }
+    return vis_first(n);
 }
 static int fe_show_hidden, fe_hide_unknown;                   /* (tab_files.c) */
 static void files_refresh_opts(void);                         /* (jeux_cfg.c) */
@@ -12664,6 +12766,9 @@ static void menu_value(int i, char *out, int cap) {
     case MI_NATCARDREG: snprintf(out, cap, "%s", nat_card_reg ? TR("Oui") : TR("Non")); break;
     case MI_NATCARDGAME: snprintf(out, cap, "%s", nat_card_game ? TR("Oui") : TR("Non")); break;
     case MI_MEMTEL: snprintf(out, cap, "%s", TR(nat_memtel ? "Oui" : "Non")); break;
+    case MI_TVSUCC: snprintf(out, cap, "%s", TR(nat_tvsucc ? "Oui" : "Non")); break;   /* v397 */
+    case MI_TVBAS: snprintf(out, cap, "%s", TR(nat_tvbas ? "En bas" : "En haut")); break;   /* v400 */
+    case MI_NTFSON: snprintf(out, cap, "%s", TR(ntf_son ? "Oui" : "Non")); break;      /* v400 */
     case MI_GBATEL: if (nat_gbatel) snprintf(out, cap, "Port %d", nat_gbaport); else snprintf(out, cap, "%s", TR("Non")); break;   /* (v334) */
     case MI_MICTEL: snprintf(out, cap, "%s", TR(nat_mictel ? "Oui" : "Non")); break;
     case MI_APPENV: { static const char *const ae[3] = { "Coup\xC3\xA9", "Si l'appli est connect\xC3\xA9" "e", "Toujours" }; snprintf(out, cap, "%s", TR(ae[app_envoi % 3])); break; }
@@ -12723,7 +12828,7 @@ static const char *const menu_labels[MI_COUNT] = {
     "\xC3\x89l\xC3\xA9ments du lecteur", "Onglets affich\xC3\xA9s", "Enregistrer la radio", "Enregistrement programm\xC3\xA9", "Dur\xC3\xA9" "e de l'enregistrement programm\xC3\xA9", "D\xC3\xA9marrer la console sur GC Station", "A+Z+START (lanceur de secours)", "A+Z+START (Pulse)", "Carte m\xC3\xA9moire virtuelle (Pulse)", "\xC3\x89" "cran de chargement (Pulse)", "Mesure de fluidit\xC3\xA9", "Lanceur de secours", "Mise \xC3\xA0 jour",
     "Fichiers cach\xC3\xA9s (FICHIERS)", "Cacher les fichiers inconnus", "Langue des jeux (console)", "Son (console)",
     "Adresse automatique (DHCP)", "Adresse IP de la console", "Masque", "Passerelle (box)", "T\xC3\xA9l\xC3\xA9" "commande au d\xC3\xA9marrage",
-    "Chercher les mises \xC3\xA0 jour au d\xC3\xA9marrage", "Partage SMB (PC, NAS)", "Serveur FTP", "Serveur FSP", "Une carte par r\xC3\xA9gion (Pulse)", "Salon (autres GC Station)", "Date et heure (console)", "Nouveaux jeux vus tout seuls", "Limite de jeu par jour", "Version compress\xC3\xA9" "e", "Applis sans image", "Th\xC3\xA8mes en ligne", "Ancienne version (.ancien)", "Une carte par jeu (Pulse)", "Manettes du t\xC3\xA9l\xC3\xA9phone", "Quitter GC Station", "Toutes les jaquettes (bo\xC3\xAEte 3D, HD)", "Chercheur de codes (appli)", "Envoi vers l'appli", "GBA du t\xC3\xA9l\xC3\xA9phone", "Micro du t\xC3\xA9l\xC3\xA9phone (slot B)", "Salon par Internet : adresse de l'ami", "Salon par Internet : code" };
+    "Chercher les mises \xC3\xA0 jour au d\xC3\xA9marrage", "Partage SMB (PC, NAS)", "Serveur FTP", "Serveur FSP", "Une carte par r\xC3\xA9gion (Pulse)", "Salon (autres GC Station)", "Date et heure (console)", "Nouveaux jeux vus tout seuls", "Limite de jeu par jour", "Version compress\xC3\xA9" "e", "Applis sans image", "Th\xC3\xA8mes en ligne", "Ancienne version (.ancien)", "Une carte par jeu (Pulse)", "Manettes du t\xC3\xA9l\xC3\xA9phone", "Quitter GC Station", "Toutes les jaquettes (bo\xC3\xAEte 3D, HD)", "Chercheur de codes (appli)", "Envoi vers l'appli", "GBA du t\xC3\xA9l\xC3\xA9phone", "Micro du t\xC3\xA9l\xC3\xA9phone (slot B)", "Salon par Internet : adresse de l'ami", "Salon par Internet : code", "Succ\xC3\xA8s sur la t\xC3\xA9l\xC3\xA9 (Pulse)", "Place du bandeau (Pulse)", "Son des notifications du t\xC3\xA9l\xC3\xA9phone" };
 
 static void web_relayout(void);
 static void scr_set_wide(int w) {
@@ -12811,6 +12916,9 @@ static void menu_change(int i, int d) {
     case MI_NATCARDGAME: nat_card_game = !nat_card_game; break;
     case MI_PADTEL: nat_padtel = (nat_padtel + (d < 0 ? 4 : 1)) % 5; break;
     case MI_MEMTEL: nat_memtel = !nat_memtel; break;
+    case MI_TVSUCC: nat_tvsucc = !nat_tvsucc; break;   /* v397 */
+    case MI_TVBAS: nat_tvbas = !nat_tvbas; break;      /* v400 */
+    case MI_NTFSON: ntf_son = !ntf_son; if (ntf_son) ntf_son_jouer(); break;   /* v400 : (on l'entend tout de suite) */
     case MI_GBATEL: if (!nat_gbatel) { nat_gbatel = 1; nat_gbaport = 1; } else if (nat_gbaport < 4) nat_gbaport++; else nat_gbatel = 0; break;   /* (v334 : Non, port 1, 2, 3, 4) */
     case MI_MICTEL: nat_mictel = !nat_mictel; break;
     case MI_APPENV: app_envoi = (app_envoi + (d < 0 ? 2 : 1)) % 3; break;
@@ -12878,7 +12986,7 @@ static void menu_input(u32 down, u32 nav, int fire) {
         static s8 last[SEC_COUNT] = { -1, -1, -1, -1, -1, -1, -1 };
         if (menu_sec < SEC_TOOLS) last[menu_sec] = (s8)menu_sel;
         menu_sec = (menu_sec + ((down & PAD_TRIGGER_R) ? 1 : SEC_COUNT - 1)) % SEC_COUNT;
-        if (menu_sec < SEC_TOOLS) { menu_sel = last[menu_sec] >= 0 ? last[menu_sec] : sec_first(menu_sec); menu_top = 0; }
+        if (menu_sec < SEC_TOOLS) { menu_sel = last[menu_sec] >= 0 && mi_shown(last[menu_sec]) ? last[menu_sec] : sec_first(menu_sec); menu_top = 0; }
         return;
     }
     if (down & (PAD_BUTTON_B | PAD_BUTTON_START)) {
@@ -12906,10 +13014,11 @@ static void menu_input_gcmp3(u32 down, u32 nav, int fire) {
     /* v321 : un numero de reglage hors du tableau (vu apres 3 h de test des touches : plantage en lisant son nom pour le
        journal) : on revient au premier reglage de la section au lieu de lire n'importe ou */
     if (menu_sel < 0 || menu_sel >= MI_COUNT) { crumb("menu : reglage %d hors limites, remis au debut", menu_sel); menu_sel = sec_first(menu_sec); }
-    int p = sec_pos(menu_sec, menu_sel);
-    if (p < 0) { menu_sel = sec_first(menu_sec); p = sec_pos(menu_sec, menu_sel); }
-    if (fire && (nav & PAD_BUTTON_DOWN)) menu_sel = sec_step(menu_sec, p, 1);
-    if (fire && (nav & PAD_BUTTON_UP)) menu_sel = sec_step(menu_sec, p, -1);
+    int vn = vis_build(menu_sec);                          /* v394 : reglages qui servent */
+    int p = vis_pos(vn, menu_sel);
+    if (p < 0) { menu_sel = vis_first(vn); p = vis_pos(vn, menu_sel); }
+    if (fire && (nav & PAD_BUTTON_DOWN)) menu_sel = vis_step(vn, p, 1);
+    if (fire && (nav & PAD_BUTTON_UP)) menu_sel = vis_step(vn, p, -1);
     if (fire && (nav & (PAD_BUTTON_LEFT | PAD_BUTTON_RIGHT)) && menu_sel != MI_QUIT)
         menu_change(menu_sel, (nav & PAD_BUTTON_RIGHT) ? 1 : -1);
     if (down & PAD_BUTTON_A) {
@@ -13029,9 +13138,9 @@ static void draw_menu(void) {
         draw_menu_legend(2);
         return;
     }
-    const s8 *L = sec_items[menu_sec];
-    int LN = sec_n(menu_sec), ps = sec_pos(menu_sec, menu_sel);
-    if (ps < 0) { menu_sel = sec_first(menu_sec); ps = sec_pos(menu_sec, menu_sel); }
+    const s8 *L = vis_l;                                   /* v394 : seulement les reglages qui servent */
+    int LN = vis_build(menu_sec), ps = vis_pos(LN, menu_sel);
+    if (ps < 0) { menu_sel = vis_first(LN); ps = vis_pos(LN, menu_sel); }
     if (ps > 0 && L[ps - 1] <= -2 && ps - 1 < menu_top) menu_top = ps - 1;   /* v148 : le sous-titre du groupe reste visible */
     if (ps < menu_top) menu_top = ps;
     if (ps >= menu_top + vis) menu_top = ps - vis + 1;
@@ -13083,7 +13192,7 @@ static void draw_menu(void) {
     if (menu_sel == MI_UPDATE) hint = "Nouvelle version depuis GitHub, l'ancienne est gard\xC3\xA9" "e (.ancien)";
     if (menu_sel == MI_SLEEP) hint = "La musique baisse doucement puis s'arr\xC3\xAAte";
     if (menu_sel == MI_RG) hint = "Selon les \xC3\xA9tiquettes ReplayGain des fichiers (au morceau suivant)";
-    if (menu_sel == MI_XFADE) hint = "Les morceaux se m\xC3\xA9langent en fin de lecture (pas avec L / R)";
+    if (menu_sel == MI_XFADE) hint = "Les morceaux se m\xC3\xA9langent en fin de lecture (pas avec Z)";
     if (menu_sel == MI_VIDEO) hint = "Pris en compte au prochain lancement (B maintenu au d\xC3\xA9marrage = 480i)";
     if (menu_sel == MI_AUTOSTART) hint = "Copie GC Station dans ipl.dol (PicoLoader) : la console et le bouton Reset ouvrent GC Station";
     if (menu_sel == MI_IGR) hint = igr_hint();
@@ -13099,6 +13208,9 @@ static void draw_menu(void) {
     if (menu_sel == MI_NATCARD) hint = "Jeux lanc\xC3\xA9s avec Pulse : sauvegardes dans SD:/gc-mp3/resident (slot B : carte-B.raw)";
     if (menu_sel == MI_APPENV) hint = "Coup\xC3\xA9 : rien vers l'appli (direct, \xC3\xA9tat, Pulse). Si connect\xC3\xA9" "e : seulement quand un t\xC3\xA9l\xC3\xA9phone \xC3\xA9" "coute";
     if (menu_sel == MI_MEMTEL) hint = "L'appli lit la m\xC3\xA9moire du jeu pendant la partie (Pulse, Broadband Adapter ou ETH2SP1) : trouver ses propres cheats et succ\xC3\xA8s";
+    if (menu_sel == MI_TVBAS) hint = "O\xC3\xB9 s'affiche le bandeau des succ\xC3\xA8s et des notifications pendant les jeux : en haut au milieu de l'image, ou en bas.";
+    if (menu_sel == MI_NTFSON) hint = "Un petit carillon quand une notification du t\xC3\xA9l\xC3\xA9phone descend en haut de l'\xC3\xA9" "cran de GC Station (message, appel...).";
+    if (menu_sel == MI_TVSUCC) hint = "Un bandeau sur l'image (en haut ou en bas : r\xC3\xA9glage suivant) quand un succ\xC3\xA8s tombe pendant la partie (GC Station, et RetroAchievements avec l'appli). Non : rien de pris au jeu";   /* v397 */
     if (menu_sel == MI_GBATEL) hint = "L'appli devient une GBA branch\xC3\xA9" "e au port choisi (Wind Waker, Pac-Man Vs. : port 2 ; Four Swords seul : port 1, la manette de ce port n'est plus vue). Pulse, Broadband Adapter. Essai";
     if (menu_sel == MI_MICTEL) hint = "Le micro du t\xC3\xA9l\xC3\xA9phone devient le micro GameCube du slot B (Mario Party 6 et 7 ; Pulse, Broadband Adapter). Pas de carte m\xC3\xA9moire en B tant que c'est sur Oui. Essai";
     if (menu_sel == MI_PADTEL) hint = "L'appli du t\xC3\xA9l\xC3\xA9phone devient une manette dans les jeux (Pulse, Broadband Adapter ou ETH2SP1). Un port par t\xC3\xA9l\xC3\xA9phone";
@@ -14304,6 +14416,7 @@ static void music_pump(void) {
 #include "cheats.c"                            /* v25 : editeur de cheats (SD:/gc-mp3/cheats) */
 #include "tinfl.c"                              /* v287 : zlib en flux (PNG HD des jaquettes) */
 #include "gclib.c"                             /* v25 : Mes jeux GameCube (jaquettes : SD:/gc-mp3/jaquettes) */
+#include "ra_hash.c"                           /* v393 : RetroAchievements : empreinte du jeu pour l'appli */
 #include "jukebox.c"                           /* v207 : musiques des jeux, lues dans les images */
 #include "succes_jeux.c"                      /* v268 : succes dans les jeux (verifies par Pulse) */
 #include "tools.c"                             /* v35 : cartes memoire, applis, recents, infos */
@@ -14353,36 +14466,35 @@ static void disc_chain(void) {
     if (e) crumb("demarrage : lancement de %s impossible : %s", up_target, e);
 }
 /* v92 : temps de chaque etape du demarrage (SD:/gc-mp3/journaux/demarrage.txt) */
-static char bt_txt[640];
+static char bt_txt[2048];                       /* (v385 : 640 -> 1024 : les parties du journal de Pulse en plus) */
 static int bt_len = 0;
 static u64 bt_prev = 0;
 static void bt_step(const char *what) {
+#ifndef GEKKO
+    if (getenv("PCSIM_BT")) { fprintf(stderr, "@@bt %s\n", what); fflush(stderr); }   /* (v386 : simulateur : reperes pour compter les acces SD par etape) */
+#endif
     u64 n = ticks_to_millisecs(gettime());
     if (!bt_prev) bt_prev = boot_t0;
     if (bt_len < (int)sizeof(bt_txt) - 64) bt_len += snprintf(bt_txt + bt_len, sizeof(bt_txt) - bt_len, "%-24s %6u ms\n", what, (unsigned)(n - bt_prev));
     if (mv_bt_k < 20) { mv_bt_n[mv_bt_k] = what; mv_bt_ms[mv_bt_k++] = (u32)(n - bt_prev); }   /* v220 : (Outils > Memoire) */
     bt_prev = n;
 }
-static void bt_save(void) {
+static int bt_save(void) {                     /* v386 : 1 = demarrage.txt ecrit (sert aussi de test d'ecriture de la carte) */
     crumb("demarrage : %s", bt_txt);
     mv_bt_total = (u32)(ticks_to_millisecs(gettime()) - boot_t0);
-    if (!sd_ok || sd_virtual) return;
+    if (!sd_ok || sd_virtual) return 0;
     FILE *f = fopen(GCD_LOG "/demarrage.txt", "w");
-    if (!f) return;
-    fprintf(f, "GC Station %s : temps du dernier demarrage (total %u ms)\n%s", GCMP3_VERSION, (unsigned)(ticks_to_millisecs(gettime()) - boot_t0), bt_txt);
-    fclose(f);
+    if (!f) return 0;
+    int ok = fprintf(f, "GC Station %s : temps du dernier demarrage (total %u ms)\n%s", GCMP3_VERSION, (unsigned)(ticks_to_millisecs(gettime()) - boot_t0), bt_txt) > 0;
+    if (fclose(f) != 0) ok = 0;
+    return ok;
 }
-static void boot_selfcheck(void) {
+static void boot_selfcheck(int sd_wr) {        /* v386 : sd_wr : demarrage.txt a pu etre ecrit (avant : un fichier d'essai
+                                                  cree puis efface a chaque demarrage, en plus) */
     /* memoire libre, sans rien reserver (v80 : un essai de 12 Mo faussait la mesure du simulateur pc-sim) :
        place jamais donnee (arene) + memoire rendue au tas, comme Outils > Infos console */
     struct mallinfo mi = mallinfo();
     size_t freekb = (size_t)(((uintptr_t)SYS_GetArena1Hi() - (uintptr_t)SYS_GetArena1Lo() + mi.fordblks) / 1024);
-    int sd_wr = 0;
-    if (sd_ok) {
-        mkdir(GCD, 0777);
-        FILE *f = fopen(GCD "/.ecriture", "wb");
-        if (f) { sd_wr = (fwrite("ok", 1, 2, f) == 2); fclose(f); remove(GCD "/.ecriture"); }
-    }
     u32 ms = boot_t0 ? (u32)(now_ms() - boot_t0) : 0;
     crumb("demarrage : %u ms, memoire libre %u Ko, carte SD %s", (unsigned)ms, (unsigned)freekb,
           !sd_ok ? "absente" : sd_wr ? "ecriture OK" : "LECTURE SEULE");
@@ -14419,8 +14531,9 @@ int main(int argc, char **argv) {
     up_argv0 = (argc > 0 && argv && argv[0]) ? argv[0] : NULL;
     if (!setlocale(LC_CTYPE, "C.UTF-8")) setlocale(LC_CTYPE, "C-UTF-8");   /* v26 : noms de fichiers en UTF-8 (accents, tirets longs...) : sans ca, libfat s'arrete sur certains noms */
     sd_ok = mount_sd();                     /* d'abord les reglages (mode video, theme...) */
+    if (sd_ok && sd_slot == 0) sd_fast();   /* v386 : SD2SP2 a 32 MHz si la carte le supporte */
     if (!sd_ok) sd_ok = ramfs_mount();      /* (Dolphin : SD en memoire, reglages sur la carte memoire) */
-    bt_step("carte SD");
+    bt_step(sd_mhz == 32 ? "carte SD (32 MHz)" : "carte SD (16 MHz)");
     /* v220 : le rangement (anciens fichiers deplaces) et les dossiers de SD:/gc-mp3 ne se font qu'une fois :
        ensuite un repere (SD:/gc-mp3/reglages/.range) evite ~80 recherches sur la carte SD a chaque demarrage */
     int gcd_done = 0;
@@ -14431,14 +14544,18 @@ int main(int argc, char **argv) {
     if (sd_ok && !gcd_done) { FILE *rf = fopen(GCD_REG "/.range", "wb"); if (rf) { fputs("1\n", rf); fclose(rf); } }
     bt_step("rangement SD");
     crash_init();                           /* journal de plantage */
+    bt_step("  plantage (journal)");          /* v386 : chaque partie du demarrage mesuree (demarrage.txt) */
     ui_lang_apply();                        /* v24 : langue de la console, sauf reglage */
     load_settings();
+    bt_step("  reglages lus");
     pj_apply();                             /* v191 : carte et limite du profil */
     thm_boot();                             /* v233 : theme telecharge (themes.c) */
     bt_step("reglages");
     nfs_mount();
     jeux_cfg_boot();                        /* v75 : langue / son de la console, reseau */
+    bt_step("  langue, son, reseau");
     if (sd_ok) ld_boot();                   /* v45 : retour.txt (retour en jeu) + journal du lanceur */
+    bt_step("  retour du lanceur");
     if (sd_ok && !sd_virtual && (video_pref == VID_576I || video_pref == VID_576P)) ic_put("Apps Video Mode", "Auto");   /* v130 : (v128 y mettait 576 : pas pour les jeux) */
     bt_step("jeux et lanceur");
     if (!init_video()) return 1;
@@ -14451,7 +14568,7 @@ int main(int argc, char **argv) {
 
     /* v92 : chaque etape du demarrage a l'ecran et dans SD:/gc-mp3/journaux/demarrage.txt (temps en ms) */
     if (sd_ok) { say("   Musique de la carte SD... %s", ""); if (list_cache_load()) lv_pending = 1; else scan_files();   /* v238 : liste gardee, verifiee en fond */ { char nb[16]; snprintf(nb, sizeof(nb), "%d", nfiles); say("%s\n", nb); } bt_step("liste de la musique"); }
-    if (sd_ok) { say("   Bibliotheque... %s", ""); bib_load(); pl_load_all(); stats_load(); rating_load(); say("%s\n", "OK"); bt_step("bibliotheque"); }
+    if (sd_ok) { say("   Bibliotheque... %s", ""); bib_load(); bt_step("  bibliotheque lue"); pl_load_all(); bt_step("  listes de lecture"); stats_load(); rating_load(); say("%s\n", "OK"); bt_step("bibliotheque"); }
     if (sd_ok) nat_journal_convert();       /* v54 : journal du dernier jeu lance par le lanceur maison */
     bt_step("journal Pulse");                /* v266 : (a part : "qui joue ?" attend le joueur) */
     if (gde_fresh && !gde_seen) gde_open();    /* v190 : carte SD neuve : le guide de demarrage */
@@ -14462,12 +14579,12 @@ int main(int argc, char **argv) {
     load_stations();
     say("%s\n", "OK");
     bt_step("radios");
-    if (sd_ok) { ipl_get(); igr_on(); ld_build(); }   /* v316 : (calcules au premier affichage des reglages Jeux : jusqu'a 220 ms figees) */
+    if (sd_ok) { ipl_get(); bt_step("  ipl.dol"); igr_on(); bt_step("  retour en jeu (IGR)"); ld_build(); }   /* v316 : (calcules au premier affichage des reglages Jeux : jusqu'a 220 ms figees) */
     bt_step("lanceur / ipl.dol");
     lib_rebuild();
     bt_step("tri de la musique");
-    boot_selfcheck();                        /* v76 : controle memoire / carte SD / duree */
-    bt_save();
+    boot_selfcheck(bt_save());               /* v76 : controle memoire / carte SD / duree (v386 : l'ecriture de
+                                                demarrage.txt sert de test d'ecriture de la carte) */
     if (boot_check[0]) lib_note(boot_check);
     if (covers_auto || phone_auto) net_start_async();   /* reseau en fond, pour les pochettes (v222 : et la telecommande lancee au demarrage) */
 
@@ -14587,8 +14704,35 @@ int main(int argc, char **argv) {
         cbh_wants_start = tab == TAB_WEB && cb_wants_start();   /* v209 : clavier du navigateur : START = valider */
         if ((down & PAD_BUTTON_START) && !cbh_wants_start) { menu_open = 1; down = 0; }
 
-        /* onglets : la lecture en cours continue */
-        if (down & PAD_TRIGGER_Z) { if (gs_active() && gl_detail) {} else if (gs_active() && gl_launch_sel < 0) gs_filter_next(1); else tab_next(1); }   /* (v197 : pas dans la fiche) */   /* v196 : espace jeux : filtre suivant */
+        /* v386 : nouvelle navigation (demande du proprietaire, 8 novembre) : L / R = onglet precedent / suivant, partout
+           (les ecrans par-dessus, deja servis plus haut, gardent leurs L / R) ; Z = morceau suivant, deux appuis rapides =
+           morceau precedent (podcast : +30 s / -15 s). Avant : Z = onglet suivant, L / R = morceau.
+           Restent a eux : la soiree et le karaoke (plein ecran : L / R = morceau, plus bas), le clavier du navigateur (L / R
+           = curseur), la fiche d'un jeu et "Lancer ce jeu ?" (Z : lanceur de secours / par Internet) */
+        {
+            static int csx_prev = 0, csy_prev = 0;
+            int cx = sx > 60 ? 1 : sx < -60 ? -1 : 0, cy = sy > 60 ? 1 : sy < -60 ? -1 : 0;
+            cs_ex = cx != csx_prev ? cx : 0; cs_ey = cy != csy_prev ? cy : 0;
+            csx_prev = cx; csy_prev = cy;
+        }
+        int lr_track = party_on || fun_mode == FUN_KARAOKE;
+        /* v392 : dans l'espace Jeux GameCube (jaquettes en 3D), L / R = section precedente / suivante (Recents, Tout,
+           Favoris, Plus joues, A a Z, Applis) : demande du proprietaire ; B ressort vers l'onglet, puis L / R = onglets */
+        int lr_gs = tab == TAB_GAMES && gl_on && gs_view() && !gl_detail && gl_launch_sel < 0 && gl_opt < 0 && gs_app_confirm < 0;
+        if ((down & (PAD_TRIGGER_L | PAD_TRIGGER_R)) && !lr_track && !lr_gs && !(tab == TAB_WEB && cbh_wants_start)) {
+            tab_next((down & PAD_TRIGGER_R) ? 1 : -1);
+            down &= ~(PAD_TRIGGER_L | PAD_TRIGGER_R);
+        }
+        {
+            static u64 z_t = 0; static int z_n = 0;
+            int z_local = tab == TAB_GAMES && gl_on && (gl_detail || gl_launch_sel >= 0);
+            if ((down & PAD_TRIGGER_Z) && !z_local) {
+                if (z_n && now - z_t < 320) { z_n = 0; transport_step(-1); }
+                else { z_n = 1; z_t = now; }
+                down &= ~PAD_TRIGGER_Z;
+            }
+            if (z_n && now - z_t >= 320) { z_n = 0; transport_step(1); }
+        }
 
         /* stick C vers le bas : disposition du lecteur */
         {
@@ -14672,7 +14816,7 @@ int main(int argc, char **argv) {
         }
         {
             u32 tr = down & (PAD_TRIGGER_L | PAD_TRIGGER_R);
-            if (tab == TAB_WEB) tr = 0;                       /* v209 : L / R : pages du navigateur */
+            if (!lr_track) tr = 0;                            /* v386 : L / R = morceau seulement en soiree et au karaoke */
             if (tr) transport_step((tr & PAD_TRIGGER_R) ? 1 : -1);
         }
 

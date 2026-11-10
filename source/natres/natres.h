@@ -212,6 +212,10 @@ typedef struct {
     unsigned int gq[32];
     unsigned char gqid[32];
     unsigned int gqr, gqw, gqlast, gqn;
+    /* v384 : clavier du telephone (clavier ASCII de la GameCube : Phantasy Star Online). kbmask (resident) : bit n = le port
+       n + 1 est un clavier (paquet "GCPD" avec l'octet 6 bit 1) ; kbcnt : compteur des reponses (4 bits, dans le 1er octet
+       et dans le controle, comme un vrai clavier) */
+    unsigned int kbmask, kbcnt;
     /* v344 : apres la structure (seulement s'ils servent) : l'anneau des mots du jeu pour la GBA (NATRES_GBA_RING mots, si
        gbmask), puis celui du micro (NATRES_MIC_RING octets, si micon) ; len les compte */
 } natres_pad_t;

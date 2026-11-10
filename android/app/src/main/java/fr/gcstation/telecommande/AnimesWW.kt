@@ -92,29 +92,65 @@ class AnimesWW(val modeles: List<Modele>, val copies: List<Copie>) {
         } catch (e: Throwable) { }
     }
 
+    /** build 458 : peaux de la bibliotheque d'equipement, pour les modeles ajoutes a partir de debut (les signatures du lieu
+     *  restent prioritaires) */
+    fun ajouterPeaux(f: java.io.File, debut: Int) {
+        if (!f.exists()) return
+        try {
+            val b = ByteBuffer.wrap(f.readBytes()).order(ByteOrder.LITTLE_ENDIAN)
+            if (b.int != 0x31565757) return
+            val n = b.int; val ps = ArrayList<Peau?>(peaux); val sg = HashMap(sigs)
+            while (ps.size < debut) ps.add(null)
+            for (k in 0 until n) {
+                val m = debut + k
+                val taille = b.int.toLong() and 0xFFFFFFFFL; val nj = b.int; val lg = b.int
+                val nv = lg / 68
+                if (lg <= 0 || m >= modeles.size || nv != modeles[m].total) { b.position(b.position() + lg); ps.add(null); continue }
+                val j = ByteArray(4 * nv); val w = FloatArray(4 * nv); val l = FloatArray(12 * nv)
+                for (q in 0 until nv) { b.get(j, 4 * q, 4); for (r in 0 until 4) w[4 * q + r] = b.float; for (r in 0 until 12) l[12 * q + r] = b.float }
+                ps.add(Peau(taille, nj, j, w, l))
+                if (taille > 0) sg.putIfAbsent((taille shl 16) or nj.toLong(), m)
+            }
+            peaux = ps; sigs = sg
+        } catch (e: Throwable) { }
+    }
     companion object {
+        /** build 458 : la bibliotheque d'equipement de Link (pack : ww_equip_ani.r3a, ww_equip_vif.r3p, ww_equip_tNNN.png,
+         *  fabriquee depuis Link.arc de la copie du jeu du proprietaire) : ses modeles sont ajoutes a ceux de chaque lieu
+         *  (apres eux : les numeros du lieu ne changent pas), leurs textures sont numerotees a partir de 10000 */
+        const val TEX_EQUIP = 10000
+        private fun modelesDe(b: ByteBuffer): List<Modele> {
+            val nm = b.int; val ms = ArrayList<Modele>()
+            for (m in 0 until nm) {
+                val ng = b.int; val ni = b.int; val ips = b.float
+                val gs = ArrayList<Groupe>(); var tot = 0
+                for (g in 0 until ng) {
+                    val tex = b.int; val md = b.int; val env = b.int; val du = b.float; val dv = b.float; val n = b.int
+                    val bb = ByteBuffer.allocateDirect(n * 12).order(ByteOrder.nativeOrder())
+                    val src = ByteArray(n * 12); b.get(src); bb.put(src); bb.position(0)
+                    gs.add(Groupe(tex, md, env, du, dv, n, bb, tot)); tot += n
+                }
+                val pos = ArrayList<ByteBuffer>()
+                for (i in 0 until ni) {
+                    val bb = ByteBuffer.allocateDirect(tot * 12).order(ByteOrder.nativeOrder())
+                    val src = ByteArray(tot * 12); b.get(src); bb.put(src); bb.position(0); pos.add(bb)
+                }
+                ms.add(Modele(gs, ni, ips, tot, pos))
+            }
+            return ms
+        }
+        private fun equipement(d: java.io.File): List<Modele> = try {
+            val f = java.io.File(d, "ww_equip_ani.r3a")
+            if (!f.exists()) emptyList() else { val b = ByteBuffer.wrap(f.readBytes()).order(ByteOrder.LITTLE_ENDIAN)
+                if (b.int != 0x31415757) emptyList() else modelesDe(b) }
+        } catch (e: Throwable) { emptyList() }
         fun lire(d: java.io.File, nv: String): AnimesWW? = try {
             val f = java.io.File(d, nv + "_ani.r3a")
-            if (!f.exists()) null else {
+            val eq = if (nv.startsWith("ww_")) emptyList() else equipement(d)
+            if (!f.exists()) (if (eq.isEmpty()) null else AnimesWW(eq, emptyList()).also { it.lirePeaux(java.io.File(d, "ww_equip_vif.r3p")) }) else {
                 val b = ByteBuffer.wrap(f.readBytes()).order(ByteOrder.LITTLE_ENDIAN)
                 if (b.int != 0x31415757) null else {                         // "WWA1"
-                    val nm = b.int; val ms = ArrayList<Modele>()
-                    for (m in 0 until nm) {
-                        val ng = b.int; val ni = b.int; val ips = b.float
-                        val gs = ArrayList<Groupe>(); var tot = 0
-                        for (g in 0 until ng) {
-                            val tex = b.int; val md = b.int; val env = b.int; val du = b.float; val dv = b.float; val n = b.int
-                            val bb = ByteBuffer.allocateDirect(n * 12).order(ByteOrder.nativeOrder())
-                            val src = ByteArray(n * 12); b.get(src); bb.put(src); bb.position(0)
-                            gs.add(Groupe(tex, md, env, du, dv, n, bb, tot)); tot += n
-                        }
-                        val pos = ArrayList<ByteBuffer>()
-                        for (i in 0 until ni) {
-                            val bb = ByteBuffer.allocateDirect(tot * 12).order(ByteOrder.nativeOrder())
-                            val src = ByteArray(tot * 12); b.get(src); bb.put(src); bb.position(0); pos.add(bb)
-                        }
-                        ms.add(Modele(gs, ni, ips, tot, pos))
-                    }
+                    val ms = ArrayList<Modele>(modelesDe(b)); val nLieu = ms.size
                     val nc = b.int; val cs = ArrayList<Copie>()
                     for (k in 0 until nc) {
                         val m = b.int; val mo = b.int; val ph = b.float
@@ -126,7 +162,9 @@ class AnimesWW(val modeles: List<Modele>, val copies: List<Copie>) {
                         val m = ms.getOrNull(p.getOrNull(0)?.toIntOrNull() ?: return@forEach) ?: return@forEach
                         SceneR3.lireSuite(p, 1) { m.groupes.getOrNull(it)?.stub } }
                     // (build 356 : les modeles sans copie placee servent au direct ; le lieu en a s'il y a des modeles)
+                    ms.addAll(eq)                                              // (build 458 : equipement de Link, apres ceux du lieu)
                     if (ms.isEmpty()) null else AnimesWW(ms, cs).also { it.lirePeaux(java.io.File(d, nv + "_vif.r3p"))
+                        if (eq.isNotEmpty()) it.ajouterPeaux(java.io.File(d, "ww_equip_vif.r3p"), nLieu)
                         // (build 370 : <lieu>_local.txt : modeles secondaires (mouettes, animaux, bois flottant, palmiers) :
                         //  animes en boucle ici, jamais demandes au direct)
                         it.locaux = try { java.io.File(d, nv + "_local.txt").takeIf { f -> f.exists() }?.readText()?.trim()?.split(' ')

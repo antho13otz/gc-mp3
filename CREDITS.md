@@ -32,7 +32,8 @@ GPL-2.0. Pulse (`source/natres`) is GC Station's own code, not derived from Swis
 | [TJpgDec](http://elm-chan.org/fsw/tjpgd/) R0.03 (ChaN) | JPEG des photos | licence libre de ChaN |
 | [QR Code generator](https://github.com/nayuki/QR-Code-generator) (Nayuki) | QR codes | MIT |
 | [TinySoundFont](https://github.com/schellingb/TinySoundFont) v0.9 (Bernhard Schelling), `source/tsf.h` | banques de sons SoundFont pour le MIDI | MIT |
-| [DejaVu fonts](https://dejavu-fonts.github.io) | police de l'interface | licence Bitstream Vera / DejaVu |
+| [rcheevos](https://github.com/RetroAchievements/rcheevos) (RetroAchievements) | succès RetroAchievements dans l'appli ; la console calcule l'empreinte du jeu de la même façon (`source/ra_hash.c`, réécrit) | MIT |
+| [DejaVu fonts](https://dejavu-fonts.github.io) | police de l'interface ; v397 : petite police du bandeau des succès sur la télé (DejaVu Sans Mono Bold, `tools/police_bandeau.py`) | licence Bitstream Vera / DejaVu |
 
 Le reste (interface, lecteur, navigateur web et son moteur de pages, synthétiseur MIDI, client SMB2, Pulse,
 compresseur deflate…) est écrit pour GC Station.

@@ -58,6 +58,8 @@ object CartesWW {
     fun nom(a: String): String {
         val k = a.lowercase()
         if (k == "sea") return "La Grande Mer (vue d'ensemble)"
+        if (k == "sea_t") return "La Grande Mer — écran titre"         // (build 452 : avant, le nom du jeu tel quel)
+        if (k == "sea_e") return "La Grande Mer — fin du jeu"
         if (k.startsWith("sea_")) return k.removePrefix("sea_").toIntOrNull()?.let { ILES.getOrNull(it - 1) } ?: k
         LIEUX[k]?.let { return it.second }
         Regex("^cave(\\d+)$").find(k)?.let { return "Grotte " + it.groupValues[1].toInt() }
@@ -118,6 +120,18 @@ private var derniereWW: FloatArray? = null
 fun LieuWW3D(e: JeuWW.Etat) {
     if (!e.aPos) return
     val a = CartesWW.lieu(e.scene, e.salle)
+    // build 456 : « Aller le voir » le fantome d'un ami dans un autre lieu : sa scene a la place de la mienne (si elle est
+    // dans mes packs), la vue posee sur lui ; « Revenir a mon Link » rend la mienne
+    val am = Fantome.ami
+    if (Fantome.visite && am != null && am.frais() && am.lieu != a) {
+        val scA = remember(am.lieu) { CartesWW.scene(am.lieu) }
+        if (scA != null) {
+            Titre("Chez " + am.nom + " : " + CartesWW.nom(am.lieu))
+            DessinVue3DGL(scA, CartesWW.pos(am.pos[0], am.pos[1], am.pos[2]), null, emptyList(), montrerRayman = false, distance = 22f)
+            PanneauFantome()
+            return
+        }
+    }
     val sc = remember(a) { CartesWW.scene(a) } ?: run {
         Doux("Le lieu en 3D : installe le pack Wind Waker (fiche du jeu).", taille = 10); return
     }
@@ -126,6 +140,10 @@ fun LieuWW3D(e: JeuWW.Etat) {
     if (d0 == null || (d0[0] - p[0]) * (d0[0] - p[0]) + (d0[1] - p[1]) * (d0[1] - p[1]) > 2.5f * 2.5f) derniereWW = p
     val cam = derniereWW?.takeIf { it !== p } ?: d0
     Titre("En 3D : " + CartesWW.nom(a))
+    // build 456 : etats de Link sous la vue (lus avec le reste du compagnon : rien de plus demande a Pulse)
+    if (e.partie && e.vieMax > 0) Doux(String.format(java.util.Locale.FRANCE, "❤ %s / %d", (e.vie / 4f).let { if (it % 1f == 0f) "%.0f".format(it) else "%.2f".format(it) }, e.vieMax / 4) +
+        (if (e.epee != 255 && e.epee != 0) " · " + JeuWW.objet(e.epee) else "") + (if (e.bouclier != 255 && e.bouclier != 0) " · " + JeuWW.objet(e.bouclier) else "") +
+        (if (e.magieMax > 0) " · magie ${e.magie}/${e.magieMax}" else ""), taille = 11)
     // build 338 : Link en 3D (pack : ww_link.ani) : son cap, sa vitesse ; sous l'eau : plus bas que la mer (hauteur 0)
     // sur la Grande Mer (nage)
     val nage = (e.scene == "sea" && e.y < -30f)
@@ -154,8 +172,13 @@ fun LieuWW3D(e: JeuWW.Etat) {
             et.vagueWW = JeuWW.vague()                                                     // (build 425 : bateau sur l'eau)
             et.voileWW = JeuWW.voile()                                                     // (build 427 : la voile)
             et.vifsWW = JeuWW.vifsRejoues; et.modelesVifs = if (et.vifsWW != null) JeuWW.modelesVifs else emptySet()
+            // (build 499 : spectateurs 3D : l'etat rejoue part vers les amis, qui le redessinent avec leur propre camera)
+            if (BuildConfig.PRIVE && Spect3D.hote && r != null)
+                Spect3D.capturer(a, e.cap.toFloat(), e.vitesse, nage, r.second, r.first, r.third?.let { JeuWW.vueDe(it) },
+                    et.curseurTT, et.vagueWW, et.voileWW, et.vifsWW, et.modelesVifs)
         })
     Doux("Link en 3D (pack Wind Waker) · carrés dorés : coffres.", taille = 10)
+    PanneauFantome()                                                             // (build 456)
 }
 
 /** fiche du jeu : installer les packs, voir chaque lieu en 3D (hors ligne) */
@@ -208,91 +231,5 @@ fun SectionWW(act: StationActivity) {
         }
         Bouton("Installer / mettre à jour des packs Wind Waker (.zip)", Modifier.fillMaxWidth(), actif = !occupe) { pack.launch(arrayOf("*/*")) }
         if (message.isNotEmpty()) Doux(message, taille = 12, couleur = C.Texte)
-    }
-}
-
-/** build 338 : Link en 3D (pack Wind Waker : ww_link.ani et ww_link_tNNN.png), son modele du jeu et ses animations cuites
- *  en images (attente, marche, course, nage, nage sur place) : voir linkww.py. Les u v et couleurs sont communs a toutes
- *  les images ; seules les positions changent. */
-class LinkAnime(val groupes: List<Groupe>, val anims: Map<String, Anim>) {
-    class Groupe(val texture: Int, val mode: Int, val n: Int, val uvc: java.nio.ByteBuffer)
-    class Anim(val images: Int, val ips: Float, val pos: Array<Array<java.nio.FloatBuffer>>)   // [image][groupe]
-    companion object {
-        fun lire(f: java.io.File): LinkAnime? = try {
-            if (!f.exists()) null else {
-                val b = java.nio.ByteBuffer.wrap(f.readBytes()).order(java.nio.ByteOrder.LITTLE_ENDIAN)
-                if (b.int != 0x314C5757) null else {                         // "WWL1"
-                    val ng = b.int; val na = b.int
-                    val gs = ArrayList<Groupe>()
-                    for (g in 0 until ng) {
-                        val t = b.int; val m = b.int; val n = b.int
-                        val bb = java.nio.ByteBuffer.allocateDirect(n * 12).order(java.nio.ByteOrder.nativeOrder())
-                        val src = ByteArray(n * 12); b.get(src); bb.put(src); bb.position(0)
-                        gs.add(Groupe(t, m, n, bb))
-                    }
-                    val an = HashMap<String, Anim>()
-                    for (a in 0 until na) {
-                        val nb = ByteArray(16); b.get(nb); val nom = String(nb).trimEnd('\u0000')
-                        val ni = b.int; val ips = b.float
-                        val im = Array(ni) { Array(ng) { g ->
-                            val fb = java.nio.ByteBuffer.allocateDirect(gs[g].n * 12).order(java.nio.ByteOrder.nativeOrder()).asFloatBuffer()
-                            for (k in 0 until gs[g].n * 3) fb.put(b.float)
-                            fb.position(0); fb } }
-                        an[nom] = Anim(ni, ips, im)
-                    }
-                    LinkAnime(gs, an)
-                }
-            }
-        } catch (e: Throwable) { null }
-    }
-}
-
-/** build 340 : la peau de Link (pack : ww_link.peau, voir linkww.py) : pour chaque sommet, jusqu'a 4 articulations, leurs
- *  poids et la position du sommet dans chacune. Avec les 42 matrices du monde lues dans le jeu (modele de Link +0x8C), la
- *  position de chaque sommet = somme des poids x matrice x position locale ; puis repere de l'appli (x, -z, y) / 100. */
-class PeauLink(private val j: Array<ByteArray>, private val w: Array<FloatArray>, private val l: Array<FloatArray>, private val sortie: Array<java.nio.FloatBuffer>) {
-    fun poser(g: Int, m: FloatArray): java.nio.FloatBuffer {
-        val jj = j[g]; val ww = w[g]; val ll = l[g]; val o = sortie[g]; val n = jj.size / 4
-        o.position(0)
-        for (k in 0 until n) {
-            var x = 0f; var y = 0f; var z = 0f
-            for (q in 0 until 4) {
-                val ji = jj[4 * k + q].toInt() and 255
-                if (ji == 255 || ji >= 42) continue
-                val p = ww[4 * k + q]; val b = ji * 12; val c = 12 * k + 3 * q
-                val lx = ll[c]; val ly = ll[c + 1]; val lz = ll[c + 2]
-                x += p * (m[b] * lx + m[b + 1] * ly + m[b + 2] * lz + m[b + 3])
-                y += p * (m[b + 4] * lx + m[b + 5] * ly + m[b + 6] * lz + m[b + 7])
-                z += p * (m[b + 8] * lx + m[b + 9] * ly + m[b + 10] * lz + m[b + 11])
-            }
-            o.put(x * 0.01f).put(-z * 0.01f).put(y * 0.01f)
-        }
-        o.position(0); return o
-    }
-    companion object {
-        fun lire(f: java.io.File, la: LinkAnime): PeauLink? = try {
-            if (!f.exists()) null else {
-                val b = java.nio.ByteBuffer.wrap(f.readBytes()).order(java.nio.ByteOrder.LITTLE_ENDIAN)
-                if (b.int != 0x31505757) null else {                         // "WWP1"
-                    val ng = b.int
-                    if (ng != la.groupes.size) null else {
-                        val J = arrayOfNulls<ByteArray>(ng); val W = arrayOfNulls<FloatArray>(ng); val L = arrayOfNulls<FloatArray>(ng)
-                        for (g in 0 until ng) {
-                            val n = b.int
-                            if (n != la.groupes[g].n) throw IllegalStateException()
-                            val jj = ByteArray(4 * n); val ww = FloatArray(4 * n); val ll = FloatArray(12 * n)
-                            for (k in 0 until n) {
-                                b.get(jj, 4 * k, 4)
-                                for (q in 0 until 4) ww[4 * k + q] = b.float
-                                for (q in 0 until 12) ll[12 * k + q] = b.float
-                            }
-                            J[g] = jj; W[g] = ww; L[g] = ll
-                        }
-                        PeauLink(Array(ng) { J[it]!! }, Array(ng) { W[it]!! }, Array(ng) { L[it]!! },
-                            Array(ng) { java.nio.ByteBuffer.allocateDirect(la.groupes[it].n * 12).order(java.nio.ByteOrder.nativeOrder()).asFloatBuffer() })
-                    }
-                }
-            }
-        } catch (e: Throwable) { null }
     }
 }
