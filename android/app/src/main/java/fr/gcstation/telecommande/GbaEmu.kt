@@ -62,6 +62,9 @@ object GbaNatif {
     @JvmStatic external fun ecr8(adr: Int, v: Int)
     @JvmStatic external fun lectureAuto(oui: Boolean)          // (build 405 : mots de la GBA lus pendant l'image meme)
     @JvmStatic external fun sorties(out: IntArray): Int
+    // (build 556 ; build 559 : ces deux fonctions natives n'existent que dans l'appli privee : appelees seulement par src/prive/Cartouche.kt)
+    @JvmStatic external fun cartouche(rom: ByteArray?, sav: ByteArray?): Boolean   // (cartouche du prochain demarrage)
+    @JvmStatic external fun sauvegarde(): ByteArray?                               // (build 556 : sa sauvegarde, maintenant)
 }
 
 object GbaEmu {
@@ -180,7 +183,7 @@ object GbaEmu {
     private var sensX = 1; private var sensZ = 1; private var vitX = 60f; private var vitZ = 60f
     private var pilBloque = 0
     fun allerVers(x: Float, z: Float) {
-        if (RetroSucces.hardcore) { pilotageTexte = "Pilotage coupé en hardcore"; return }   // (build 500 : RetroAchievements)
+        if (RetroSucces.hardcore) { pilotageTexte = ModeHardcore.TEXTE_PILOTAGE; return }   // (build 500 : RetroAchievements)
         // build 487 (appli privee) : le curseur pose d'un coup quand l'appli sait ou la GBA le range et comment sa carte
         // correspond au monde ; sinon (ou si le saut n'a pas marche) : le trajet a la croix, qui sert aussi a l'apprendre
         if (BuildConfig.PRIVE && Saut.pret()) { Saut.demande = floatArrayOf(x, z); cible = null; pilotageTexte = "Curseur : saut…"; return }
@@ -191,7 +194,7 @@ object GbaEmu {
     // build 421 : bombe de Tingle depuis la vue 3D : B sur la GBA (le Tingle Tuner : « B 💣 ») tenu 8 images ; si le curseur
     // est en route, la bombe part a son arrivee
     @Volatile private var bombeApres = false; private var appuiB = 0
-    fun bombe(): String = if (RetroSucces.hardcore) "Bombe automatique coupée en hardcore" else if (cible != null) { bombeApres = true; "Bombe : au bout du trajet" } else { appuiB = 8; "Bombe lâchée" }
+    fun bombe(): String = if (RetroSucces.hardcore) ModeHardcore.TEXTE_BOMBE else if (cible != null) { bombeApres = true; "Bombe : au bout du trajet" } else { appuiB = 8; "Bombe lâchée" }
     private fun appuis(): Int {
         if (bombeApres && cible == null) { bombeApres = false; if (pilotageTexte == "Curseur arrivé") appuiB = 8 }
         if (appuiB > 0) { appuiB--; return 0x02 }
@@ -315,6 +318,7 @@ object GbaEmu {
     }
 
     private fun boucle(programme: ByteArray) {
+        Cartouche.preparer()                                // (build 556, appli privee : une cartouche dans la GBA ; publique : jamais)
         if (!GbaNatif.demarrer(programme)) { message = "Le programme ne démarre pas dans l'émulateur"; return }
         marche = true; message = "La GBA tourne"
         val px = IntArray(W * H)
@@ -397,6 +401,7 @@ object GbaEmu {
                 // une image, en donnant les mots du jeu des que la GBA est prete
                 var n = 0
                 nImages++
+                if (nImages % 300 == 0) Cartouche.garder()   // (build 556 : la sauvegarde de la cartouche, toutes les 5 s ; publique : rien)
                 if (retenir && nImages > 180) retenir = false      // (3 s sans le code : on donne quand meme)
                 // build 384 : apres le code, la GBA attend JOYCNT = 4 exactement (« lu par le jeu ») et l'efface ; le mot du jeu
                 // seulement ensuite (sinon JOYCNT = 6 : elle attendait pour toujours)
@@ -547,6 +552,7 @@ object GbaEmu {
             message = "Émulateur arrêté : ${e.message}"
         } finally {
             try { son0?.stop(); son0?.release() } catch (e: Exception) { }
+            try { Cartouche.garder() } catch (e: Throwable) { }   // (build 556)
             GbaNatif.arreter()
             marche = false
         }

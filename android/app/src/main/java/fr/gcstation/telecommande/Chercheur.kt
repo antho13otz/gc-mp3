@@ -82,6 +82,9 @@ object MemoireJeu {
      *  Pulse fait pour le téléphone à chaque image (µs), octets du direct par image ; mesureT : heure de réception */
     @Volatile var mesure: LongArray? = null
     @Volatile var mesureT = 0L
+    /** build 542 (console v414) : images gardees sans etre envoyees (bus pris), images en attente renvoyees, images sautees sans
+     *  etre gardees, attentes trop longues de la file d'envoi (cumuls depuis le lancement) ; null : console plus ancienne */
+    @Volatile var diagConsole: LongArray? = null
     /** les 10 dernieres minutes de mesures (heure, valeurs), pour le rapport du direct */
     val mesures = ArrayDeque<Pair<Long, LongArray>>()
 
@@ -109,7 +112,9 @@ object MemoireJeu {
         if (p.length >= 16 && magie(buf, "GCMS")) { recevoirDirect(p.length); return 0 }
         if (p.length >= 24 && magie(buf, "GCMT")) {
             // (v372 : 28 octets, brut : sommes et pires en tops d'horloge, 40,5 par µs, et le nombre d'images ; v370 : 24, v371 : 32)
-            val n28 = if (p.length == 28) g32(buf, 24) else 0L
+            val n28 = if (p.length == 28 || p.length == 36) g32(buf, 24) else 0L
+            // (build 542, console v414 : 36 octets : diagnostic de l'anneau, compteurs depuis le lancement du jeu)
+            if (p.length == 36) diagConsole = longArrayOf(g32(buf, 28) ushr 16, g32(buf, 28) and 0xFFFF, g32(buf, 32) ushr 16, g32(buf, 32) and 0xFFFF)
             val m = if (n28 > 0) longArrayOf(g32(buf, 8) * 2 / 81 / n28, g32(buf, 12) * 2 / 81, -1, g32(buf, 20) / n28, -1, -1)
                     else if (p.length >= 32) longArrayOf(g32(buf, 8), g32(buf, 12), g32(buf, 16), g32(buf, 20), g32(buf, 24), g32(buf, 28))
                     else longArrayOf(g32(buf, 8), g32(buf, 12), g32(buf, 16), g32(buf, 20), -1, -1)
@@ -138,6 +143,7 @@ object MemoireJeu {
                     val n = recevoir(reste)
                     if (n >= 36 && magie(buf, "GCMA") && g32(buf, 4).toInt() == sq) {
                         val jeu = String(buf, 12, 6, Charsets.ISO_8859_1).trim { it <= ' ' }
+                        if (n >= 60) morceauxConsole = g32(buf, 56).toInt().coerceIn(1, 256)   // (build 550, console v419)
                         return if (n >= 56) Etat(g32(buf, 8) != 0L, jeu, g32(buf, 20), g32(buf, 24).toInt(), g32(buf, 28) or (g32(buf, 32) shl 32),
                                                  g32(buf, 36), g32(buf, 40), g32(buf, 44), g32(buf, 48), g32(buf, 52).toInt())
                                else Etat(g32(buf, 8) != 0L, jeu, g32(buf, 20), g32(buf, 24).toInt(), g32(buf, 28) or (g32(buf, 32) shl 32))
@@ -154,16 +160,19 @@ object MemoireJeu {
     // haute performance) : sans ca, l'economie d'energie du Wi-Fi retient des paquets (a-coups de 10 a 50 ms). Rendu des que
     // l'abonnement n'est plus renouvele depuis 5 s (ou liste vide)
     private var wifiDirect: android.net.wifi.WifiManager.WifiLock? = null
+    private var wifiPerf: android.net.wifi.WifiManager.WifiLock? = null      // (build 538 : en plus, aussi ecran eteint / appli derriere)
+    /** build 538 : contexte de l'appli pour le Wi-Fi du direct (avant : seulement l'ecran compagnon ; RetroAchievements seul : rien) */
+    @Volatile var ctxAppli: android.content.Context? = null
     @Volatile private var wifiT = 0L
     private val wifiH by lazy { android.os.Handler(android.os.Looper.getMainLooper()) }
     private val wifiFin: Runnable = object : Runnable { override fun run() {
         if (System.nanoTime() - wifiT < 5_000_000_000L) { wifiH.postDelayed(this, 2000); return }
-        synchronized(this@MemoireJeu) { try { wifiDirect?.takeIf { it.isHeld }?.release() } catch (e: Exception) { } } } }
+        synchronized(this@MemoireJeu) { try { wifiDirect?.takeIf { it.isHeld }?.release(); wifiPerf?.takeIf { it.isHeld }?.release() } catch (e: Exception) { } } } }
     private fun wifiPendantDirect(on: Boolean) {
         try {
-            if (!on) { wifiT = 0L; wifiDirect?.takeIf { it.isHeld }?.release(); return }
+            if (!on) { wifiT = 0L; wifiDirect?.takeIf { it.isHeld }?.release(); wifiPerf?.takeIf { it.isHeld }?.release(); return }
             val w = wifiDirect ?: run {
-                val c = Prive.ctxCompagnon() ?: return
+                val c = Prive.ctxCompagnon() ?: ctxAppli ?: return
                 val wm = c.applicationContext.getSystemService(android.content.Context.WIFI_SERVICE) as android.net.wifi.WifiManager
                 @Suppress("DEPRECATION")
                 val mode = if (android.os.Build.VERSION.SDK_INT >= 29) android.net.wifi.WifiManager.WIFI_MODE_FULL_LOW_LATENCY else android.net.wifi.WifiManager.WIFI_MODE_FULL_HIGH_PERF
@@ -172,10 +181,20 @@ object MemoireJeu {
             val premier = wifiT == 0L || !w.isHeld
             wifiT = System.nanoTime()
             if (!w.isHeld) w.acquire()
+            // (build 538 : la faible latence d'Android ne vaut qu'au premier plan, ecran allume ; la haute performance en plus)
+            val wp = wifiPerf ?: run {
+                val c = Prive.ctxCompagnon() ?: ctxAppli ?: return
+                val wm = c.applicationContext.getSystemService(android.content.Context.WIFI_SERVICE) as android.net.wifi.WifiManager
+                @Suppress("DEPRECATION")
+                wm.createWifiLock(android.net.wifi.WifiManager.WIFI_MODE_FULL_HIGH_PERF, "gcs:direct-perf").apply { setReferenceCounted(false) }.also { wifiPerf = it }
+            }
+            if (wp !== w && !wp.isHeld) wp.acquire()
             if (premier) { wifiH.removeCallbacks(wifiFin); wifiH.postDelayed(wifiFin, 2000) }
         } catch (e: Exception) { }
     }
     @Volatile var maxMorceaux = 64
+    /** build 550 : morceaux du direct que la console accepte (reponse GCMA de Pulse v419 : 256 avec la reserve ; avant : 96) */
+    @Volatile var morceauxConsole = 96
     // build 491 : RetroAchievements (RetroSucces) s'abonne aussi au direct. Pulse n'a qu'un abonnement : les morceaux de
     // RetroAchievements passent EN PREMIER, puis ceux de l'ecran qui s'abonne (compagnon, vue 3D). A l'arrivee, l'image est
     // reassemblee ici : le debut va a RetroAchievements (fluxRA), le reste repart vers flux comme un paquet en un seul
@@ -183,7 +202,10 @@ object MemoireJeu {
     private var compL: List<Pair<Long, Int>> = emptyList(); private var compPer = 1; private var compOpt = 0; private var compT = 0L
     @Volatile var raL: List<Pair<Long, Int>> = emptyList(); private set
     @Volatile var raT = 0L; private set                        // (changement de la liste : images ignorees 250 ms)
-    @Volatile var fluxRA: ((Long, ByteArray) -> Unit)? = null
+    /** image, donnees, liste qui l'a demandee (build 539 : par le numero d'abonnement, console v413 ; null : inconnue) */
+    @Volatile var fluxRA: ((Long, ByteArray, List<Pair<Long, Int>>?) -> Unit)? = null
+    /** build 539 : listes de RetroAchievements envoyees, par numero d'abonnement (8 bits) */
+    private val abos = arrayOfNulls<List<Pair<Long, Int>>>(256)
     @Synchronized fun abonner(morceaux: List<Pair<Long, Int>>, periode: Int, options: Int = 0) {   // (build 454 : options, bit 0 : envoi sans copie, Pulse 909+)
         compL = morceaux; compPer = periode; compOpt = options; compT = System.nanoTime()
         envoyerAbo()
@@ -192,38 +214,90 @@ object MemoireJeu {
         if (morceaux != raL) { raL = morceaux; raT = System.nanoTime() }
         envoyerAbo()
     }
+    /** build 550 : un paquet de liste (abonnement) ; abo : la liste RetroAchievements que la console aura apres lui */
+    private fun envoyerListe(h: InetAddress, m: List<Pair<Long, Int>>, periode: Int, options: Int, abo: List<Pair<Long, Int>>) {
+        val d = ByteArray(20 + 8 * m.size)
+        d[0] = 'G'.code.toByte(); d[1] = 'C'.code.toByte(); d[2] = 'M'.code.toByte(); d[3] = 'S'.code.toByte()
+        if (((seq + 1) and 255) == 0) seq++
+        abos[(seq + 1) and 255] = abo
+        p32(d, 4, (++seq).toLong()); p32(d, 8, m.size.toLong()); p32(d, 12, periode.toLong()); p32(d, 16, options.toLong())
+        for ((i, x) in m.withIndex()) { p32(d, 20 + 8 * i, x.first); p32(d, 24 + 8 * i, x.second.toLong()) }
+        s().send(DatagramPacket(d, d.size, h, PORT))
+    }
+    /** build 540 (journal) : l'anneau demande a la console pour la liste en cours */
+    @Volatile private var etatAnneauT = ""
+    fun etatAnneau(): String = etatAnneauT
+    /** build 546 : la console a envoye des images compressees (v416+) : listes plus grosses possibles */
+    fun compressionVue(): Boolean = recolle.codeVu
+    /** build 545 (journal) : images compressees refusees, octets recus / octets refaits */
+    fun compression(): Triple<Long, Long, Long> = Triple(recolle.refusees, recolle.octetsCodes, recolle.octetsBruts)
     private fun envoyerAbo() {
         val comp = if (compL.isNotEmpty() && System.nanoTime() - compT < 3_500_000_000L) compL else emptyList()
         val morceaux = raL + comp
-        val periode = if (comp.isNotEmpty()) compPer else 1; val options = if (comp.isNotEmpty()) compOpt else 0
+        // (build 528 : avec RetroAchievements, toutes les images : avant, l'ecran abonne en mettait une sur deux, et
+        //  RetroAchievements aussi)
+        val periode = if (comp.isNotEmpty() && raL.isEmpty()) compPer else 1
+        // (build 525 : bit 1 = Pulse envoie chaque paquet deux fois (console v406+, sinon ignore) : avec RetroAchievements,
+        //  une image n'est plus perdue pour un seul paquet perdu ; recevoirDirect ne garde qu'un exemplaire, dans l'ordre)
+        // (build 528, console v408 : bits 1-2 = envois en plus de toute l'image, espaces : 3 si RetroAchievements lit peu
+        //  (un paquet), 2 jusqu'a deux paquets, sinon 1 ; 1 seulement si un ecran s'abonne aussi (plus de donnees))
+        val raOctets = raL.sumOf { it.second }
+        // (build 529, console v409 : bit 3 = anneau : si toute l'image tient dans un paquet, Pulse la renvoie aussi 2 et 5
+        //  images plus tard (simulation : ~100 % recues meme avec des rafales de pertes, contre ~97 % avec des copies dans la
+        //  meme image) ; l'appli attend alors jusqu'a 6 images pour les remettre dans l'ordre)
+        val ann = raL.isNotEmpty() && comp.isEmpty()                 // (build 539 : console v413 : toutes les tailles)
+        // (build 539 : image de plusieurs paquets avec l'anneau (console v413) : la copie de l'anneau 2 images plus tard remplace
+        //  l'envoi double tout de suite : autant de paquets qu'avant par image, donc pas plus de temps pris au jeu)
+        // (build 541 : seulement si la console a prouve qu'elle est v413 ou plus (numero d'abonnement dans ses paquets) : avant,
+        //  une image de plusieurs paquets n'a pas d'anneau, et sans l'envoi double elle n'aurait plus aucune copie)
+        val anneauPlein = ann && ((raOctets > 1400 && RecolleDirect.cases(raOctets) >= 3 && recolle.numeroVu) || recolle.codeVu)   // (build 545 : compressees : la reserve suffit)
+        val copies = when { raL.isEmpty() -> 0; anneauPlein -> 0; ann -> 1; comp.isNotEmpty() -> 1; raOctets <= 2800 -> 2; else -> 1 }
+        // (build 531, console v410 : cases de l'anneau a la taille de l'image (16 Ko, 32 au plus) ; copies 2, 7, 15 et 31 images
+        //  plus tard si l'anneau les garde : on attend la plus tardive possible, +1)
+        recolle.fen = if (raL.isEmpty()) 0 else RecolleDirect.fenetre(ann, raOctets, comp.isEmpty(), recolle.codeVu)
+        etatAnneauT = (if (recolle.codeVu) "console v416+ (compression), " else if (recolle.numeroVu) "console v413+, " else "console avant v413 (ou rien reçu encore), ") + if (!ann) "sans copies retardées" else if (recolle.codeVu) "copies en plus : $copies" else RecolleDirect.cases(raOctets).let { n -> if (n < 3) "image trop grosse pour la réserve" else "réserve de $n images, copies en plus : $copies" }
+        val options = (if (comp.isNotEmpty()) compOpt else 0) or (copies shl 1) or (if (ann) 8 else 0) or (if (raL.isNotEmpty() && comp.isEmpty()) 16 else 0) or (if (ann) 32 else 0)
+        recolle.avecNumero = raL.isNotEmpty() && comp.isEmpty()                // (build 539 : numero d'abonnement, console v413 ; avant : ignore)
         wifiPendantDirect(morceaux.isNotEmpty())
         val h = hote() ?: return
         try {
-            val n = morceaux.size.coerceAtMost(maxMorceaux)       // (Pulse v328 : 64 ; avant, 48 : le reste est ignore ; build 457 : 96 avec la console 911)
+            val nTout = morceaux.size.coerceAtMost(if (recolle.codeVu) morceauxConsole else maxMorceaux)       // (Pulse v328 : 64 ; avant, 48 : le reste est ignore ; build 457 : 96 avec la console 911 ; build 549 : 96 des que la console v416+ est vue ; build 550 : 256 avec la console v419)
+            // (build 550, console v419 : plus de 180 morceaux : 2 paquets, le 2e avec l'option bit 6 (suite de la liste))
+            if (nTout > 180) {
+                envoyerListe(h, morceaux.take(180), periode, options, raL.take(180))
+                envoyerListe(h, morceaux.subList(180, nTout), periode, options or 64, raL.take(nTout))
+                return
+            }
+            val n = nTout
             val d = ByteArray(20 + 8 * n)
             d[0] = 'G'.code.toByte(); d[1] = 'C'.code.toByte(); d[2] = 'M'.code.toByte(); d[3] = 'S'.code.toByte()
+            if (((seq + 1) and 255) == 0) seq++                        // (build 539 : numero 0 = pas de numero : console avant v413)
+            abos[(seq + 1) and 255] = raL.take(n)
             p32(d, 4, (++seq).toLong()); p32(d, 8, n.toLong()); p32(d, 12, periode.toLong()); p32(d, 16, options.toLong())
             for (i in 0 until n) { p32(d, 20 + 8 * i, morceaux[i].first); p32(d, 24 + 8 * i, morceaux[i].second.toLong()) }
             s().send(DatagramPacket(d, d.size, h, PORT))
         } catch (e: Exception) { fermer() }
     }
-    private var rImg = -1L; private var rParts: Array<ByteArray?> = arrayOfNulls(0)
+    // build 525-531 : recollage et remise en ordre (build 532 : dans RecolleDirect, essaye sur le PC)
+    private val recolle = RecolleDirect { img, d, ab -> raL.let { if (it.isNotEmpty()) donnerImage(img, d, it, if (ab > 0) abos[ab] else null) } }
+    /** build 528 (console v408) : images que la console n'a pas envoyees du tout (bus pris par le jeu), a ne pas compter
+     *  comme perdues en route ; remis a 0 par RetroSucces au debut d'une partie */
+    var nonEnvoyees: Long
+        get() = recolle.nonEnvoyees
+        set(v) { recolle.nonEnvoyees = v }
     private fun recevoirDirect(n: Int) {
-        val ra = raL
-        if (ra.isEmpty()) { flux?.invoke(buf.copyOf(n), n); return }
-        val img = g32(buf, 4); val pp = g32(buf, 8); val part = (pp shr 16).toInt(); val parts = (pp and 0xFFFF).toInt(); val tot = g32(buf, 12).toInt()
-        if (parts !in 1..16 || part >= parts || tot < 0 || tot > 65536) return
-        if (img != rImg || rParts.size != parts) { rImg = img; rParts = arrayOfNulls(parts) }
-        rParts[part] = buf.copyOfRange(16, n)
-        if (rParts.any { it == null }) return
-        val d = ByteArray(tot); var o = 0
-        for (q in rParts) { val x = q!!; val k = minOf(x.size, tot - o); System.arraycopy(x, 0, d, o, k); o += k }
-        rParts = arrayOfNulls(0)
-        if (o < tot) return
+        if (raL.isEmpty()) { flux?.invoke(buf.copyOf(n), n); return }
+        recolle.paquet(buf, n)
+    }
+    private fun donnerImage(img: Long, d: ByteArray, ra: List<Pair<Long, Int>>, liste: List<Pair<Long, Int>>? = null) {
+        val tot = d.size
         val nRa = ra.take(maxMorceaux).sumOf { it.second }
-        if (tot < nRa) return
-        if (System.nanoTime() - raT > 250_000_000L) fluxRA?.invoke(img, d.copyOf(nRa))
-        val f = flux ?: return
+        if (tot < nRa && flux != null && compL.isNotEmpty()) return
+        // (build 537 : RetroAchievements seul : toute l'image, sans les 250 ms ignorees apres un changement de liste :
+        //  RetroSucces la lit avec la liste qui a servi a l'envoyer, reconnue a sa taille)
+        val f = flux
+        if (f == null || compL.isEmpty() || System.nanoTime() - compT >= 3_500_000_000L) { fluxRA?.invoke(img, d, liste); return }
+        if (System.nanoTime() - raT > 250_000_000L) fluxRA?.invoke(img, d.copyOf(nRa), null)
         val r = ByteArray(16 + tot - nRa)                          // (le reste, en un seul morceau, pour l'ecran abonne)
         r[0] = 'G'.code.toByte(); r[1] = 'C'.code.toByte(); r[2] = 'M'.code.toByte(); r[3] = 'S'.code.toByte()
         p32(r, 4, img); p32(r, 8, 1L); p32(r, 12, (tot - nRa).toLong())
@@ -556,17 +630,7 @@ fun EcranChercheur() {
     var attente by remember { mutableStateOf(Attente.liste(act).length()) }
     val R = Recherche
     val g = St.jeu
-    if (RetroSucces.hardcore) {                                   // (build 500 : outil memoire interdit en hardcore)
-        Column(Modifier.fillMaxSize().padding(horizontal = 14.dp)) {
-            Carte(Modifier.fillMaxWidth()) {
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Titre("Coupé pendant une partie hardcore")
-                    Doux("RetroAchievements interdit les outils de mémoire en hardcore : recherche, écriture et blocage de valeurs. Ils reviennent à la fin de la partie, ou si tu coupes le mode hardcore (Plus → Succès → RetroAchievements).", taille = 12)
-                }
-            }
-        }
-        return
-    }
+    if (RetroSucces.hardcore) { ModeHardcore.OutilsCoupes(); return }   // (build 500 : outil memoire interdit en hardcore ; 526 : texte dans l'appli privee)
 
     fun nombre(s: String): Long? = s.trim().let { if (it.startsWith("0x", true)) it.substring(2).toLongOrNull(16) else it.toLongOrNull() }
 

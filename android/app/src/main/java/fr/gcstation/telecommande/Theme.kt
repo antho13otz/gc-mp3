@@ -9,6 +9,7 @@ import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.Canvas
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.foundation.background
@@ -71,7 +72,7 @@ class Palette(val rose: Color, val violet: Color, val bleu: Color, val cyan: Col
 object Ambiances {
     // build 515 : « Aurore » (appli privee d'abord) : le fond de la console (ui_aurore.c : presque noir, rubans rose -> violet ->
     // bleu -> cyan a 40 / 34 / 22 sur 255, pas de taches de couleur) ; le neon un peu plus sombre (fond, rubans, taches)
-    val NOMS: List<String> get() = listOf("Néon", "Sombre sobre", "GameCube indigo", "Couleurs du jeu") + (if (Prive.ACTIF) listOf("Aurore") else emptyList())
+    val NOMS: List<String> get() = listOf("Néon", "Sombre sobre", "GameCube indigo", "Couleurs du jeu") + listOf("Aurore")
     val NEON = Palette(Color(0xFFFF2FD0), Color(0xFFB03CFF), Color(0xFF5A5CFF), Color(0xFF21E8FF), Color(0xFF040109), Color(0xFF0B0319),
         Color(0xFFF4EEFF), Color(0xFFB7A8D8), Color(0xFF6E6290), Color(0xFF10081F), eclat = 0.78f, taches = 0.62f)
     val AURORE = Palette(Color(0xFFFF46AA), Color(0xFFA050FF), Color(0xFF466EFF), Color(0xFF28D2FF), Color(0xFF030306), Color(0xFF07060E),
@@ -147,9 +148,9 @@ object C {
     /** les choix gardes (appele au demarrage) */
     fun lire(c: android.content.Context) {
         val pr = c.getSharedPreferences("gcs", 0)
-        ambiance = pr.getInt("ambiance", 0).coerceIn(0, if (Prive.ACTIF) 4 else 3); texte = pr.getFloat("taille_texte", 1f).coerceIn(0.8f, 1.4f)
+        ambiance = pr.getInt("ambiance", if (Prive.ACTIF) 0 else 4).coerceIn(0, 4);   /* (build 530 : Aurore pour tous, et par defaut dans l'appli publique) */ texte = pr.getFloat("taille_texte", 1f).coerceIn(0.8f, 1.4f)
         idJeu = pr.getString("ambiance_jeu", "") ?: ""; vibrations = pr.getBoolean("vibrations", true)
-        liquide = Prive.ACTIF && pr.getBoolean("style_liquide", true)
+        liquide = pr.getBoolean("style_liquide", true)            // (build 530 : verre liquide aussi dans l'appli publique, allume d'office)
     }
 }
 
@@ -370,13 +371,14 @@ fun Puce(t: String, choisie: Boolean, onClick: () -> Unit) {
     val sh = RoundedCornerShape(50)
     val m = if (choisie) (if (C.liquide) Modifier.verreTeinte(sh) else Modifier.clip(sh).background(C.Neon, sh)) else Modifier.verre(sh)
     Box(m.appui(onClick).padding(horizontal = 16.dp, vertical = 9.dp)) {
-        Text(t, color = if (choisie) Color.White else C.Doux, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+        Text(t, color = if (choisie) Color.White else C.Doux, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, softWrap = false)   // (build 555 : jamais sur plusieurs lignes)
     }
 }
 
 @Composable
 fun RangeeDePuces(content: @Composable RowScope.() -> Unit) {
-    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp), content = content)
+    // (build 555 : la rangee defile si les puces ne tiennent pas, au lieu d'ecraser la derniere)
+    Row(Modifier.fillMaxWidth().horizontalScroll(androidx.compose.foundation.rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp), content = content)
 }
 
 @Composable

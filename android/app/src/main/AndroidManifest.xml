@@ -6,6 +6,7 @@
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_CONNECTED_DEVICE" />
     <!-- mise a jour de l'appli depuis l'appli (AppUpdate : APK de la compilation GitHub) -->
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
     <!-- envoi de fichiers : le telephone garde le Wi-Fi et le processeur, ecran eteint -->
@@ -77,6 +78,10 @@
             android:configChanges="orientation|screenSize|keyboardHidden|screenLayout" />
         <!-- lecture hors de l'appli : notification, ecran verrouille, boutons de volume -->
         <service
+            android:name=".RetroService"
+            android:exported="false"
+            android:foregroundServiceType="connectedDevice" />
+        <service
             android:name=".PlaybackService"
             android:exported="false"
             android:foregroundServiceType="mediaPlayback" />
@@ -110,5 +115,15 @@
             </intent-filter>
             <meta-data android:name="android.appwidget.provider" android:resource="@xml/widget_info" />
         </receiver>
+        <!-- (build 530 : notifications du telephone sur la tele : aussi dans l'appli publique) -->
+        <service
+            android:name=".NotifTele"
+            android:exported="false"
+            android:label="GC Remote : notifications sur la télé"
+            android:permission="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE">
+            <intent-filter>
+                <action android:name="android.service.notification.NotificationListenerService" />
+            </intent-filter>
+        </service>
     </application>
 </manifest>

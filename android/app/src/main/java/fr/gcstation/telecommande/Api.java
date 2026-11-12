@@ -67,7 +67,11 @@ final class Api {
         pool.execute(() -> { final byte[] r = getBytes(path, 3000); ui.post(() -> done.on(r)); });
     }
 
-    static void pool(Runnable r) { pool.execute(r); }
+    /** build 547 : le travail de fond (notifications vers la tele, succes, tuiles...) a ses propres fils : avant, il prenait les
+     *  4 fils des requetes ; apres une partie, des notifications qui attendaient Pulse (parti) les occupaient tous, et la
+     *  question « /api/state » n'etait plus jamais posee : « Console injoignable » jusqu'a relancer l'appli */
+    private static final ExecutorService fond = Executors.newFixedThreadPool(3);
+    static void pool(Runnable r) { fond.execute(r); }
 
     static void cmd(String c, int i) { get("/api/cmd?c=" + c + (i >= 0 ? "&i=" + i : ""), (Done<String>) null); }
     /** un cran de volume (+/- 10 % sur la console) ; envoyes dans l'ordre, l'un apres l'autre */

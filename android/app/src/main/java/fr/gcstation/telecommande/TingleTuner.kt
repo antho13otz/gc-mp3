@@ -332,15 +332,18 @@ object GbaTel {
 fun TingleTunerWW(ww: Boolean = true) {
     val ctx = LocalContext.current
     val e = GbaTel.etat
-    Carte(Modifier.fillMaxWidth()) {
-        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Titre(if (ww) "Tingle Tuner · GBA du téléphone (essai)" else "🎮 GBA du téléphone (essai)", couleur = Color(0xFF9BE15D))
-            Doux(if (ww) "Dans les réglages de GC Station : « GBA du téléphone » sur Port 2, puis lancer Wind Waker par Pulse. " +
+    // build 558 : carte d'accessoire (icone, etat) ; le mode d'emploi et la licence de l'emulateur sont replies
+    val etatGba = when { GbaEmu.marche -> "En marche"; e.marche && e.vuPulse -> "Branchée"; e.marche -> "En attente"; else -> "Débranchée" }
+    val coulGba = when { GbaEmu.marche || (e.marche && e.vuPulse) -> C.Vert; e.marche -> C.Orange; else -> C.Pale }
+    CarteAccessoire(if (ww) "📡" else "🎮", if (ww) "Tingle Tuner" else "GBA du téléphone",
+                    if (ww) "GBA du téléphone · port 2 · essai" else "Câble GameCube–GBA par le réseau · essai", Color(0xFF9BE15D), etatGba, coulGba) {
+        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            AideRepliable(if (ww) "Dans les réglages de GC Station : « GBA du téléphone » sur Port 2, puis lancer Wind Waker par Pulse. " +
                  "Brancher ici la GBA avant d'utiliser le Tingle Tuner dans le jeu."
                  else "Dans les réglages de GC Station : « GBA du téléphone » sur le port voulu (Rayman 3, Pac-Man Vs. : port 2 ; Four Swords seul : port 1), " +
-                 "puis lancer le jeu par Pulse. Brancher ici la GBA, puis choisir dans le jeu le mode avec GBA : son programme tourne ici.", taille = 12)
-            // (build 457 : licence de l'emulateur, demandee pour la version publique ; vraie pour les deux)
-            Doux("Émulateur GBA : mGBA 0.10.5 (Jeffrey Pfau et contributeurs), licence Mozilla Public License 2.0. Code source : github.com/mgba-emu/mgba (fichiers repris tels quels). Aucun BIOS ni jeu fourni.", taille = 10, couleur = C.Pale)
+                 "puis lancer le jeu par Pulse. Brancher ici la GBA, puis choisir dans le jeu le mode avec GBA : son programme tourne ici.")
+            AideRepliable("Émulateur GBA : mGBA 0.10.5 (Jeffrey Pfau et contributeurs), licence Mozilla Public License 2.0. Code source : github.com/mgba-emu/mgba (fichiers repris tels quels). Aucun BIOS ni jeu fourni.", "Émulateur mGBA · licence")   // (build 457 : licence demandee pour la version publique ; toujours la)
+            if (!ww) Cartouche.Choix()                          // (build 556, appli privee : cartouche .gba + .sav dans la GBA)
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Bouton(if (e.marche) "Débrancher" else "Brancher la GBA", Modifier.weight(1f), plein = !e.marche) {
                     if (e.marche) GbaTel.debrancher() else GbaTel.brancher(ctx)
@@ -356,7 +359,6 @@ fun TingleTunerWW(ww: Boolean = true) {
                     Doux("Programme : ${e.recus / 1024} / ${e.annonce / 1024} Ko", taille = 12)
                 }
                 e.programme?.let { Doux("Programme du jeu : $it", taille = 12, couleur = Color(0xFF9BE15D)) }
-                Doux("Commandes du jeu : état ${e.n00} · lectures ${e.n14} · écritures ${e.n15}", taille = 11, couleur = C.Pale)
                 if (GbaEmu.marche) EcranGba()                  // (build 375 : l'emulateur GBA)
                 // build 410 : recherche du curseur du Tingle Tuner (pour le relier a la vue 3D)
                 if (GbaEmu.marche) Bouton(if (GbaEmu.chercheEnCours) "Recherche du curseur…" else "Chercher le curseur (écran de la carte)", Modifier.fillMaxWidth(),
@@ -365,9 +367,13 @@ fun TingleTunerWW(ww: Boolean = true) {
                 if (GbaEmu.marche && GbaEmu.pilotageTexte.isNotEmpty()) Doux(GbaEmu.pilotageTexte, taille = 12, couleur = Color(0xFFFFC857))
                 if (GbaEmu.marche) Prive.curseurTT()?.let { Doux("Curseur dans le jeu (vue 3D) : %.0f, %.0f".format(it[0], it[2]), taille = 11, couleur = C.Pale) }
                 if (GbaEmu.marche && GbaEmu.curseurTexte.isNotEmpty()) Bouton("Curseur posé sur Link : noter ce repère (${GbaEmu.nReperes})", Modifier.fillMaxWidth()) { GbaEmu.noterRepere() }
-                if (GbaEmu.message.isNotEmpty()) Doux(GbaEmu.message + " · mots du jeu ${GbaEmu.nRecus} · de la GBA ${GbaEmu.nEnvoyes}", taille = 11, couleur = C.Pale)
                 if (GbaTel.aProgramme && !GbaEmu.marche) Bouton("Relancer la GBA", Modifier.fillMaxWidth()) { GbaTel.relancerEmu() }
-                e.journal.takeLast(12).forEach { Doux(it, taille = 11) }
+                // build 558 : les details techniques replies
+                Repliable("Détails techniques") {
+                    Doux("Commandes du jeu : état ${e.n00} · lectures ${e.n14} · écritures ${e.n15}", taille = 11, couleur = C.Pale)
+                    if (GbaEmu.message.isNotEmpty()) Doux(GbaEmu.message + " · mots du jeu ${GbaEmu.nRecus} · de la GBA ${GbaEmu.nEnvoyes}", taille = 11, couleur = C.Pale)
+                    e.journal.takeLast(12).forEach { Doux(it, taille = 11) }
+                }
                 Bouton("Envoyer le rapport", Modifier.fillMaxWidth()) {
                     val i = Intent(Intent.ACTION_SEND).setType("text/plain").putExtra(Intent.EXTRA_TEXT, GbaTel.rapport())
                     try { ctx.startActivity(Intent.createChooser(i, "Rapport GBA").addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) } catch (x: Exception) { }

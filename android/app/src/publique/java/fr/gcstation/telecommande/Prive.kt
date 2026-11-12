@@ -30,7 +30,7 @@ object Prive {
     fun changerConsole() { }
     @Composable fun lancementPulse() { }                                // (build 502 : appli privee seulement)
     @Composable fun LogoPulse(m: Modifier) = LogoPulseAnime(m)
-    @Composable fun NotifTeleReglages(act: StationActivity) { }        // (build 522 : appli privee seulement, pour l'instant)        // (build 513 : le vrai logo anime, comme l'appli privee)
+    @Composable fun NotifTeleReglages(act: StationActivity) = NotifTeleBloc(act)   // (build 530 : aussi dans l'appli publique)        // (build 522 : appli privee seulement, pour l'instant)        // (build 513 : le vrai logo anime, comme l'appli privee)
     fun posDirectWW(): FloatArray? = JeuWW.posDirect()
     fun curseurTT(): FloatArray? = JeuWW.curseurTT()
     fun diagObjetsWW(): String = JeuWW.diagObjets()

@@ -34,9 +34,14 @@ python3 $R/tools/bin2h.py natres_lan.bin natres_lan_bin.h natres_lan_bin   # (bu
 python3 $T/emu_lan.py natres_lan.bin natres_lan.elf $R/source/natres/natres.h | tail -1
 # (build 909 : le Pulse par defaut est celui du BBA : les essais W5500 sont faits plus bas, avec le Pulse W5500)
 # build 908 : les deux Pulse de la console : Broadband Adapter seul (PULSE_NET=1) et W5500 seul (PULSE_NET=2)
+# (v411 : clang -Oz depasse la limite depuis v409 : comme la console, gcc -O2 quand il est la ; sinon clang -Oz)
 for v in 1 2; do
+  if command -v powerpc-linux-gnu-gcc >/dev/null; then
+  powerpc-linux-gnu-gcc -O2 -mcpu=750 -msoft-float -G 0 -msdata=none -fno-pic -ffreestanding -fno-builtin -fno-asynchronous-unwind-tables -fno-exceptions -nostdlib -nostartfiles -Wall -DPULSE_NET=$v -Wl,-T,$R/tools/natres.ld -Wl,--no-gc-sections -Wl,--build-id=none -Wl,--no-warn-rwx-segments $R/source/natres/natres.c -o natres_n$v.elf -lgcc && llvm-objcopy -O binary natres_n$v.elf natres_n$v.bin
+  else
   clang --target=powerpc-none-eabi -mcpu=750 -Oz -ffreestanding -fno-builtin -nostdlib -fno-pic -msoft-float -Wall -Wextra -Wno-unknown-attributes -DPULSE_NET=$v -c $R/source/natres/natres.c -o natres_n$v.o
   ld.lld -T $R/tools/natres.ld natres_n$v.o -o natres_n$v.elf && llvm-objcopy -O binary natres_n$v.elf natres_n$v.bin
+  fi
 done
 python3 $R/tools/bin2h.py natres_n2.bin natres_wz_bin.h natres_wz_bin   # (pour natif.c : Pulse W5500)
 for a in "1 2 0" "0 2 0" "1 0 0" "1 1 0" "1 0 2"; do python3 $T/emu_natres.py natres_n1.bin $a | tail -1; done   # (Pulse BBA)

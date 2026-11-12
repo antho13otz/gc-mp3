@@ -164,6 +164,8 @@ fun EcranJeux() {
     remember(dernier) { dernier.change = Runnable { dernierVu++ }; 0 }
     var garde by remember { mutableLongStateOf(0L) }           // (hors-ligne : date de la liste gardee ; 0 : liste de la console)
     var tout by remember { mutableStateOf<String?>(null) }    // (« Tout garder pour hors-ligne » en cours : ce qu'il fait)
+    var raEtape by remember { mutableStateOf<String?>(null) } // (build 553 : « Chercher les succes de mes jeux » en cours)
+    var raAnnule by remember { mutableStateOf(false) }
     var toutAnnule by remember { mutableStateOf(false) }
     var etagere by remember { mutableStateOf(false) }       // (l'etagere de collection : Etagere.kt)
     var mur by remember { mutableStateOf(false) }           // (le mur de jaquettes : MurJaquettes.kt)
@@ -191,8 +193,10 @@ fun EcranJeux() {
     }
     val l = jeux
     val lq = q.trim().lowercase()
-    val vus = remember(l, lq, filtre) {
-        l?.filter { (lq.isEmpty() || it.nom.lowercase().contains(lq) || it.id.lowercase().contains(lq)) && (filtre == 0 || (filtre == 1 && it.favori) || (filtre == 2 && it.minutes > 0)) }
+    var raVu by remember { mutableIntStateOf(0) }             // (build 553 : jeux regardes sur RetroAchievements)
+    val vus = remember(l, lq, filtre, raVu) {
+        l?.filter { (lq.isEmpty() || it.nom.lowercase().contains(lq) || it.id.lowercase().contains(lq)) && (filtre == 0 || (filtre == 1 && it.favori) || (filtre == 2 && it.minutes > 0)
+                    || (filtre == 3 && (FicheRA.connu(act, it.id)?.first ?: 0) > 0)) }
             ?.let { if (filtre == 2) it.sortedByDescending { g -> g.dernier } else it } ?: emptyList()
     }
     LazyVerticalGrid(GridCells.Adaptive(112.dp), Modifier.fillMaxSize().padding(horizontal = 14.dp), contentPadding = PaddingValues(bottom = 14.dp),
@@ -241,6 +245,18 @@ fun EcranJeux() {
                 }
                 if (St.connecte && l != null && l.isNotEmpty()) Bouton("Envoyer jaquettes et disques à la console", Modifier.fillMaxWidth().padding(top = 8.dp), hauteur = 40.dp) { choixEnvoi = true }
               }
+                if (Prive.ACTIF && filtre == 3 && St.connecte && l != null && l.isNotEmpty()) {
+                    // (build 553 : regarder chaque jeu sur RetroAchievements : la console donne son empreinte (quelques s la 1re fois))
+                    val pasVus = l.count { FicheRA.connu(act, it.id) == null }
+                    Bouton(if (pasVus > 0) "Chercher les succès de mes jeux ($pasVus pas encore regardés)" else "Mettre à jour ma progression", Modifier.fillMaxWidth().padding(top = 8.dp), hauteur = 40.dp) {
+                        raAnnule = false; raEtape = "Préparation…"
+                        scope.launch {
+                            val (avec, n) = FicheRA.verifierTous(act, l, pasVus == 0, { raAnnule }) { k, t, nom -> raEtape = if (nom.isEmpty()) null else "Jeu " + (k + 1) + " / " + t + " : " + nom }
+                            raEtape = null; raVu++
+                            Lang.toast(act, (if (raAnnule) "Arrêté. " else "") + "$n jeu(x) regardé(s) ; $avec avec des succès", Toast.LENGTH_LONG).show()
+                        }
+                    }
+                }
                 Doux(if (l == null) msg else if (l.isEmpty()) "Aucun jeu (onglet JEUX de la GameCube)" else vus.size.toString() + " jeu" + (if (vus.size > 1) "x" else "") + " · toucher pour la fiche",
                     Modifier.padding(start = 4.dp, top = 8.dp), 12)
             }
@@ -268,6 +284,12 @@ fun EcranJeux() {
             title = { Text("Envoi à la console", color = C.Texte) },
             text = { Doux(m + "\n\nTéléchargées sur GameTDB par le téléphone, puis envoyées à la GameCube.", taille = 13) },
             confirmButton = { TextButton({ envoiAnnule = true }) { Text("Arrêter", color = C.Rose) } })
+    }
+    raEtape?.let { m ->
+        AlertDialog(onDismissRequest = { }, containerColor = Color(0xFF1A0E30),
+            title = { Text("Succès de mes jeux", color = C.Texte) },
+            text = { Doux(m + "\n\nLa console donne l'empreinte de chaque jeu (quelques secondes la première fois), le téléphone demande ses succès à RetroAchievements.", taille = 13) },
+            confirmButton = { TextButton({ raAnnule = true }) { Text("Arrêter", color = C.Rose) } })
     }
     tout?.let { m ->
         AlertDialog(onDismissRequest = { }, containerColor = Color(0xFF1A0E30),
@@ -301,6 +323,12 @@ private fun CelluleJeu(act: Activity, g: Jeu, cp: Int, onClick: () -> Unit) {
             }
             if (cp in 1..4) Box(Modifier.align(Alignment.TopEnd).padding(7.dp).size(16.dp).clip(CircleShape).background(CP_COL[cp]).border(2.dp, Color(0xFF0C0418), CircleShape))
             if (g.favori) Icon(Ic.Etoile, null, tint = C.Rose, modifier = Modifier.align(Alignment.TopStart).padding(6.dp).size(18.dp))
+            // (build 553, appli privee : succes RetroAchievements obtenus / total, en bas a droite)
+            if (Prive.ACTIF) FicheRA.connu(act, g.id)?.takeIf { it.first > 0 }?.let { (t, o) ->
+                Box(Modifier.align(Alignment.BottomEnd).padding(6.dp).clip(RoundedCornerShape(6.dp)).background(Color(0xCC000000)).padding(horizontal = 5.dp, vertical = 1.dp)) {
+                    Text("🏆 $o/$t", color = if (o == t) C.Orange else C.Texte, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                }
+            }
         }
         Spacer(Modifier.height(6.dp))
         Text(g.nom, color = C.Texte, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, maxLines = 2, overflow = TextOverflow.Ellipsis)
@@ -390,6 +418,8 @@ private fun FicheJeu(act: StationActivity, g: Jeu, compat: MutableMap<String, In
     fun lancer(m: Int, fx: String = "") {
         scope.launch {
             envoyerMasque()
+            // (build 554, appli privee : en mode hardcore, Pulse sans cheats (H) ; console v420 : le jeu compte alors sans cheats)
+            val fx = if (m == 1) ExtrasRA.fxLancement(fx) else fx
             val r = lire("/api/launch?i=" + maxOf(0, g.i) + "&m=" + m + "&id=" + g.id + if (fx.isEmpty()) "" else "&fx=$fx")
             Lang.toast(act, if (r != null) (if (m == 1) "Lancement avec Pulse" + (if (fx.isEmpty()) "" else " + " + fx.length + " patch" + (if (fx.length > 1) "s" else "")) else "Lanceur de secours") + " : " + g.nom else "Refusé", Toast.LENGTH_SHORT).show()
             fermer()
@@ -453,7 +483,7 @@ private fun FicheJeu(act: StationActivity, g: Jeu, compat: MutableMap<String, In
                 }
             }
             if (montre(5)) APropos(act, g)
-            if (montre(2) && partie >= 0) SuccesDuJeu(g.id)
+            if (montre(2)) { SuccesRADuJeu(act, g.id, g.i); SuccesDuJeu(g.id) }   // (build 534 : RetroAchievements, puis GC Station ; aussi dans l'appli publique)
             if (montre(0)) {
             Spacer(Modifier.height(18.dp))
             Bouton("Lancer avec Pulse", Modifier.fillMaxWidth(), plein = true, icone = Ic.Lecture, hauteur = 52.dp) { lancer(1) }
@@ -720,7 +750,7 @@ private fun SuccesDuJeu(id: String) {
     }
     Spacer(Modifier.height(18.dp))
     val ll = l
-    Titre(if (ll.isNullOrEmpty()) "Succès" else "Succès · " + ll.count { it.third } + " / " + ll.size)
+    Titre(if (ll.isNullOrEmpty()) "Succès GC Station" else "Succès GC Station · " + ll.count { it.third } + " / " + ll.size)
     if (msg.isNotEmpty()) Doux(msg, Modifier.padding(top = 6.dp), 12)
     ll?.forEach { s ->
         Spacer(Modifier.height(8.dp))
@@ -733,8 +763,6 @@ private fun SuccesDuJeu(id: String) {
             }
         }
     }
-    Spacer(Modifier.height(10.dp))
-    Doux("Les succès RetroAchievements sont dans l'onglet Pulse > Succès.", taille = 11, couleur = C.Pale)
 }
 
 /** fiche du jeu : ce que dit GameTDB (genre, joueurs, classification, editeur, developpeur, annee, resume) */

@@ -224,10 +224,11 @@ fun MicroTelephone() {
     val e = MicTel.etat
     var refus by androidx.compose.runtime.remember { mutableStateOf(false) }
     val demande = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { ok -> if (ok) MicTel.brancher() else refus = true }
-    Carte(Modifier.fillMaxWidth()) {
+    // build 558 : carte d'accessoire (icone, etat) ; le mode d'emploi est replie
+    CarteAccessoire("🎤", "Micro du téléphone", "Slot B · jeux à micro · essai", Color(0xFFFFC857),
+                    if (e.marche) (if (e.vuPulse) "Branché" else "En attente") else "Débranché", if (e.marche) (if (e.vuPulse) C.Vert else C.Orange) else C.Pale) {
         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Titre("🎤 Micro du téléphone · slot B (essai)", couleur = Color(0xFFFFC857))
-            if (!e.marche) Doux("Pour les jeux à micro (Mario Party 6 et 7…). Dans les réglages de GC Station : « Micro du téléphone (slot B) » sur Oui, puis lancer le jeu par Pulse. Garde l'appli ouverte pendant la partie.", taille = 12)
+            if (!e.marche) AideRepliable("Pour les jeux à micro (Mario Party 6 et 7…). Dans les réglages de GC Station : « Micro du téléphone (slot B) » sur Oui, puis lancer le jeu par Pulse. Garde l'appli ouverte pendant la partie.")
             Bouton(if (e.marche) "Débrancher le micro" else "Brancher le micro", Modifier.fillMaxWidth(), plein = !e.marche) {
                 if (e.marche) MicTel.debrancher()
                 else if (ContextCompat.checkSelfPermission(ctx, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) MicTel.brancher()
@@ -243,9 +244,11 @@ fun MicroTelephone() {
                     Bouton(if (MicTel.inverse) "Octets : inversés" else "Octets : normaux", Modifier.weight(1f), plein = MicTel.inverse) { MicTel.inverse = !MicTel.inverse }
                     Bouton("Volume ×${MicTel.gainX}", Modifier.weight(1f), plein = MicTel.gainX > 1) { MicTel.gainX = when (MicTel.gainX) { 1 -> 2; 2 -> 4; 4 -> 8; else -> 1 } }
                 }
-                Doux("Le jeu : ${e.ncmd} commandes · ${e.nirq} paquets annoncés · ${e.nrd / 1024} Ko lus · retard ${e.nlow} octets", taille = 11, couleur = C.Pale)
                 Doux("→ " + MicTel.lecture(e), taille = 11, couleur = Color(0xFFFFC857))
-                e.journal.takeLast(6).forEach { Doux(it, taille = 11) }
+                Repliable("Détails techniques") {                 // (build 558)
+                    Doux("Le jeu : ${e.ncmd} commandes · ${e.nirq} paquets annoncés · ${e.nrd / 1024} Ko lus · retard ${e.nlow} octets", taille = 11, couleur = C.Pale)
+                    e.journal.takeLast(6).forEach { Doux(it, taille = 11) }
+                }
                 Bouton("Envoyer le rapport", Modifier.fillMaxWidth()) {
                     val i = Intent(Intent.ACTION_SEND).setType("text/plain").putExtra(Intent.EXTRA_TEXT, MicTel.rapport())
                     try { ctx.startActivity(Intent.createChooser(i, "Rapport du micro").addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) } catch (x: Exception) { }

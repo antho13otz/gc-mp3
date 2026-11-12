@@ -16,11 +16,14 @@
    NATRES_HTAB + NATRES_PTEG (0x817FFC00 : la table des pages au-dessus), sinon GC Station lance le jeu sans Pulse */
 #if defined(__GNUC__) && !defined(__clang__)
 #define MEM_OS __attribute__((optimize("Os")))                /* (resident compile en -O2 : ici, le plus petit) */
+#elif defined(__clang__)
+#define MEM_OS __attribute__((minsize))                       /* (v409 : clang aussi : simulateur PC, banc d'essai) */
 #else
 #define MEM_OS
 #endif
 
 typedef unsigned int u32;
+static u32 igr_tel = 0;                                   /* v418 : retour demande par le telephone (fait a la prochaine lecture) */
 typedef unsigned char u8;
 
 static int nr_init(void);
@@ -893,7 +896,8 @@ static MEM_OS void mem_ack(natres_pad_t *p, u32 seq) {
     volatile unsigned short *vi = (volatile unsigned short *)0xCC002000u;
     pn_p32(d + 36, (u32)vi[0] << 16 | vi[1]); pn_p32(d + 40, *(volatile u32 *)0xCC00201Cu); pn_p32(d + 44, *(volatile u32 *)0xCC002024u);
     pn_p32(d + 48, vi[0x24]); pn_p32(d + 52, mfz_n);
-    pn_udp(p, p->mmac, p->mip, p->mport, 56);
+    pn_p32(d + 56, p->msr ? 256u : 96u);                 /* v419 : morceaux du direct acceptes (MS_MAX sans la reserve) */
+    pn_udp(p, p->mmac, p->mip, p->mport, 60);
 }
 static MEM_OS void mem_ach(natres_pad_t *p) {
     u8 *d = pn_fr + 42;
@@ -930,24 +934,43 @@ static MEM_OS void mem_blocks(natres_pad_t *p, u32 seq, u32 a, u32 n) {
 #define MS_MAX 96                         /* (build 911 : 64 avant ; mode Detaille de l'appli) */
 #define MS_TOT 16384u                     /* (build 911 : 10 Ko avant) */
 #define MS_PAQ 1400u
-static u32 ms_a[MS_MAX], ms_n = 0, ms_per = 1, ms_tb = 0, ms_nc = 0;
+/* v414 (diagnostic, dans "GCMT") : images gardees sans etre envoyees (bus pris), images en attente renvoyees, images sautees sans
+   etre gardees, attentes de la file d'envoi trop longues (le paquet suivant ecrit quand meme) */
+static u32 ms_cb = 0, ms_cr = 0, ms_cs = 0, ms_cw = 0;
+static u32 ms_ab = 0, ms_cz;
+                                     /* (v413 : numero de l'abonnement dans les paquets, + 0x100) */
+static u32 ms_a[MS_MAX], ms_n = 0, ms_per = 1, ms_tb = 0, ms_nc = 0, ms_dup = 0, ms_prev = 0, ms_ann = 0;   /* (v408 : ms_dup = exemplaires en plus, ms_prev : derniere image envoyee ; v409 : ms_ann) */
 static unsigned short ms_l[MS_MAX];                       /* (longueur, et les options en bits 13 a 15) */
+/* v419 : avec la reserve du direct (chercheur de codes de l'appli), la liste vit dans la structure du telephone, apres la
+   reserve : 256 morceaux (NATRES_MSL_BYTES) au lieu de 96, sans prendre de place dans Pulse (Super Mario Sunshine : des
+   centaines de petites zones) ; sinon, la liste de Pulse (96) */
+static u32 *ms_ap = ms_a, ms_max = MS_MAX;
+static unsigned short *ms_lp = ms_l;
 static MEM_OS u32 ms_out(u32 l) { return l >> 15 ? 48u + ((l & 0x1FFFu) / 48u - 1u) * 18u : l & 0x1FFFu; }
-static MEM_OS void ms_req(const u8 *d, u32 dispo) {
-    u32 n = pn_be32(d + 8), per = pn_be32(d + 12), tot = 0;
-    ms_n = 0;
-    if (n > MS_MAX) n = MS_MAX;
-    for (u32 i = 0; i < n && 20 + 8 * i + 8 <= dispo; i++) {
+static MEM_OS void ms_req(natres_pad_t *p, const u8 *d, u32 dispo) {
+    u32 n = pn_be32(d + 8), per = pn_be32(d + 12), tot = 0, o = dispo >= 20 ? pn_be32(d + 16) : 0;
+    if (p->msr) { ms_ap = (u32 *)((u8 *)p + p->msr + NATRES_MSR_BYTES); ms_lp = (unsigned short *)(ms_ap + 256); ms_max = 256; }
+    else { ms_ap = ms_a; ms_lp = ms_l; ms_max = MS_MAX; }
+    /* v419 : option bit 6 : suite de la liste (un paquet ne tient que ~180 morceaux) : ajoutes a la fin */
+    if (o >> 6 & 1u) for (u32 i = 0; i < ms_n; i++) tot += ms_out(ms_lp[i]);
+    else ms_n = 0;
+    for (u32 i = 0; i < n && ms_n < ms_max && 20 + 8 * i + 8 <= dispo; i++) {
         u32 a = pn_be32(d + 20 + 8 * i), l = pn_be32(d + 24 + 8 * i), f = l >> 29;
         l &= 0xFFFFu;
         if (f & 4 && (l % 48u || a & 3)) f &= 3;           /* (compact : des matrices entieres, alignees) */
         if (!l || l > 4608u || !mem_ok(a, l)) break;          /* (build 909 : (f & 3) == 3 : un envoi sur deux, voir ms_saute) */
         l |= f << 13;
         if (tot + ms_out(l) > MS_TOT) break;
-        ms_a[ms_n] = a; ms_l[ms_n] = (unsigned short)l; ms_n++; tot += ms_out(l);
+        ms_ap[ms_n] = a; ms_lp[ms_n] = (unsigned short)l; ms_n++; tot += ms_out(l);
     }
     ms_per = per >= 1 && per <= 8 ? per : 1;
-    ms_nc = PN_BBA && dispo >= 20 ? pn_be32(d + 16) & 1u : 0;   /* build 909 (Pulse « 3 », essai) : envoi sans copie, demande par l'appli */
+    ms_nc = PN_BBA && dispo >= 20 ? pn_be32(d + 16) & 1u : 0;
+    ms_dup = dispo >= 20 ? pn_be32(d + 16) >> 1 & 3u : 0;
+    ms_ann = dispo >= 20 ? pn_be32(d + 16) >> 3 & 1u : 0;
+    /* v413 : bit 4 : chaque paquet porte le numero de cet abonnement (bits 8-15 du mot morceau / morceaux) : l'appli lit
+       chaque image avec la liste qui l'a demandee, meme juste apres un changement de liste */
+    ms_ab = dispo >= 20 && (pn_be32(d + 16) >> 4 & 1u) ? 0x100u | (pn_be32(d + 4) & 0xFFu) : 0;
+    ms_cz = dispo >= 20 ? pn_be32(d + 16) >> 5 & 1u : 0;   /* v416 : bit 5 : compression (images de reference et changements) */   /* v409 : bit 3 : anneau (copies 2 et 5 images plus tard) */   /* v406 / v408 : options bits 1-2 (appli, RetroAchievements) : 0 a 3 envois de plus de toute l'image */   /* build 909 (Pulse « 3 », essai) : envoi sans copie, demande par l'appli */
     ms_tb = tbl();
 }
 /* un flottant (bits IEEE) x 2^sh en entier, sans calcul flottant (Pulse est en -msoft-float) ; trop grand : +-2^30 */
@@ -979,7 +1002,9 @@ static MEM_OS void pn_link_check(void) {                /* v372 : (voir pn_nw) u
     irq_restore(m);
 }
 static MEM_OS void ms_txwait(void) {
-    for (u32 i = 0; i < 20000u && (bb_in8(BB_NCRA) & 6u); i++) { }
+    u32 i = 0;
+    for (; i < 20000u && (bb_in8(BB_NCRA) & 6u); i++) { }
+    if (i == 20000u) ms_cw++;                            /* (v414 : diagnostic) */
 }
 static MEM_OS __attribute__((noinline)) void ms_tx(u8 *f, u32 n) {
     if (!PN_BBA || pn_hw != 1) { pn_send(f, n); return; }   /* (W5500 : comme avant) */
@@ -1038,7 +1063,9 @@ static MEM_OS __attribute__((noinline)) void ms_tx_segs(u32 n) {   /* n : trame 
     irq_restore(m);
     ms_ns = 0; ms_st = 0;
 }
-static MEM_OS void ms_udp(natres_pad_t *p, u32 dlen) { pn_udp_hdr(p, p->mmac, p->mip, p->mport, dlen); ms_tx(pn_fr, 42 + dlen); }   /* (comme pn_udp) */
+static u32 ms_muet = 0;
+                                   /* v412 : image preparee pour l'anneau seulement (bus pris par le jeu) */
+static MEM_OS void ms_udp(natres_pad_t *p, u32 dlen) { if (ms_muet) return; pn_udp_hdr(p, p->mmac, p->mip, p->mport, dlen); ms_tx(pn_fr, 42 + dlen); }   /* (comme pn_udp) */
 static MEM_OS void ms_put(natres_pad_t *p, u32 v) {     /* un octet de plus ; paquet plein (ou v > 255 : la fin) : on l'envoie */
     u8 *d = pn_fr + 42;
     if (v < 256u) {
@@ -1046,7 +1073,8 @@ static MEM_OS void ms_put(natres_pad_t *p, u32 v) {     /* un octet de plus ; pa
         else d[16 + ms_o++] = (u8)v;
     }
     if (ms_o == MS_PAQ || (v > 255u && ms_o)) {
-        pn_p32(d, 0x47434D53u); pn_p32(d + 4, H.vi_count); pn_p32(d + 8, ms_part << 16 | ms_parts); pn_p32(d + 12, ms_tot);   /* "GCMS" */
+        { u32 dv = H.vi_count - ms_prev; if (dv > 255u) dv = 255u;   /* v408 : avec exemplaires en plus : images depuis le dernier envoi (bits 24-31) */
+          pn_p32(d, 0x47434D53u); pn_p32(d + 4, H.vi_count); pn_p32(d + 8, ms_part << 16 | (ms_ab & 0xFFu) << 8 | ms_parts); pn_p32(d + 12, ms_tot | (ms_dup || ms_ann ? dv << 24 : 0)); }   /* "GCMS" */
         if (ms_nc && pn_hw == 1) { pn_udp_hdr(p, p->mmac, p->mip, p->mport, 16 + ms_o); ms_tx_segs(42 + 16 + ms_o); }
         else ms_udp(p, 16 + ms_o);   /* (v371 : DMA, sans attendre l'envoi) */
         ms_part++; ms_o = 0;
@@ -1075,19 +1103,131 @@ static MEM_OS void ms_mat(natres_pad_t *p, const u32 *w, const int *t0) {
     for (int q = 0; q < 8; q++) if ((q & 3) != 3) ms_p16(p, ms_fx(w[q], 14));
     for (int r = 0; r < 3; r++) ms_p16(p, ms_fx(w[4 * r + 3], 2) - t0[r]);
 }
+/* ======================= v416 : reserve du direct (journal d'images) =======================
+   La reserve (p->msr, NATRES_MSR_BYTES) : une table de 32 images (image, position, longueur, drapeaux), l'image de
+   reference (compression seulement) puis le journal : les images a la suite, comme envoyees (debut du journal quand la fin
+   est atteinte ; une image ecrasee sort de la table). Chaque image y est gardee ; elle repart si elle n'a pas pu partir
+   (bus pris par le jeu : des le prochain envoi), et en copie 2, 7, 15 et 31 images plus tard si elle y est encore.
+   Compression (option bit 5, appli 545) : toutes les 30 images, une image de reference complete ; entre deux, seulement les
+   octets changes depuis elle (sauter, nombre, octets), avec une somme des octets de l'image entiere : l'appli refait l'image
+   et la refuse si la somme ne va pas (jamais une fausse valeur). En-tete de l'image codee (16 octets) : image de reference
+   (elle-meme : image complete), octets de l'image entiere, sommes s1 (des octets) et s2 (des s1). Paquets : bit 7 du nombre
+   de morceaux (image codee). Sans compression : l'image telle quelle, comme avant. */
+#define MSJ_N 32u
+#define MSJ_TAB (MSJ_N * 16u)
+static u32 ms_jw = 0, ms_jtot = 0, ms_jcz = 0, ms_kvi = 0xFFFFFFFFu;
+static u8 ms_kh[16];                                       /* (v417 : en-tete de l'image de reference, gardee dans ref) */
+/* une image (gardee) en paquets ; h : en-tete de 16 octets avant e (image de reference : ses octets sont dans ref) */
+static MEM_OS void ms_emit(natres_pad_t *p, const u8 *h, const u8 *e, u32 len, u32 vi, u32 fl) {
+    u8 *d = pn_fr + 42;
+    u32 parts = (len + MS_PAQ - 1) / MS_PAQ, o = 0;
+    for (u32 q = 0; q < parts; q++, o += MS_PAQ) {
+        u32 k = len - o < MS_PAQ ? len - o : MS_PAQ;
+        pn_p32(d, 0x47434D53u); pn_p32(d + 4, vi); pn_p32(d + 8, q << 16 | (ms_ab & 0xFFu) << 8 | (fl & 2u ? 0x80u : 0u) | parts);
+        pn_p32(d + 12, len | (fl >> 8 & 0xFFu) << 24);
+        for (u32 i = 0; i < k; i++) { u32 j = o + i; d[16 + i] = h ? (j < 16u ? h[j] : e[j - 16u]) : e[j]; }
+        ms_udp(p, 16 + k);
+    }
+}
+/* code l'image (cle : complete) dans o ; rend la longueur, 0 si plus longue que lim (alors : image complete) */
+static MEM_OS u32 ms_code(u8 *o, u32 lim, u8 *ref, u32 cle) {
+    u32 s1 = 0, s2 = 0, n = 0, pos = 0, saut = 0, run = 0, h = ms_cz ? 16u : 0u;
+    u8 *rl = 0;
+    n = h;
+    for (u32 i = 0; i < ms_n; i++) {
+        const u8 *src = (const u8 *)ms_ap[i];
+        u32 m = ms_lp[i] & 0x1FFFu;
+        for (u32 k = 0; k < m; k++, pos++) {
+            u32 b = src[k];
+            s1 += b; s2 += s1;
+            if (!ms_cz) { o[n++] = (u8)b; continue; }
+            if (cle) { ref[pos] = (u8)b; continue; }       /* (v417 : image de reference : seulement dans ref, pas dans le journal) */
+            if (b == ref[pos]) { if (run) { rl[0] = (u8)(run >> 8); rl[1] = (u8)run; run = 0; } saut++; continue; }
+            if (!run) {
+                if (n + 4u > lim) return 0;
+                o[n] = (u8)(saut >> 8); o[n + 1] = (u8)saut; rl = o + n + 2; n += 4; saut = 0;
+            }
+            if (n + 1u > lim) return 0;
+            o[n++] = (u8)b; run++;
+        }
+    }
+    if (run) { rl[0] = (u8)(run >> 8); rl[1] = (u8)run; }
+    if (h) { u8 *t = cle ? ms_kh : o; pn_p32(t, cle ? H.vi_count : ms_kvi); pn_p32(t + 4, pos); pn_p32(t + 8, s1); pn_p32(t + 12, s2); }
+    return cle && h ? 16u + pos : n;
+}
+/* renvoie les images gardees : pas encore parties (toujours), et 2, 7, 15, 31 images avant (si copies) */
+static MEM_OS void ms_rejoue(natres_pad_t *p, u8 *tab, u8 *ref, u8 *jr, u32 copies) {
+    for (u32 sl = 0; sl < MSJ_N; sl++) {
+        u32 *e = (u32 *)(tab + sl * 16u), age = H.vi_count - e[0];
+        if (!e[3] || !age || age > 255u) continue;
+        if (!(e[3] & 1u) && (!copies || (age != 2u && age != 7u && age != 15u && age != 31u))) continue;
+        if (e[1] == 0xFFFFFFFFu && e[0] != ms_kvi) { e[3] = 0; continue; }   /* (ancienne image de reference : plus dans ref) */
+        if (e[3] & 1u) { ms_cr++; e[3] &= ~1u; }          /* (v414 : diagnostic) */
+        if (e[1] == 0xFFFFFFFFu) ms_emit(p, ms_kh, ref, e[2], e[0], e[3]);
+        else ms_emit(p, 0, jr + e[1], e[2], e[0], e[3]);
+    }
+}
 static MEM_OS void ms_send(natres_pad_t *p) {
     if (!ms_n || !p->mip) return;
-    if (tbl() - ms_tb > 3u * TB_SEC) { ms_n = 0; return; }   /* (l'appli ne renouvelle plus : fini) */
+    if (tbl() - ms_tb > 10u * TB_SEC) { ms_n = 0; return; }   /* (l'appli ne renouvelle plus : fini ; v417 : 10 s au lieu de 3 : telephone gele un moment, les paquets l'attendent) */
     if (H.vi_count % ms_per) return;
-    u32 imp = H.vi_count & 1, alt = (H.vi_count / ms_per) & 1, i;
+    u32 imp = H.vi_count & 1, alt = (H.vi_count / ms_per) & 1, i, brut = 1;
     ms_tot = 0;
-    for (i = 0; i < ms_n; i++) if (!ms_saute(ms_l[i] >> 13, imp, alt)) ms_tot += ms_out(ms_l[i]);
+    for (i = 0; i < ms_n; i++) if (!ms_saute(ms_lp[i] >> 13, imp, alt)) { ms_tot += ms_out(ms_lp[i]); if (ms_lp[i] >> 13) brut = 0; }
     if (!ms_tot) return;
+    u32 dv = H.vi_count - ms_prev; if (dv > 255u) dv = 255u;
+    /* v416 : reserve (voir plus haut) : les images brutes seulement (RetroAchievements), sans l'envoi sans recopie */
+    if (ms_ann && p->msr && !ms_nc && brut) {
+        u8 *tab = (u8 *)p + p->msr;
+        /* v417 : compression : l'image de reference n'est que dans ref (le journal ne garde que les changements, au plus un
+           quart du journal chacun : sinon image de reference) : listes jusqu'a ~12 Ko dans 16 Ko (avant : ~3,9 Ko) */
+        u32 cz = ms_cz, refsz = cz ? (ms_tot + 3u) & ~3u : 0, js = NATRES_MSR_BYTES > MSJ_TAB + refsz ? NATRES_MSR_BYTES - MSJ_TAB - refsz : 0,
+            need = (16u + ms_tot + 3u) & ~3u;
+        u8 *ref = tab + MSJ_TAB, *jr = ref + refsz;
+        if (cz && need > js / 4u) need = (js / 4u) & ~3u;
+        if (cz ? js >= 1024u : js >= 3u * need) {
+            if (ms_tot != ms_jtot || cz != ms_jcz) {     /* (autre taille : tout recommence) */
+                for (i = 0; i < MSJ_N * 4u; i++) ((u32 *)tab)[i] = 0;
+                ms_jtot = ms_tot; ms_jcz = cz; ms_jw = 0; ms_kvi = 0xFFFFFFFFu;
+            }
+            if (!ms_muet) ms_rejoue(p, tab, ref, jr, 0); /* (d'abord celles pas parties : leur place peut etre prise) */
+            if (ms_jw + need > js) ms_jw = 0;
+            u32 off = ms_jw, fin;
+            u32 *ek = (u32 *)(tab + (ms_kvi & (MSJ_N - 1u)) * 16u);
+            u32 cle = !cz || ms_kvi == 0xFFFFFFFFu || H.vi_count - ms_kvi >= 30u || !ek[3] || ek[0] != ms_kvi;
+            u32 len = 0;
+            fin = off;
+            if (!cle) { len = ms_code(jr + off, need, ref, 0); fin = off + (len ? len : need); if (!len) cle = 1; }   /* (essai rate : ecrit jusqu'a need) */
+            if (cle) { len = ms_code(jr + off, need, cz ? ref : 0, 1); if (!cz) fin = off + len; }   /* (reference : seulement dans ref) */
+            for (i = 0; i < MSJ_N; i++) {                /* (images ecrasees : hors de la table) */
+                u32 *e = (u32 *)(tab + i * 16u);
+                if (e[3] && e[1] != 0xFFFFFFFFu && e[1] < fin && off < e[1] + e[2]) e[3] = 0;
+            }
+            if (cle && cz) ms_kvi = H.vi_count;
+            u32 *e = (u32 *)(tab + (H.vi_count & (MSJ_N - 1u)) * 16u);
+            e[0] = H.vi_count; e[1] = cle && cz ? 0xFFFFFFFFu : off; e[2] = len; e[3] = 4u | (cz ? 2u : 0u) | (ms_muet ? 1u : 0u) | dv << 8;
+            if (!(cle && cz)) ms_jw = (off + len + 3u) & ~3u;
+            if (ms_muet) return;
+            for (u32 pass = 0; pass <= ms_dup; pass++) {
+                if (cle && cz) ms_emit(p, ms_kh, ref, len, H.vi_count, e[3]);
+                else ms_emit(p, 0, jr + off, len, H.vi_count, e[3]);
+            }
+            ms_prev = H.vi_count;
+            ms_rejoue(p, tab, ref, jr, 1);
+            if (PN_BBA && pn_hw == 1) { u32 m = irq_off(); ms_txwait(); irq_restore(m); }
+            mt_oct += len;
+            return;
+        }
+    }
+    if (ms_muet) return;                                 /* (pas de reserve : rien a garder) */
+    /* v408 : avec ms_dup, toute l'image est renvoyee 1 a 3 fois de suite (pas paquet par paquet) : une coupure breve du Wi-Fi
+       n'emporte plus les deux exemplaires d'un meme paquet. Le jeu est arrete pendant l'interruption : memes octets. */
+    for (u32 pass = 0; pass <= ms_dup; pass++) {
     ms_parts = (ms_tot + MS_PAQ - 1) / MS_PAQ; ms_part = 0; ms_o = 0;
     for (i = 0; i < ms_n; i++) {
-        u32 l = ms_l[i], f = l >> 13, n = l & 0x1FFFu, k = 0;
+        u32 l = ms_lp[i], f = l >> 13, n = l & 0x1FFFu, k = 0;
         if (ms_saute(f, imp, alt)) continue;
-        const u8 *src = (const u8 *)ms_a[i];
+        const u8 *src = (const u8 *)ms_ap[i];
         if (f & 4) {
             const u32 *w = (const u32 *)src;
             int t0[3] = { ms_fx(w[3], 2), ms_fx(w[7], 2), ms_fx(w[11], 2) };
@@ -1104,6 +1244,8 @@ static MEM_OS void ms_send(natres_pad_t *p) {
         } else ms_copie(p, src + k, n - k);               /* (build 910 : par blocs) */
     }
     ms_put(p, 256u);
+    }
+    ms_prev = H.vi_count;
     if (PN_BBA && pn_hw == 1) { u32 m = irq_off(); ms_txwait(); irq_restore(m); }   /* (v371 : file libre pour les autres envois) */
     mt_oct += ms_tot;
 }
@@ -1114,7 +1256,8 @@ static MEM_OS void mem_req(natres_pad_t *p, const u8 *f, const u8 *u, const u8 *
     p->mip = pn_be32(f + 26); p->mport = pn_be16(u);
     for (int i = 0; i < 6; i++) p->mmac[i] = f[6 + i];
     if (t == 'R') { mem_blocks(p, seq, a, b); return; }
-    if (t == 'S') { ms_req(d, dispo); return; }
+    if (t == 'S') { ms_req(p, d, dispo); return; }
+    if (t == 'Q') { if (a == 0x51554954u) { mem_ack(p, seq); igr_tel = 1; } return; }   /* v418 : "QUIT" : retour au menu (comme A+Z+START) */
     if (t == 'P') p->mpause = a & 1;
     else if (t == 'W') {                                  /* (hors de la memoire du jeu, ou dans Pulse : rien, mais une reponse) */
         if ((b == 1 || b == 2 || b == 4) && mem_ok(a, b) && !(a & (b - 1)) && (a < NATRES_AT || a >= NATRES_AT + NATRES_SIZE)) {
@@ -1407,9 +1550,16 @@ void MEM_OS pd_poll(void) {
     /* le jeu se sert du BBA (Mario Kart Double Dash le cherche au demarrage, pour le jeu en reseau local) : on le laisse,
        puis, 2 s apres son dernier acces, on le reprend (remis a zero et regle de nouveau) */
     if (H.bba_n != pd_bba_n) { pd_bba_n = H.bba_n; pd_bba_tb = now; p->state = 3; }
-    if (p->state == 3) { if (now - pd_bba_tb < 2u * TB_SEC) return; p->state = 0; }
+    if (p->state == 3) { if (now - pd_bba_tb < 2u * TB_SEC) { if (ms_n) ms_cs++; return; } p->state = 0; }
     bx = HW6(0xCC006800u + pn_ch * 0x14u);                /* (v327 : canal de l'adaptateur : 0, ou 1 pour un ETH2GC en B) */
-    if (pd_busy()) return;
+    if (pd_busy()) {
+        /* v412 : le jeu se sert du bus : l'image n'est pas envoyee, mais elle est preparee et gardee dans l'anneau (rien
+           n'est envoye : seulement la memoire) : elle repart avec les copies 2, 7, 15 et 31 images plus tard. Avant, elle
+           etait perdue pour de bon (RetroAchievements : "pas envoyees par la console" ; hardcore : mode normal). */
+        if (p->state == 1 && ms_ann && p->msr && !ms_nc) { ms_muet = 1; ms_send(p); ms_muet = 0; ms_cb++; }
+        else if (ms_n) ms_cs++;
+        return;
+    }
     if (!p->state) {
         pn_cfg = &p->net;
         int r = pn_bba_init();
@@ -1432,7 +1582,8 @@ void MEM_OS pd_poll(void) {
             u8 *b = pn_fr + 42;
             pn_p32(b, 0x47434D54u); pn_p32(b + 4, H.vi_count); pn_p32(b + 8, mt_sum); pn_p32(b + 12, mt_max); pn_p32(b + 16, 0);   /* (v372 : plus mesure : la place de Pulse) */
             pn_p32(b + 20, mt_oct); pn_p32(b + 24, mt_n);
-            pn_udp(p, p->mmac, p->mip, p->mport, 28);
+            pn_p32(b + 28, ms_cb << 16 | (ms_cr & 0xFFFFu)); pn_p32(b + 32, ms_cs << 16 | (ms_cw & 0xFFFFu));   /* v414 : diagnostic (36 octets) */
+            pn_udp(p, p->mmac, p->mip, p->mport, 36);
             mt_sum = mt_n = mt_max = mt_oct = 0;
         }
     }
@@ -1901,7 +2052,9 @@ static MEM_OS void si_hook(u32 irq, u32 ctx) {
 }
 static void igr_poll(void) { igr_poll2(1); }
 /* count = 0 : ne compte que le temps (interruption du son : trop frequente pour compter les lectures) */
+static MEM_OS void igr_go(void);
 static MEM_OS void igr_poll2(int count) {
+    if (igr_tel) igr_go();
     if (!(H.flags & NRF_IGR)) return;
     volatile u32 *si = HW6(0xCC006400u);
     static u8 igr_ch[4];                                 /* v99 : derniere chose vue sur chaque port (1 = A+Z+START tenus) */
@@ -1933,17 +2086,19 @@ static MEM_OS void igr_poll2(int count) {
     if (!on) { igr_hold = 0; return; }
     if (!igr_hold) { igr_t0 = now; igr_hold = 1; }
     if (count) igr_hold++;
-    if (now - igr_t0 > TB_SEC || igr_hold > 60) {        /* (tenus 1 s, ou 60 lectures des manettes de suite) */
-        H.igr = 1;
-        /* v133 : ou en etait le jeu (comme un plantage : code, appels, pile, memoire) : un jeu fige
-           (ecran noir, il tourne encore) montre ainsi ce qu'il attend */
-        if (igr_ctx >= 0x80000000u && igr_ctx < NATRES_AT && !(igr_ctx & 3)) {
-            H.exc_srr0 = *(volatile u32 *)(igr_ctx + 0x198); H.exc_lr = *(volatile u32 *)(igr_ctx + 0x84);
-            crash_dump(0xFF, igr_ctx, 0, 0);
-        }
-        nr_log_flush();
-        ret_entry();
+    if (now - igr_t0 > TB_SEC || igr_hold > 60) igr_go();   /* (tenus 1 s, ou 60 lectures des manettes de suite) */
+}
+/* retour au menu de GC Station (A+Z+START, ou v418 : bouton de l'appli privee) */
+static MEM_OS void igr_go(void) {
+    H.igr = 1;
+    /* v133 : ou en etait le jeu (comme un plantage : code, appels, pile, memoire) : un jeu fige
+       (ecran noir, il tourne encore) montre ainsi ce qu'il attend */
+    if (igr_ctx >= 0x80000000u && igr_ctx < NATRES_AT && !(igr_ctx & 3)) {
+        H.exc_srr0 = *(volatile u32 *)(igr_ctx + 0x198); H.exc_lr = *(volatile u32 *)(igr_ctx + 0x84);
+        crash_dump(0xFF, igr_ctx, 0, 0);
     }
+    nr_log_flush();
+    ret_entry();
 }
 /* ======================= v65 : musique du disque (audio en streaming, "DTK") =======================
    Certains jeux (1080, Zelda, F-Zero...) jouent leur musique directement depuis le disque :
@@ -2161,7 +2316,7 @@ static int card_load(vcard_t *v, u32 csec) {             /* secteur de la carte 
     return 0;
 }
 static u8 card_rd1(vcard_t *v, u32 a) { return card_load(v, a >> 9) ? 0xFF : card_buf(v)[a & 511]; }
-static void card_rd(vcard_t *v, u8 *dst, u32 a, u32 len) {
+static MEM_OS void card_rd(vcard_t *v, u8 *dst, u32 a, u32 len) {   /* (v410 : -Os) */
     while (len) {
         u32 n = 512 - (a & 511);
         if (n > len) n = len;
@@ -2288,7 +2443,7 @@ static MEM_OS void card_cs(vcard_t *v, int on) {
         card_done(v);
     }
 }
-static u8 card_byte(vcard_t *v, u8 b) {
+static MEM_OS u8 card_byte(vcard_t *v, u8 b) {               /* (v410 : -Os) */
     if (v->id == MIC_ID) return mic_byte(v, b);          /* v332 */
     if (v->pos == 0) {
         v->cmd = b; b = 0xFF;
@@ -2687,7 +2842,7 @@ static MEM_OS void x_dispatch(u32 ctx) {
 static u32 si_h[4], si_l[4];                             /* dernieres valeurs brutes lues (manette, stick C / gachettes) */
 static u32 si_mode(int ch) { return (*HW6(0xCC006400u + ch * 12) >> 8) & 7; }
 static u32 si_inv(u32 v) { return v ? 256u - v > 255u ? 255u : 256u - v : 255u; }
-static u32 si_fix(int ch, int lo) {
+static MEM_OS u32 si_fix(int ch, int lo) {               /* (v410 : -Os) */
     u32 o = H.opt, h = si_h[ch], l = si_l[ch];
     u32 sx = (h >> 8) & 0xFF, sy = h & 0xFF, cx = l >> 24, cy = (l >> 16) & 0xFF, tl = (l >> 8) & 0xFF, tr = l & 0xFF, thr = (o >> 8) & 0xFF;
     if (o & 4u) { u32 t = sx; sx = cx; cx = t; t = sy; sy = cy; cy = t; }   /* (sticks echanges) */
@@ -2785,7 +2940,7 @@ static void gk_endif(u32 *depth, u32 *skip, u32 n) {
     *depth = n > *depth ? 0 : *depth - n;
     if (*skip > *depth) *skip = 0;
 }
-static void gk_run(void) {
+static MEM_OS void gk_run(void) {                            /* (v407 : -Os, place pour la suite) */
     const u32 *w = (const u32 *)H.chts;
     u32 nw = w[0], ba = 0x80000000u, po = 0x80000000u, depth = 0, skip = 0;
     w++;
@@ -3041,7 +3196,7 @@ static int nr_game_fn(u32 a) { return a >= 0x80003100u && a < NATRES_AT; }
    Jamais si le jeu a masque l'interruption du lecteur (masques du SDK : 0x800000C4 global, 0x800000C8 local). */
 #define OS_INT_MASKS (*(volatile u32 *)0x800000C4u | *(volatile u32 *)0x800000C8u)
 static u32 wd_n = 0, busy_vi = 0;
-static void di_tick(u32 ctx, int vi) {
+static MEM_OS void di_tick(u32 ctx, int vi) {            /* (v410 : -Os) */
     if (exec_on) return;
     int rescue = 0;
     if (!wake_tick()) {
@@ -3137,7 +3292,7 @@ static u32 bswap(u32 v, int n) { return n == 4 ? v >> 24 | (v >> 8 & 0xFF00u) | 
 static const unsigned short trap_xo[18] = { 23, 55, 87, 119, 151, 183, 215, 247, 279, 311, 343, 375, 407, 439, 534, 662, 790, 918 };
 static const u8 trap_xf[18] = { 4|8, 4|8|16, 1|8, 1|8|16, 4, 4|16, 1, 1|16, 2|8, 2|8|16, 2|8|32, 2|8|32|16, 2, 2|16, 4|8|64, 4|64, 2|8|64, 2|64 };
 static const u8 trap_df[14] = { 4|8, 4|8|16, 1|8, 1|8|16, 4, 4|16, 1, 1|16, 2|8, 2|8|16, 2|8|32, 2|8|32|16, 2, 2|16 };   /* (lwz ... sthu) */
-void trap_c(void) {
+void MEM_OS trap_c(void) {                                /* (v407 : -Os : mode trap seulement) */
     u32 *r = trap_regs, pc = r[36], ins = *(volatile u32 *)pc, ea = r[38];
     u32 op = ins >> 26, rd = (ins >> 21) & 31, ra = (ins >> 16) & 31, f = 0;
     if (op == 31) { u32 xo = (ins >> 1) & 0x3FF; for (int i = 0; i < 18; i++) if (trap_xo[i] == xo) f = trap_xf[i]; }
@@ -3398,7 +3553,7 @@ static u32 vi_orig, si_orig, ai_orig, dsp_orig, pet_orig, pef_orig;
    sections peuvent etre lues ailleurs puis recopiees (apploader recent) : on branche avec l'adresse finale. */
 static struct { u32 off, so[18], sa[18], ss[18]; int ok; } xdol;
 static u32 rbe(u32 a) { return *(volatile u32 *)a; }
-static int nx_dol(u32 dst, u32 off, u32 len) {
+static MEM_OS int nx_dol(u32 dst, u32 off, u32 len) {   /* (v407 : -Os) */
     if (len < 0x100 || (dst & 3)) return 0;
     u32 entry = rbe(dst + 0xE0);
     int text = 0, n = 0;
@@ -3449,7 +3604,7 @@ static MEM_OS int nx_whole_dol(u32 dst, u32 off, u32 len) {
     return (int)nt;
 }
 /* une lecture terminee (dst = memoire, off / len = ISO) : le code de redemarrage, puis tout ce qu'il charge */
-static void nx_read_done(u32 dst, u32 off, u32 len) {
+static MEM_OS void nx_read_done(u32 dst, u32 off, u32 len) {   /* (v407 : -Os : OSExec, rare) */
     if (!exec_on && !exec_a && nx_whole_dol(dst, off, len)) return;   /* v251 */
     if (!exec_on && !exec_a && nx_dol(dst, off, len)) {   /* v252 : un .dol relu alors qu'il tourne deja (son propre main.dol) : rien a brancher */
         u32 so0 = xdol.so[0], sa0 = xdol.sa[0];
@@ -3583,7 +3738,7 @@ static u32 di_load(u32 reg) {
     return i < 10 ? di[i] : 0;
 }
 
-static void di_store(u32 reg, u32 val) {
+static MEM_OS void di_store(u32 reg, u32 val) {           /* (v407 : -Os) */
     u32 i = (reg & 0x3F) >> 2;
     hooks_lazy();
     early_note(reg, val, 1);

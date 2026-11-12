@@ -16,6 +16,12 @@ def fields(name_start, name_end):
     names = []
     for l in b.split('\n'):
         l = l.split('/*')[0].strip()
+        if l.startswith('unsigned char '):                  # (tableaux d'octets : comptes en mots, pour les positions)
+            for x in l[14:].rstrip(';').split(','):
+                dims = [int(d) for d in re.findall(r'\[(\d+)\]', x)]; t = 1
+                for d in dims: t *= d
+                names += ['%s_o%d' % (x.split('[')[0].strip(), i) for i in range((t + 3) // 4)]
+            continue
         if not l.startswith('unsigned int ') and not l.startswith('natres_net_t '): continue
         if l.startswith('natres_net_t '): names += ['net.%d' % i for i in range(10)]; continue
         for x in l[13:].rstrip(';').split(','):
@@ -168,7 +174,7 @@ if o:
     d = o[0][1]
     check('GCMA : numero, pas en pause, jeu GZLE01', struct.unpack('>II', d[4:12]) == (7, 0) and d[12:18] == b'GZLE01', d[:20].hex())
     v = struct.unpack('>IIIII', d[36:56]) if len(d) >= 56 else (0,) * 5
-    check('GCMA : registres video (TFBL, BFBL, PICCONF), 0 valeur bloquee', len(d) == 56 and v[1] & 0xFFFFFF == 0x00F00000 >> 5 and v[2] & 0xFFFFFF == 0x00F00500 >> 5
+    check('GCMA : registres video (TFBL, BFBL, PICCONF), 0 valeur bloquee, v419 : morceaux acceptes', len(d) == 60 and struct.unpack('>I', d[56:60])[0] in (96, 256) and v[1] & 0xFFFFFF == 0x00F00000 >> 5 and v[2] & 0xFFFFFF == 0x00F00500 >> 5
           and v[3] == 40 << 8 | 80 and v[4] == 0 and v[0] & 0xFFFF == 0x0105, '%d %s' % (len(d), ['%X' % x for x in v]))
 bba.deliver(gcm('R', 8, 0x80400000, 4)); call(POLL)
 o = udp_out()
@@ -203,8 +209,8 @@ check('valeur liberee : plus reecrite', bytes(mu.mem_read(0x80400020, 1)) == b'\
 bba.deliver(gcm('F', 24, 0, 0, 0)); call(POLL); o = udp_out()
 check('tout liberer', len(o) == 1 and struct.unpack('>I', o[0][1][52:56])[0] == 0)
 # le direct de l'appli : abonnement a 3 morceaux (1608 octets : 2 paquets "GCMS" a chaque image)
-def gcms(seq, morceaux, periode=1):
-    d = b'GCMS' + struct.pack('>IIII', seq, len(morceaux), periode, 0) + b''.join(struct.pack('>II', a, n) for a, n in morceaux)
+def gcms(seq, morceaux, periode=1, opt=0):
+    d = b'GCMS' + struct.pack('>IIII', seq, len(morceaux), periode, opt) + b''.join(struct.pack('>II', a, n) for a, n in morceaux)
     udp = struct.pack('>HHHH', 40001, 51237, 8 + len(d), 0) + d
     ip = struct.pack('>BBHHHBBH', 0x45, 0, 20 + len(udp), 0, 0, 64, 17, 0) + PH_IP + GC_IP
     return bytes([0x00, 0x09, 0xBF, 0x01, 0x02, 0x03]) + PH_MAC + b'\x08\x00' + ip + udp
@@ -254,6 +260,162 @@ check('GCMS v328 : paires / impaires', p0 == [56] and p1 == [bytes(mu.mem_read(0
 # (build 911 : 16 Ko au plus (avant 10 Ko) : sur 4 morceaux de 4,5 Ko, 3 gardes, 13 824 octets en 10 paquets)
 bba.deliver(gcms(36, [(0x80400000, 4608), (0x80410000, 4608), (0x80420000, 4608), (0x80430000, 4608)])); wr32(H('vi_count'), 50); call(POLL); o = udp_out()
 check('GCMS build 911 : 16 Ko au plus (3 morceaux de 4,5 Ko gardes)', len(o) == 10 and struct.unpack('>I', o[0][1][12:16])[0] == 13824, str(len(o)))
+# v408 : copies de toute l'image (options bits 1-2) et images depuis le dernier envoi (bits 24-31 de la taille)
+bba.deliver(gcms(37, [(0x80400000, 8)], 1, 2 << 1)); wr32(H('vi_count'), 60); call(POLL); udp_out()
+wr32(H('vi_count'), 61); call(POLL); o = udp_out()
+h = [struct.unpack('>IIII', x[1][:16]) for x in o]
+check('GCMS v408 : 3 exemplaires de l image (2 en plus), identiques', len(o) == 3 and len(set(x[1] for x in o)) == 1, str(len(o)))
+check('GCMS v408 : taille 8, 1 image depuis le dernier envoi', bool(h) and h[0][3] & 0xFFFFFF == 8 and h[0][3] >> 24 == 1, str([hex(x[3]) for x in h]))
+wr32(H('vi_count'), 64); call(POLL); o = udp_out()
+check('GCMS v408 : 3 images depuis le dernier envoi', bool(o) and struct.unpack('>I', o[0][1][12:16])[0] >> 24 == 3)
+# v409 / v410 : anneau (option bit 3) : l'image N repart pendant N+2, N+7, N+15 et N+31 (cases a la taille de l'image)
+RING = blk + 4 + len(PN) * 4
+wr32(blk + 4 + PN.index('msr') * 4, len(PN) * 4)
+mu.mem_write(RING, bytes(16384))
+def anneau(morceaux, v0, nimg):
+    bba.deliver(gcms(38 + v0, morceaux, 1, 8 | (1 << 1))); udp_out()
+    vu = {}
+    for v in range(v0, v0 + nimg):
+        wr32(H('vi_count'), v); wr32(0x80400000, v * 7 + 1)     # (valeur differente a chaque image)
+        call(POLL)
+        for x in udp_out():
+            img, pp, tt = struct.unpack('>III', x[1][4:16])
+            vu.setdefault(v, []).append((img, x[1]))
+    return vu
+vu = anneau([(0x80400000, 8)], 1000, 40)
+ok_r = True; det = ''
+for v in range(1000, 1040):
+    att = sorted([v, v] + [v - k for k in (2, 7, 15, 31) if v - k >= 1000])
+    eu = sorted(i for i, _ in vu.get(v, []))
+    if eu != att: ok_r = False; det = '%d : %s au lieu de %s' % (v, eu, att); break
+    for i, pl in vu[v]:
+        if struct.unpack('>I', pl[16:20])[0] != i * 7 + 1: ok_r = False; det = 'image %d renvoyee pendant %d : mauvaises donnees' % (i, v); break
+check('GCMS v410 : anneau (8 octets) : N, N, N-2, N-7, N-15, N-31, donnees de chaque image justes', ok_r, det)
+vu = anneau([(0x80400000, 1380)], 2000, 20)
+eu = sorted(i for i, _ in vu[2019])
+check('GCMS v416 : reserve sans compression (1380 octets : 11 images) : N-2 et N-7', eu == [2012, 2017, 2019, 2019], str(eu))
+vu = anneau([(0x80400000, 2000)], 3000, 6)
+check('GCMS v413 : image de 2 paquets : anneau aussi (8 cases : N-2)', sorted(i for i, _ in vu[3005]) == [3003, 3003] + [3005] * 4, str(sorted(i for i, _ in vu[3005])))
+# v412 : bus pris par le jeu (carte memoire du canal 0) pendant 2 images : rien n'est envoye, mais les images sont gardees
+# dans l'anneau et repartent 2 images plus tard (avant : perdues)
+bba.deliver(gcms(60, [(0x80400000, 8)], 1, 8 | (1 << 1))); udp_out()
+vu = {}
+for v in range(4000, 4020):
+    wr32(H('vi_count'), v); wr32(0x80400000, v * 7 + 1)
+    occ = v in (4010, 4011)
+    if occ: exi[0][0] = 0x80                                  # (le jeu a choisi la carte memoire : CS0)
+    call(POLL)
+    if occ: exi[0][0] = 0
+    for x in udp_out():
+        img = struct.unpack('>I', x[1][4:8])[0]
+        vu.setdefault(v, []).append((img, struct.unpack('>I', x[1][16:20])[0]))
+ok_b = not vu.get(4010) and not vu.get(4011) and (4010, 4010 * 7 + 1) in vu.get(4012, []) and (4011, 4011 * 7 + 1) in vu.get(4012, [])
+check('GCMS v413 : bus pris : rien envoye, images gardees, renvoyees au prochain envoi', ok_b, str({k: vu.get(k) for k in (4010, 4011, 4012)}))
+# v413 : image de 3 paquets (4096 octets, 3 cases), bus pris 3 images : toutes renvoyees (3 paquets chacune) au prochain envoi
+for k in range(0, 4096, 4): wr32(0x80500000 + k, k * 3 + 5)
+bba.deliver(gcms(61, [(0x80500000, 4096)], 1, 8 | (1 << 1) | 16)); udp_out()
+vu = {}
+for v in range(5000, 5012):
+    wr32(H('vi_count'), v); wr32(0x80500000, v * 7 + 1)
+    occ = v in (5005, 5006, 5007)
+    if occ: exi[0][0] = 0x80
+    call(POLL)
+    if occ: exi[0][0] = 0
+    for x in udp_out():
+        img, pp = struct.unpack('>II', x[1][4:12])
+        vu.setdefault(v, []).append((img, pp >> 16, pp >> 8 & 255, pp & 255))
+r8 = vu.get(5008, [])
+ok_c = all(not vu.get(v) for v in (5005, 5006, 5007)) and all(sorted(set(q for i, q, _, _ in r8 if i == v)) == [0, 1, 2] for v in (5005, 5006, 5007))
+check('GCMS v413 : 4 Ko (3 paquets), bus pris 3 images : toutes renvoyees au prochain envoi', ok_c, str(sorted(set((i, q) for i, q, _, _ in r8))))
+check('GCMS v413 : numero d abonnement dans les paquets (option bit 4)', bool(r8) and all(a == 61 and n == 3 for _, _, a, n in r8), str(r8[:3]))
+# v416 : compression (option bit 5) : 2 736 octets, image de reference puis changements ; bus pris 8 images : toutes renvoyees,
+# et chaque image refaite par le telephone (image de reference + changements, sommes) = la memoire du jeu a cette image
+def gc_somme(raw):
+    s1 = s2 = 0
+    for b in raw: s1 = (s1 + b) & 0xFFFFFFFF; s2 = (s2 + s1) & 0xFFFFFFFF
+    return s1, s2
+def gc_decode(enc, refs):
+    ri, n, s1, s2 = struct.unpack('>IIII', enc[:16])
+    if ri not in refs and ri != -1: pass
+    body = enc[16:]
+    if len(body) == n and ri not in refs: raw = bytes(body)                       # (image de reference)
+    else:
+        if ri not in refs: return None, ri
+        raw = bytearray(refs[ri]); o = 0; pos = 0
+        while o < len(body):
+            saut, nb = struct.unpack('>HH', body[o:o + 4]); o += 4; pos += saut
+            raw[pos:pos + nb] = body[o:o + nb]; o += nb; pos += nb
+        raw = bytes(raw)
+    return (raw if gc_somme(raw) == (s1, s2) else None), ri
+for k in range(0, 2736, 4): wr32(0x80600000 + k, k * 13 + 7)
+bba.deliver(gcms(62, [(0x80600000, 2736)], 1, 8 | 16 | 32)); udp_out()
+parts = {}; tailles = {}
+vu = {}
+for v in range(6000, 6040):
+    wr32(H('vi_count'), v); wr32(0x80600000, v * 7 + 1); wr32(0x80600400, v * 3)
+    occ = 6005 <= v <= 6012
+    if occ: exi[0][0] = 0x80
+    call(POLL)
+    if occ: exi[0][0] = 0
+    for x in udp_out():
+        img, pp, tt = struct.unpack('>III', x[1][4:16])
+        vu.setdefault(v, []).append(img)
+        parts.setdefault(img, {})[pp >> 16] = x[1][16:]; tailles[img] = (tt & 0xFFFFFF, pp & 0x7F, bool(pp & 0x80))
+refs = {}; ok_z = True; det = ''
+for img in sorted(parts):
+    tot, np_, code = tailles[img]
+    if len(parts[img]) != np_: ok_z = False; det = 'image %d incomplete' % img; break
+    enc = b''.join(parts[img][q] for q in range(np_))[:tot]
+    if not code: ok_z = False; det = 'image %d pas codee' % img; break
+    raw, ri = gc_decode(enc, refs)
+    if raw is None: ok_z = False; det = 'image %d : pas refaite (reference %d)' % (img, ri); break
+    if ri == img: refs[img] = raw
+    want = bytearray(struct.pack('>I', 0) * 0) 
+    if struct.unpack('>I', raw[0:4])[0] != img * 7 + 1 or struct.unpack('>I', raw[0x400:0x404])[0] != img * 3 or struct.unpack('>I', raw[8:12])[0] != 8 * 13 + 7:
+        ok_z = False; det = 'image %d : mauvaises donnees' % img; break
+check('GCMS v416 : compression : chaque image refaite juste (reference + changements, sommes)', ok_z and len(parts) == 40, det or str(len(parts)))
+check('GCMS v416 : compression : bus pris 8 images : toutes renvoyees au prochain envoi', all(v not in vu for v in range(6005, 6013)) and all(i in vu.get(6013, []) for i in range(6005, 6013)), str(vu.get(6013)))
+petites = [tailles[i][0] for i in sorted(tailles) if i not in refs]
+check('GCMS v416 : compression : changements seulement (moins de 40 octets au lieu de 2 736)', bool(petites) and max(petites) < 40 and any(tailles[i][0] == 16 + 2736 for i in refs), str(petites[:5]) + ' ' + str(sorted(refs)))
+# v417 : grosse liste compressee (12 000 octets en 3 morceaux de 4 608 au plus : Super Mario Sunshine, Paper Mario) : reference seulement dans
+# ref, changements dans le journal ; bus pris 5 images ; chaque image refaite juste
+for k in range(0, 12000, 4): wr32(0x80700000 + 0x10000 + k, k * 5 + 3)
+bba.deliver(gcms(63, [(0x80710000, 4608), (0x80710000 + 4608, 4608), (0x80710000 + 9216, 2784)], 1, 8 | 16 | 32)); udp_out()
+parts = {}; tailles = {}; vu = {}
+for v in range(7000, 7070):
+    wr32(H('vi_count'), v); wr32(0x80710000, v * 7 + 1); wr32(0x80710000 + 11000, v * 3)
+    occ = 7040 <= v <= 7044
+    if occ: exi[0][0] = 0x80
+    call(POLL)
+    if occ: exi[0][0] = 0
+    for x in udp_out():
+        img, pp, tt = struct.unpack('>III', x[1][4:16])
+        vu.setdefault(v, []).append(img)
+        parts.setdefault(img, {})[pp >> 16] = x[1][16:]; tailles[img] = (tt & 0xFFFFFF, pp & 0x7F, bool(pp & 0x80))
+refs = {}; ok_g = True; det = ''
+for img in sorted(parts):
+    tot, np_, code = tailles[img]
+    if len(parts[img]) != np_ or not code: ok_g = False; det = 'image %d incomplete ou pas codee' % img; break
+    enc = b''.join(parts[img][q] for q in range(np_))[:tot]
+    raw, ri = gc_decode(enc, refs)
+    if raw is None or len(raw) != 12000: ok_g = False; det = 'image %d : pas refaite (reference %d)' % (img, ri); break
+    if ri == img: refs[img] = raw
+    if struct.unpack('>I', raw[0:4])[0] != img * 7 + 1 or struct.unpack('>I', raw[11000:11004])[0] != img * 3 or struct.unpack('>I', raw[8:12])[0] != 8 * 5 + 3:
+        ok_g = False; det = 'image %d : mauvaises donnees' % img; break
+check('GCMS v417 : liste de 12 000 octets compressee : toutes les images refaites justes, bus pris 5 images rattrape', ok_g and len(parts) == 70 and all(i in vu.get(7045, []) for i in range(7040, 7045)), det or '%d images, references %s' % (len(parts), sorted(refs)))
+# v419 : 200 morceaux (liste dans la structure du telephone), en 2 paquets (option bit 6 : suite) ; reponse GCMA : 256
+mx2 = [(0x80720000 + k * 64, 16) for k in range(200)]
+for k in range(200): wr32(0x80720000 + k * 64, k * 11 + 1)
+bba.deliver(gcms(64, mx2[:150], 1, 8 | 16)); bba.deliver(gcms(65, mx2[150:], 1, 8 | 16 | 64)); udp_out()
+wr32(H('vi_count'), 7100); call(POLL)
+o2 = udp_out(); ok_l = False; det = ''
+for x in o2:
+    if x[1][:4] == b'GCMS':
+        img, pp, tt = struct.unpack('>III', x[1][4:16])
+        ok_l = (tt & 0xFFFFFF) == 3200 and (pp >> 8 & 255) == 65 and all(struct.unpack('>I', x[1][16 + k * 16:20 + k * 16])[0] == k * 11 + 1 for k in range(min(80, (len(x[1]) - 16) // 16)))
+        det = 'taille %d, abonnement %d' % (tt & 0xFFFFFF, pp >> 8 & 255); break
+check('GCMS v419 : 200 morceaux en 2 paquets (suite de liste) : 3 200 octets, donnees justes', ok_l, det)
+bba.deliver(gcmr(66, 'I')) if 'gcmr' in dir() else None
 bba.deliver(gcms(33, [])); call(POLL); udp_out()
 # succes obtenu : annonce
 wr32(blk + 4 + PN.index('mach') * 4, 3)

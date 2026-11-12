@@ -45,8 +45,12 @@ $(W)/gen/natret_bin.h: $(R)/source/natres/natret.c $(R)/tools/natret.ld
 $(W)/gen/natres_bin.h: $(R)/source/natres/natres.c $(R)/source/natres/natres.h $(R)/tools/natres.ld
 	@mkdir -p $(W)/gen
 	# (v356 : -Oz : le resident de v355 depassait 0x817FFF00 avec clang -Os ; la console le compile avec gcc)
-	clang --target=powerpc-none-eabi -mcpu=750 -Oz -ffreestanding -fno-builtin -nostdlib -fno-pic -msoft-float -c $< -o $(W)/gen/natres.o
-	ld.lld -T $(R)/tools/natres.ld $(W)/gen/natres.o -o $(W)/gen/natres.elf
+	# (v409 : -DPULSE_NET=1 : seulement le pilote du BBA, comme la console (Makefile) ; les deux ensemble ne tiennent plus)
+	clang --target=powerpc-none-eabi -mcpu=750 -Oz -DPULSE_NET=1 -ffreestanding -fno-builtin -nostdlib -fno-pic -msoft-float -c $< -o $(W)/gen/natres.o
+	# (v409 : le simulateur ne fait pas tourner Pulse, il l'embarque : sa garde de taille est lachee (clang fait plus gros
+	#  que gcc de devkitPPC) ; la vraie garde (0x817FFF00) reste dans la compilation de la console (CircleCI))
+	sed "s/0x817FFF00/0x81810000/" $(R)/tools/natres.ld > $(W)/gen/natres-sim.ld
+	ld.lld -T $(W)/gen/natres-sim.ld $(W)/gen/natres.o -o $(W)/gen/natres.elf
 	llvm-objcopy -O binary $(W)/gen/natres.elf $(W)/gen/natres.bin
 	python3 $(R)/tools/bin2h.py $(W)/gen/natres.bin $@ natres_bin
 # v359 : Pulse LAN

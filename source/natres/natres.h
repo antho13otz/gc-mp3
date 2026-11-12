@@ -132,6 +132,8 @@ typedef struct {
 #define NATRES_PAD_MAGIC 0x50504144u                    /* "PPAD" */
 #define NATRES_PAD_PORT  51237
 #define NATRES_GBA_RING 4096u                           /* (v344) mots du jeu pour la GBA pas encore accuses par le telephone (puissance de 2) : 16 Ko */
+#define NATRES_MSR_BYTES 16384u   /* (v416 : 16 Ko, images compressees ; v415 : 40 Ko ; v410-v414 : 16 Ko) */                         /* (v410) anneau du direct : cases taillees a l'image (32 au plus) */
+#define NATRES_MSL_BYTES 2048u    /* (v419) liste du direct (256 morceaux : adresses puis longueurs), apres la reserve */
 #define NATRES_MIC_RING 8192u                           /* (v332) micro du telephone (puissance de 2) : 371 ms a 11025 Hz, 93 a 44100 */
 typedef struct {
     unsigned int magic;                                   /* "PPAD" */
@@ -216,6 +218,11 @@ typedef struct {
        n + 1 est un clavier (paquet "GCPD" avec l'octet 6 bit 1) ; kbcnt : compteur des reponses (4 bits, dans le 1er octet
        et dans le controle, comme un vrai clavier) */
     unsigned int kbmask, kbcnt;
+    /* v409 : anneau du direct (RetroAchievements) : les dernieres images d'un seul paquet, renvoyees plus tard (une rafale
+       de pertes du Wi-Fi ne les emporte plus toutes) ; msr = position de l'anneau en octets depuis le debut de la
+       structure (0 : pas d'anneau), seulement avec le chercheur de codes de l'appli. v410 : NATRES_MSR_BYTES octets, cases
+       de la taille de l'image (32 au plus), copies 2, 7, 15 et 31 images plus tard (celles que l'anneau garde encore) */
+    unsigned int msr;
     /* v344 : apres la structure (seulement s'ils servent) : l'anneau des mots du jeu pour la GBA (NATRES_GBA_RING mots, si
        gbmask), puis celui du micro (NATRES_MIC_RING octets, si micon) ; len les compte */
 } natres_pad_t;

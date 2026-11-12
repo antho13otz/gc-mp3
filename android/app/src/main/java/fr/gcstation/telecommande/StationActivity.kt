@@ -203,6 +203,7 @@ class StationActivity : ComponentActivity(), Host {
     }
 
     override fun onResume() {
+        RetroSucces.auPremierPlan()                                   // (build 544 : service de la partie RetroAchievements)
         super.onResume()
         St.visible = true
         Live.add(this, live)

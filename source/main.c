@@ -6213,7 +6213,7 @@ static void settings_print(FILE *f) {                   /* v194 : le texte de gc
     fprintf(f, "# Pulse (X) : A+Z+START = retour a GC Station (oui / non)\nlanceur_maison_retour = %s\n", nat_igr ? "oui" : "non");
     fprintf(f, "# Pulse (X) : cartes memoire virtuelles (gc-mp3/resident/carte-A.raw ; a+b : aussi carte-B.raw au slot B)\nresident_carte_virtuelle = %s\n", nat_card >= 2 ? "a+b" : nat_card ? "oui" : "non");
     fprintf(f, "# Pulse : une carte par region du jeu (carte-A-EUR.raw, -USA, -JAP)\nresident_carte_par_region = %s\n", nat_card_reg ? "oui" : "non");
-    fprintf(f, "# Pulse : une carte par jeu (carte-A-GALE01.raw ; le reglage du jeu passe avant)\nresident_carte_par_jeu = %s\n", nat_card_game ? "oui" : "non");
+    fprintf(f, "# Pulse : une carte par jeu (carte-A-GALE01-Nom-du-jeu.raw ; le reglage du jeu passe avant)\nresident_carte_par_jeu = %s\n", nat_card_game ? "oui" : "non");
     fprintf(f, "# manettes du telephone dans les jeux : 0 non, 1 port 2, 2 ports 2-3, 3 ports 2-4, 4 port 1\nmanettes_telephone = %d\n", nat_padtel);
     fprintf(f, "# chercheur de codes de l'appli : le telephone lit la memoire du jeu (Pulse, BBA) : 0 non, 1 oui\nchercheur_codes = %d\n", nat_memtel);
     fprintf(f, "# v397 : succes sur la tele pendant les jeux (bandeau dessine par Pulse ; ~10 Ko de memoire pris au jeu) : 0 non, 1 oui\nsucces_tele = %d\n", nat_tvsucc);
@@ -13214,7 +13214,7 @@ static void draw_menu(void) {
     if (menu_sel == MI_GBATEL) hint = "L'appli devient une GBA branch\xC3\xA9" "e au port choisi (Wind Waker, Pac-Man Vs. : port 2 ; Four Swords seul : port 1, la manette de ce port n'est plus vue). Pulse, Broadband Adapter. Essai";
     if (menu_sel == MI_MICTEL) hint = "Le micro du t\xC3\xA9l\xC3\xA9phone devient le micro GameCube du slot B (Mario Party 6 et 7 ; Pulse, Broadband Adapter). Pas de carte m\xC3\xA9moire en B tant que c'est sur Oui. Essai";
     if (menu_sel == MI_PADTEL) hint = "L'appli du t\xC3\xA9l\xC3\xA9phone devient une manette dans les jeux (Pulse, Broadband Adapter ou ETH2SP1). Un port par t\xC3\xA9l\xC3\xA9phone";
-    if (menu_sel == MI_NATCARDGAME) hint = "Chaque jeu sa propre carte (carte-A-GALE01.raw), cr\xC3\xA9\xC3\xA9" "e au premier lancement. Le r\xC3\xA9glage du jeu (Y) passe avant";
+    if (menu_sel == MI_NATCARDGAME) hint = "Chaque jeu sa propre carte, au nom du jeu (carte-A-GALE01-Super-Smash-Bros-Melee.raw), cr\xC3\xA9\xC3\xA9" "e au premier lancement. Le r\xC3\xA9glage du jeu (Y) passe avant";
     if (menu_sel == MI_NATCARDREG) hint = "Jeux europ\xC3\xA9" "ens, am\xC3\xA9ricains, japonais : chacun sa carte (carte-A-EUR.raw...)";
     if (menu_sel == MI_NATIGR) hint = "Jeux lanc\xC3\xA9s avec Pulse (A) : A+Z+START tenus 1 s = retour \xC3\xA0 GC Station";
     if (menu_sel == MI_LAUNCHER) hint = ld_hint();

@@ -92,6 +92,7 @@ internal fun EnTeteJeuxPulse(act: StationActivity, dernier: LastLaunch, version:
             Puce("Tous", filtre == 0) { surFiltre(0) }
             Puce("★ Favoris", filtre == 1) { surFiltre(1) }
             Puce("Déjà joués", filtre == 2) { surFiltre(2) }
+            if (Prive.ACTIF) Puce("🏆 Succès", filtre == 3) { surFiltre(3) }   // (build 553 : jeux qui ont des succes RetroAchievements)
         }
         // ---- les vues, et (build 504) un menu ⋮ pour les deux actions qui servent rarement
         if (avecVues || avecConsole) Row(Modifier.fillMaxWidth().padding(top = 10.dp), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {

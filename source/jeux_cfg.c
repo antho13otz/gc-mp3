@@ -490,8 +490,10 @@ static void ra_prepare(int k);                               /* v393 : empreinte
 /* v395 : RetroAchievements, mode hardcore : l'appli doit savoir si des cheats seront appliques au jeu (Pulse ou le lanceur
    de secours) ; avec des cheats, elle reste en mode normal. Cheats choisis pour le jeu et pas coupes dans ses reglages. */
 static int ra_cur_cheats;                                    /* (tab_phone.c) */
+/* v420 : « sans cheats » (H) choisi sur le telephone pour ce lancement (l'appli privee le demande en mode hardcore) */
+static int jc_fx_h(void) { return strchr(jc_fx, 'H') != NULL; }
 static int jc_cheats_actifs(int k) {
-    if (k < 0 || k >= gl_n || gl_cheats_on(k) <= 0) return 0;
+    if (k < 0 || k >= gl_n || gl_cheats_on(k) <= 0 || jc_fx_h()) return 0;
     jc_load(gl[k].id);                                       /* (relu de toute facon au lancement : jeux_cfg_apply) */
     return jc_v[JC_NOCHEAT - JC_V0] == 1 ? 0 : 1;
 }
@@ -521,7 +523,7 @@ static const char *game_boot_auto2(int k) {                  /* v90 : Resident ;
     if (k >= 0 && k < gl_n && gcl_path(gl[k].path)) { const char *e = gcl_boot(k); nat_ld_on = 0; return e; }   /* v121 : jeu du GC Loader */
     if (k >= 0 && k < gl_n && gl[k].dvd) { const char *e = nat_boot_disc(k); nat_ld_on = 0; return e; }   /* v97 : vrai lecteur */
     if (k >= 0 && k < gl_n) rep_pre(gl[k].id);                /* v140 : cheats coupes pour ce jeu (reglage ou essai de reparation) */
-    int sec = k >= 0 && k < gl_n && gl_cheats_on(k) > 0 && nat_cheats_prep(gl[k].id) < 0 && ld_ready();   /* (v121 : Pulse applique les cheats qu'il comprend) */
+    int sec = k >= 0 && k < gl_n && gl_cheats_on(k) > 0 && !jc_fx_h() && nat_cheats_prep(gl[k].id) < 0 && ld_ready();   /* (v121 : Pulse applique les cheats qu'il comprend ; v420 : avec H, Pulse sans cheats) */
     if (sec) gl_status("Lancement du jeu...");
     const char *e = game_boot2(k, !sec);
     if (!sec) nat_ld_on = 0;                                 /* (fin de l'ecran de chargement de Resident) */

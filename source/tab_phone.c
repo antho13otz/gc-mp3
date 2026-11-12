@@ -53,6 +53,7 @@ static char tp_done_path[4][NAME_LEN];         /* v23 : fichiers recus (onglet T
 static volatile int tp_done_w = 0;
 static char tp_log[5][128];
 static volatile int tp_nlog = 0;
+static volatile int tp_reboot_req = 0;             /* v420 : /api/redemarrer (update.c : reset_pump) */
 static volatile int tp_rescan = 0;                 /* 1 = musique, 2 = photos, 4 = retro (v224) */
 static volatile u64 tp_up_end = 0;                 /* v224 : fin du dernier envoi (relectures apres la serie de fichiers) */
 static volatile int tp_apps_new = 0;               /* v224 : un .dol est arrive dans SD:/apps (liste Applis a relire) */
@@ -1589,11 +1590,13 @@ static void tp_handle(s32 c) {
     }
     else if (!strcmp(target, "/api/cheatedit") || !strcmp(target, "/api/gamecfg") || !strcmp(target, "/api/gamefav") || !strcmp(target, "/api/lyrics")
              || !strcmp(target, "/api/queueadd") || !strcmp(target, "/api/regpack") || !strcmp(target, "/api/regrestore")
-             || !strcmp(target, "/api/compat") || !strcmp(target, "/api/compatset") || !strcmp(target, "/api/succesadd")) {   /* v242 ; v255 : pastilles des jeux ; v306 : succes */
+             || !strcmp(target, "/api/compat") || !strcmp(target, "/api/compatset") || !strcmp(target, "/api/succesadd")
+             || !strcmp(target, "/api/rahash")) {   /* v242 ; v255 : pastilles des jeux ; v306 : succes */
         char id[16] = "", v[16];
         int op = !strcmp(target, "/api/cheatedit") ? 1 : !strcmp(target, "/api/gamecfg") ? 2 : !strcmp(target, "/api/gamefav") ? 3
                : !strcmp(target, "/api/lyrics") ? 4 : !strcmp(target, "/api/queueadd") ? 5 : !strcmp(target, "/api/regpack") ? 6
-               : !strcmp(target, "/api/regrestore") ? 7 : !strcmp(target, "/api/compat") ? 8 : !strcmp(target, "/api/compatset") ? 9 : 10;
+               : !strcmp(target, "/api/regrestore") ? 7 : !strcmp(target, "/api/compat") ? 8 : !strcmp(target, "/api/compatset") ? 9
+               : !strcmp(target, "/api/rahash") ? 11 : 10;   /* v411 : empreinte RetroAchievements d'un jeu (fiche du jeu) */
         tp_param(q ? q : "", "id", id, sizeof(id));
         int idok = strlen(id) == 6;
         for (int k = 0; idok && id[k]; k++) if (!isalnum((unsigned char)id[k])) idok = 0;
@@ -1612,6 +1615,10 @@ static void tp_handle(s32 c) {
         }
         if (t) { tp_reply(c, 200, "application/json", t, (int)strlen(t)); free(t); }
         else tp_reply(c, 503, "application/json", "{}", 2);
+    }
+    else if (!strcmp(target, "/api/redemarrer")) {           /* v420 : redemarrer GC Station depuis le telephone (comme le bouton Reset) */
+        tp_reboot_req = 1;
+        tp_reply(c, 200, "application/json", "{\"ok\":1}", 8);
     }
     else if (!strcmp(target, "/api/launch")) {               /* v73 : lancer un jeu (m=1 : Resident) */
         char is[16], ms[8];

@@ -41,7 +41,7 @@ fun EcranApparence() {
     var vib by remember { mutableStateOf(C.vibrations) }
     var hz by remember { mutableStateOf(pr.getBoolean("hz_max", true)) }
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 14.dp).padding(bottom = 20.dp)) {
-        if (Prive.ACTIF) {                                   // (build 510 : style de l'appli)
+        run {                                                // (build 510 : style de l'appli ; 530 : aussi dans l'appli publique)
             Titre("Style")
             Spacer(Modifier.height(8.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {

@@ -62,6 +62,8 @@ android {
             dimension 'version'
             signingConfig signingConfigs.debug                      // (cle de test d'Android, gardee par GitLab : comme avant)
             buildConfigField 'boolean', 'PRIVE', 'true'
+            // (build 559 : la cartouche dans la GBA du telephone (gba_jni.c) : compilee dans l'appli privee seulement)
+            externalNativeBuild { cmake { cFlags '-DGCS_PRIVE' } }
             // (build 498 : presence Discord : identifiant de l'application GC Station du portail developpeur de Discord ;
             //  ce n'est pas un secret. Le SDK, lui, est dans libs-prive/, hors du depot.)
             buildConfigField 'long', 'DISCORD_ID', DISCORD_ID + 'L'
@@ -101,6 +103,7 @@ dependencies {
     implementation 'com.microsoft.onnxruntime:onnxruntime-android:1.20.0'   // (Real-ESRGAN : AgrandirIA.kt)
     implementation 'com.google.mlkit:translate:17.0.3'                      // (traduction hors ligne : Traduction.kt)
     implementation 'com.google.mlkit:language-id:17.0.6'
+    testImplementation 'junit:junit:4.13.2'                                 // (build 532 : essais sur le PC : RecolleDirectTest)
     // (build 498 : Social SDK de Discord pour la presence, appli privee seulement ; pas dans le depot, ajoute a la main)
     if (file('libs-prive/discord_partner_sdk.aar').exists()) priveImplementation files('libs-prive/discord_partner_sdk.aar')
 }

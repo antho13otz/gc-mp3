@@ -266,9 +266,12 @@ public class PlaybackService extends Service {
     }
 
     // ---------- notifications d'information ----------
-    static void notify(Context c, int id, String title, String text) {
+    static void notify(Context c, int id, String title, String text) { notify(c, id, title, text, null); }
+    /** build 535 : avec une image (le badge d'un succes RetroAchievements) */
+    static void notify(Context c, int id, String title, String text, android.graphics.Bitmap image) {
         channels(c);
         Notification.Builder b = Build.VERSION.SDK_INT >= 26 ? new Notification.Builder(c, CH_INFO) : new Notification.Builder(c);
+        if (image != null) b.setLargeIcon(image);
         b.setSmallIcon(R.drawable.ic_stat).setContentTitle(Lang.t(title)).setContentText(Lang.t(text)).setColor(Neon.PINK).setAutoCancel(true)
          .setStyle(new Notification.BigTextStyle().bigText(Lang.t(text)))
          .setContentIntent(PendingIntent.getActivity(c, id, Host.home(c), PendingIntent.FLAG_IMMUTABLE));

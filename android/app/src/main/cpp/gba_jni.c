@@ -17,6 +17,7 @@
 #include <mgba/gba/core.h>
 #include <mgba/gba/interface.h>
 #include <mgba/internal/arm/arm.h>
+#include <mgba/internal/arm/isa-inlines.h>
 #include <mgba/internal/gba/gba.h>
 #include <mgba/internal/gba/io.h>
 #include <mgba/internal/gba/sio.h>
@@ -50,6 +51,16 @@ static void attendre_gba(void) {                         /* (au plus une image :
 	while ((gba->memory.io[REG_JOYCNT >> 1] & 7) && mTimingCurrentTime(&gba->timing) - t0 < VIDEO_TOTAL_LENGTH) ARMRunLoop(core->cpu);
 }
 
+#ifndef GCS_PRIVE
+#define GCS_PRIVE 0
+#define GCS_PUBLIQUE 1
+#endif
+/* build 556 (appli privee : Cartouche.kt) : une cartouche dans la GBA du telephone (le jeu .gba et sa sauvegarde .sav,
+   fournis par l'utilisateur) : le programme envoye par le jeu GameCube (Pokemon Colosseum, XD, Box...) lit et ecrit la
+   sauvegarde de la cartouche, comme sur une vraie GBA ; la sauvegarde changee se relit avec sauvegarde() */
+static uint8_t* cart_rom = NULL; static size_t cart_nrom = 0;
+static uint8_t* cart_sav = NULL; static size_t cart_nsav = 0;
+
 static void fin(void) {
 	if (core) { core->deinit(core); core = NULL; }
 	free(ecran); ecran = NULL;
@@ -81,10 +92,25 @@ JNIEXPORT jboolean JNICALL Java_fr_gcstation_telecommande_GbaNatif_demarrer(JNIE
 	free(img);
 	if (!vf) { fin(); return JNI_FALSE; }
 	struct GBA* gba = core->board;
+#ifndef GCS_PUBLIQUE                                    /* (build 559 : appli privee seulement) */
+	if (cart_rom) {                                     /* (build 556 : la cartouche d'abord, avec sa sauvegarde) */
+		struct VFile* vr = VFileMemChunk(cart_rom, cart_nrom);
+		if (!vr || !GBALoadROM(gba, vr)) { if (vr) vr->close(vr); vf->close(vf); fin(); return JNI_FALSE; }
+		struct VFile* vs = VFileMemChunk(cart_sav, cart_nsav);   /* (copie modifiable ; vide : le type vient du jeu) */
+		if (vs) GBALoadSave(gba, vs);
+	}
+#endif
 	GBALoadMB(gba, vf);                                 /* (programme "multiboot" : en 0x02000000 ; sans cartouche) */
 	GBASIOJOYCreate(&joy);
 	GBASIOSetDriver(&gba->sio, &joy, SIO_JOYBUS);
 	core->reset(core);                                  /* (programme multiboot charge : mGBA saute le BIOS, entree en 0x020000C0) */
+#ifndef GCS_PUBLIQUE
+	if (cart_rom) {                                     /* (build 556 : avec une cartouche, mGBA partirait dans la cartouche : demarre par le cable) */
+		struct ARMCore* cpu = core->cpu;
+		cpu->gprs[ARM_PC] = BASE_WORKING_RAM + 0xC0;
+		ARMWritePC(cpu);
+	}
+#endif
 	return JNI_TRUE;
 }
 
@@ -232,3 +258,39 @@ JNIEXPORT jint JNICALL Java_fr_gcstation_telecommande_GbaNatif_sorties(JNIEnv* e
 	nsorties = 0;
 	return n;
 }
+
+#ifndef GCS_PUBLIQUE                                    /* (build 559 : ces deux fonctions n'existent que dans l'appli privee) */
+/* build 556 : la cartouche du prochain demarrage (rom vide ou null : pas de cartouche) */
+JNIEXPORT jboolean JNICALL Java_fr_gcstation_telecommande_GbaNatif_cartouche(JNIEnv* env, jclass cls, jbyteArray rom, jbyteArray sav) {
+	(void) cls;
+	free(cart_rom); cart_rom = NULL; cart_nrom = 0;
+	free(cart_sav); cart_sav = NULL; cart_nsav = 0;
+	if (!rom) return JNI_TRUE;
+	jsize n = (*env)->GetArrayLength(env, rom);
+	if (n < 0xC0 || n > 0x2000000) return JNI_FALSE;
+	cart_rom = malloc((size_t) n);
+	if (!cart_rom) return JNI_FALSE;
+	(*env)->GetByteArrayRegion(env, rom, 0, n, (jbyte*) cart_rom); cart_nrom = (size_t) n;
+	if (sav) {
+		jsize m = (*env)->GetArrayLength(env, sav);
+		if (m > 0 && m <= 0x20000) {
+			cart_sav = malloc((size_t) m);
+			if (cart_sav) { (*env)->GetByteArrayRegion(env, sav, 0, m, (jbyte*) cart_sav); cart_nsav = (size_t) m; }
+		}
+	}
+	return JNI_TRUE;
+}
+
+/* build 556 : la sauvegarde de la cartouche telle qu'elle est maintenant (null : pas de GBA ou pas de sauvegarde) */
+JNIEXPORT jbyteArray JNICALL Java_fr_gcstation_telecommande_GbaNatif_sauvegarde(JNIEnv* env, jclass cls) {
+	(void) cls;
+	if (!core || !cart_rom) return NULL;
+	void* d = NULL;
+	size_t n = core->savedataClone(core, &d);
+	if (!n || !d) { free(d); return NULL; }
+	jbyteArray r = (*env)->NewByteArray(env, (jsize) n);
+	if (r) (*env)->SetByteArrayRegion(env, r, 0, (jsize) n, (const jbyte*) d);
+	free(d);
+	return r;
+}
+#endif

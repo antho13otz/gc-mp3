@@ -893,7 +893,48 @@ static int na_game_pal(const char *id) {
     }
 }
 static int nat_vmode;                                     /* (reglage Video du jeu : plus bas) */
-static int na_no_pal60(const char *id) { return !strncmp(id, "GRHP", 4); }   /* v404 : (voir plus bas) */
+/* v407 : jeux PAL qui ne connaissent pas le PAL 60 Hz, trouves dans leur .dol (na_pal60_scan) ; Rayman 3 (v404) aussi par son nom */
+static int na_pal60_ko = 0;
+static u32 na_pal60_at = 0;                               /* (adresse de l'appel trouve, pour le journal) */
+static int na_no_pal60(const char *id) { return na_pal60_ko || !strncmp(id, "GRHP", 4); }
+/* v407 : le choix du mode d'image du jeu : un appel a VIGetTvFormat (fonction qui commence par lire le format et le
+   comparer a 6 : cmplwi r5,6 dans ses 12 premieres instructions), suivi d'un aiguillage qui compare le resultat a 1 et a
+   3 (cmpwi r3,3 ; bge : tout format >= 3 refuse) sans jamais le comparer a 5 (EURGB60). C'est le cas de Rayman 3 : ce
+   code s'arrete expres ("Invalid TV format") en PAL 60 Hz. Le .dol est lu tel quel (en-tete : 7 + 11 sections). */
+static u32 na_be(const u8 *p) { return (u32)p[0] << 24 | (u32)p[1] << 16 | (u32)p[2] << 8 | p[3]; }
+static int na_dol_o(const u8 *d, u32 n, u32 a) {         /* adresse -> position dans le .dol (texte seulement), -1 : pas dedans */
+    for (int k = 0; k < 7; k++) {
+        u32 o = na_be(d + k * 4), ad = na_be(d + 0x48 + k * 4), sz = na_be(d + 0x90 + k * 4);
+        if (sz && a >= ad && a - ad < sz && o + (a - ad) + 4 <= n) return (int)(o + (a - ad));
+    }
+    return -1;
+}
+static void na_pal60_scan(const u8 *d, u32 n) {
+    na_pal60_ko = 0; na_pal60_at = 0;
+    if (n < 0x100) return;
+    for (int k = 0; k < 7; k++) {
+        u32 o = na_be(d + k * 4), ad = na_be(d + 0x48 + k * 4), sz = na_be(d + 0x90 + k * 4);
+        if (!sz || o + sz > n) continue;
+        for (u32 i = 0; i + 4 <= sz; i += 4) {
+            u32 w = na_be(d + o + i);
+            if ((w & 0xFC000003u) != 0x48000001u) continue;              /* bl */
+            int32_t off = (int32_t)(w << 6) >> 6 & ~3;
+            int t = na_dol_o(d, n, ad + i + (u32)off);
+            if (t < 0) continue;
+            int vi = 0;
+            for (int j = 0; j < 12 && (u32)t + j * 4 + 4 <= n; j++) if (na_be(d + t + j * 4) == 0x28050006u) { vi = 1; break; }
+            if (!vi) continue;
+            int c1 = 0, c3 = 0, c5 = 0;
+            for (int j = 1; j <= 24 && i + j * 4 + 4 <= sz; j++) {
+                u32 x = na_be(d + o + i + j * 4);
+                if (x == 0x2C030001u || x == 0x28030001u) c1 = 1;
+                if ((x == 0x2C030003u || x == 0x28030003u) && i + j * 4 + 8 <= sz && (na_be(d + o + i + j * 4 + 4) & 0xFFE00000u) == 0x40800000u) c3 = 1;
+                if (x == 0x2C030005u || x == 0x28030005u) c5 = 1;
+            }
+            if (c1 && c3 && !c5) { na_pal60_ko = 1; na_pal60_at = ad + i; return; }
+        }
+    }
+}
 static u32 na_vi_bootrom(const char *id) {
     if (!na_game_pal(id)) return 0;                       /* VI_NTSC */
     /* v405 : Video "comme le jeu" (0) : vraiment le format du jeu, PAL 50 Hz pour un jeu PAL (comme une console
@@ -3197,6 +3238,56 @@ static natres_ext_t na_card[NATRES_CARDMAX], na_card2[NATRES_CARDMAX];
 static u32 na_card_n = 0, na_card_size = 0, na_card2_n = 0, na_card2_size = 0;
 static char na_card_msg[128] = "", na_card2_msg[128] = "";
 static int nat_card_reg = 0;                              /* v122 : une carte par region du jeu (reglage) */
+/* v421 : le nom du jeu dans le nom du fichier de sa carte : carte-A-GALE01-Super-Smash-Bros-Melee.raw (lettres, chiffres
+   et tirets seulement : le nom passe tel quel dans les adresses du telephone, /api/cardfile/...). Les cartes deja creees
+   (carte-A-GALE01.raw) sont renommees au lancement suivant du jeu ; si le renommage echoue, l'ancien nom reste. */
+static void na_card_slug(const char *t, char *out, int cap) {
+    static const char a0[] = "aaaaaaaceeeeiiiidnooooo/ouuuuyty";        /* (UTF-8 C3 A0..BF, sans accent) */
+    int n = 0, tiret = 1;
+    for (const unsigned char *q = (const unsigned char *)t; *q && n < cap - 1; q++) {
+        char ch = 0;
+        if (isalnum(*q) && *q < 128) ch = (char)*q;
+        else if (*q == 0xC3 && q[1] >= 0x80 && q[1] <= 0xBF) { unsigned char x = q[1]; q++;
+            ch = x >= 0xA0 ? a0[x - 0xA0] : (char)toupper((unsigned char)a0[x - 0x80]); if (ch == '/') ch = 0; }
+        else if (*q == '\'' ) continue;                                 /* (Link's -> Links) */
+        if (ch) { out[n++] = ch; tiret = 0; }
+        else if (!tiret) { out[n++] = '-'; tiret = 1; }
+    }
+    while (n > 0 && out[n - 1] == '-') n--;
+    out[n] = 0;
+}
+static const char *na_card_game_file(int slot, const char *gid) {
+    static char nm[2][96];
+    char pre[24], old[32], titre[72] = "", slug[40] = "";
+    snprintf(pre, sizeof(pre), "carte-%c-%s", slot ? 'B' : 'A', gid);
+    snprintf(old, sizeof(old), "%s.raw", pre);
+    for (int k = 0; k < gl_n && !titre[0]; k++) if (!strncasecmp(gl[k].id, gid, strlen(gid)) && gl[k].title[0] && strcasecmp(gl[k].title, gl[k].id)) snprintf(titre, sizeof(titre), "%s", gl[k].title);
+    na_card_slug(titre, slug, 35);
+    char voulu[96];
+    if (slug[0]) snprintf(voulu, sizeof(voulu), "%s-%s.raw", pre, slug); else snprintf(voulu, sizeof(voulu), "%s", old);
+    /* une carte deja la pour ce jeu (ancien nom, ou nom avec un titre) */
+    char trouve[64] = "";
+#ifndef NATIF_BENCH
+    int pl = (int)strlen(pre);
+    DIR *d = sd_ok ? opendir(NA_CARD_DIR) : NULL;
+    struct dirent *e;
+    while (d && (e = readdir(d)) != NULL) {
+        int l = (int)strlen(e->d_name);
+        if (l < pl + 4 || l >= 60 || strncasecmp(e->d_name, pre, pl) || strcasecmp(e->d_name + l - 4, ".raw")) continue;
+        if (e->d_name[pl] != '.' && e->d_name[pl] != '-') continue;
+        if (!strcasecmp(e->d_name, voulu)) { snprintf(trouve, sizeof(trouve), "%s", e->d_name); break; }
+        if (!trouve[0] || !strcasecmp(e->d_name, old)) snprintf(trouve, sizeof(trouve), "%s", e->d_name);
+    }
+    if (d) closedir(d);
+    if (trouve[0] && strcasecmp(trouve, voulu) && !strcasecmp(trouve, old) && slug[0]) {   /* (ancien nom : renommee) */
+        char pa[192], pb[192];
+        snprintf(pa, sizeof(pa), NA_CARD_DIR "/%s", trouve); snprintf(pb, sizeof(pb), NA_CARD_DIR "/%s", voulu);
+        if (rename(pa, pb) == 0) snprintf(trouve, sizeof(trouve), "%s", voulu);
+    }
+#endif
+    snprintf(nm[slot], sizeof(nm[0]), "%s", trouve[0] ? trouve : voulu);
+    return nm[slot];
+}
 /* v122 : nom du fichier de la carte (slot 0 = A, 1 = B), avec la region du jeu si le reglage est mis :
    carte-A.raw -> carte-A-EUR.raw (sauf carte choisie pour ce jeu : prise telle quelle) */
 static const char *na_card_name(int slot, const char *id) {
@@ -3206,7 +3297,7 @@ static const char *na_card_name(int slot, const char *id) {
         char gid[8]; int n = 0;
         for (int i = 0; id[i] && n < 6; i++) if (isalnum((unsigned char)id[i])) gid[n++] = id[i];
         gid[n] = 0;
-        if (n >= 4) { snprintf(nm[slot], sizeof(nm[0]), "carte-%c-%s.raw", slot ? 'B' : 'A', gid); return nm[slot]; }
+        if (n >= 4) return na_card_game_file(slot, gid);   /* (v421 : avec le nom du jeu) */
     }
     if (!nat_card_reg || (!slot && vc_keep[0]) || !id) { snprintf(nm[slot], sizeof(nm[0]), "%s", base); return nm[slot]; }
     const char *reg = id[3] == 'J' ? "JAP" : na_game_pal(id) ? "EUR" : "USA";
@@ -3423,7 +3514,7 @@ static void na_vi_irqs(u32 vb) {
 /* v143 : Pulse par le reseau : l'ISO est lue sur une autre GC Station (ou un PC) par le Broadband Adapter */
 static int na_net_on = 0;
 static natres_net_t na_netc;
-static u32 na_pad[sizeof(natres_pad_t) / 4 + NATRES_GBA_RING + NATRES_MIC_RING / 4];   /* section "PPAD" (ordre de la machine) ; v344 : + anneaux */
+static u32 na_pad[sizeof(natres_pad_t) / 4 + NATRES_GBA_RING + NATRES_MIC_RING / 4 + NATRES_MSR_BYTES / 4 + NATRES_MSL_BYTES / 4];   /* section "PPAD" (ordre de la machine) ; v344 : + anneaux ; v409 : + anneau du direct */
 static int na_pad_w = 0, na_pad_on = 0;
 static u32 na_ipv4(const char *s) { unsigned a, b, c, d; return sscanf(s, "%u.%u.%u.%u", &a, &b, &c, &d) == 4 ? (u32)a << 24 | (u32)b << 16 | (u32)c << 8 | d : 0; }
 static void na_pad_prep(void) {
@@ -3438,6 +3529,7 @@ static void na_pad_prep(void) {
     p->micon = (u32)na_micon();                           /* v332 : micro du telephone (slot B) */
     if (p->gbmask) p->len += NATRES_GBA_RING;             /* (v344 : anneaux apres la structure, seulement s'ils servent) */
     if (p->micon) p->len += NATRES_MIC_RING / 4;
+    if (na_opt() & NRO_MEM) { p->msr = p->len * 4; p->len += (NATRES_MSR_BYTES + NATRES_MSL_BYTES) / 4; }   /* (v419 : + la liste du direct) */   /* v409 : anneau du direct (v410 : 16 Ko) */
     for (int i = 0; i < 4; i++) { p->h[i] = 0x00808080u; p->l[i] = 0x80800000u; }
     if (p->net.ip) na_pad_w = (int)p->len;
 }                               /* (ordre de la machine ; ecrit en gros-boutiste dans le resident) */
@@ -3591,6 +3683,7 @@ static const char *nat_boot(int k) {
     nat_ld("Lecture du jeu", 22);
     int ok = gd_open(&d, gl[k].path);
     if (ok) ok = na_read_ticked(&d, in.dol_off, buf + o_dol, dol_len, 22, 33);
+    if (ok) na_pal60_scan(buf + o_dol, dol_len);         /* v407 : jeu qui refuse le PAL 60 Hz ? */
     if (ok) ok = gd_read(&d, 0x440, buf + o_bi2, NA_BI2);
     if (ok) na_bi2_fix(buf + o_bi2, in.id);              /* v146 */
     if (ok) ok = na_read_ticked(&d, in.fst_off, buf + o_fst, in.fst_sz, 33, 38);
@@ -3821,6 +3914,10 @@ static const char *nat_boot(int k) {
             if (nat_vmode && na_game_pal(in.id) && !na_no_pal60(in.id)) vb = 5;
             fprintf(f, "Mode video donne au jeu (800000CC) : %s (jeu %s ; reglage Video : %s)\n", vb == 1 ? "PAL 50 Hz" : vb == 5 ? "EURGB60 (PAL 60 Hz)" : "NTSC",
                     na_game_pal(in.id) ? "PAL" : "NTSC", nat_vmode == 0 ? "comme le jeu" : nat_vmode == 1 ? "480p" : nat_vmode == 2 ? "PAL 60 Hz" : "240p");
+            if (na_game_pal(in.id) && na_no_pal60(in.id))   /* v407 */
+                fprintf(f, "  ce jeu ne connait pas le PAL 60 Hz (%s) : toujours PAL 50 Hz\n",
+                        na_pal60_at ? "son choix du mode d'image le refuse" : "liste");
+            if (na_pal60_at) fprintf(f, "  (appel a VIGetTvFormat sans cas PAL 60 Hz en %08X)\n", (unsigned)na_pal60_at);
         }
 #ifdef GEKKO
         fprintf(f, "Console : PAL 60 Hz dans ses reglages (SRAM) : %s ; GC Station tournait en %s\n", SYS_GetEuRGB60() ? "oui" : "non",

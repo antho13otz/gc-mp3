@@ -120,6 +120,14 @@ object Bandeau {
      * en haut du menu de GC Station (/api/notif, console v399). Rend null si c'est fait, sinon pourquoi.
      */
     fun notifier(etiquette: String, texte: String, icone: Int = MESSAGE, appli: String? = null): String? {
+        // (build 547 : 3 notifications en attente au plus ; les suivantes sont laissees : avant, elles s'empilaient sans fin
+        //  en attendant Pulse, meme une partie finie)
+        if (enAttente.incrementAndGet() > 3) { enAttente.decrementAndGet(); return "Trop de notifications en attente" }
+        try { synchronized(verrouNotif) { return notifier2(etiquette, texte, icone, appli) } } finally { enAttente.decrementAndGet() }
+    }
+    private val enAttente = java.util.concurrent.atomic.AtomicInteger(0)
+    private val verrouNotif = Any()
+    private fun notifier2(etiquette: String, texte: String, icone: Int, appli: String?): String? {
         if (St.jeu != null) {
             val e = envoyerNotif(etiquette, texte, icone, appli)
             if (e == null) return null
@@ -129,14 +137,24 @@ object Bandeau {
             ?: return "Console injoignable"
         return if (r.contains("\"ok\":1")) null else if (r.contains("\"ok\":0")) "La console affiche déjà une notification, réessaie" else "Console trop ancienne (v399 ou plus)"
     }
-    @Synchronized private fun envoyerNotif(etiquette: String, texte: String, icone0: Int, appli: String?): String? {
+    /**
+     * build 535 : succes RetroAchievements debloque, avec son badge (bandeau BAN3, console v401+ : l'image dans une case
+     * d'icone, 16 x 16 ; sinon le trophee comme avant)
+     */
+    fun succes(titre: String, badge: android.graphics.Bitmap?): String? {
+        if (badge != null && St.jeu != null && envoyerNotif("Succès RetroAchievements", titre, TROPHEE, null, badge) == null) return null
+        return envoyer(2, titre)                                  // (sans image : comme avant)
+    }
+    @Synchronized private fun envoyerNotif(etiquette: String, texte: String, icone0: Int, appli: String?, image: android.graphics.Bitmap? = null): String? {
         var icone = icone0
         if (MemoireJeu.demande('I', garde = false) == null) return "Pulse ne répond pas"
         val d = trouver() ?: return "Pulse ne répond pas"
         if (d == 0L) return "Pas de bandeau dans cette partie"
         if (version < 2) return envoyer(3, "$etiquette : $texte")
         attendrePrise(d)
+        if (version < 3 && image != null) return "bandeau sans images"
         if (version >= 3 && appli != null) caseIcone(d, appli)?.let { icone = 16 + it }   // (v401 : l'image de l'application)
+        if (version >= 3 && image != null) caseIcone(d, "img:" + image.generationId + ":" + texte, image)?.let { icone = 16 + it }   // (build 535 : badge du succes)
         val c = codes(etiquette)
         for (k in 0 until 8) if (MemoireJeu.demande('W', d + O_RAETIQ + k * 4, 4, g32(c, k * 4), garde = false) == null) return "Pulse ne répond plus"
         if (MemoireJeu.demande('W', d + O_RAICONE, 4, icone.toLong(), garde = false) == null) return "Pulse ne répond plus"
@@ -166,9 +184,16 @@ object Bandeau {
     }
 
     /** bandeau (BAN3) : la case de l'icone de cette application ; remplie une fois par partie (128 ecritures de 4 octets) */
-    private fun caseIcone(d: Long, appli: String): Int? {
-        cases[appli]?.let { cases.remove(appli); cases[appli] = it; return it }    // (la plus recente en dernier)
-        val b = iconeAppli(appli, IMG_W) ?: return null
+    private fun caseIcone(d: Long, appli: String, image: android.graphics.Bitmap? = null): Int? {
+        cases[appli]?.let { k0 ->
+            // (build 536 : une nouvelle partie peut avoir sa zone a la meme adresse que la precedente : les cases y sont vides
+            //  (carre vert : des zeros). La case remplie commence toujours par Y >= 16 : sinon, on la remplit de nouveau.)
+            val a = d + O_IMG + k0 * IMG_W * IMG_W * 2
+            val bl = MemoireJeu.bloc(a and 1023L.inv())
+            if (bl != null && g32(bl, (a and 1023L).toInt()) == 0L) cases.clear()
+            else { cases.remove(appli); cases[appli] = k0; return k0 }    // (la plus recente en dernier)
+        }
+        val b = (if (image != null) android.graphics.Bitmap.createScaledBitmap(image, IMG_W, IMG_W, true) else iconeAppli(appli, IMG_W)) ?: return null
         val zone = MemoireJeu.bloc(d) ?: return null
         // (posee sur la couleur du fond du bandeau, lue dans la zone : Y Cb Cr)
         val fy = zone[O_COUL].toInt() and 255; val fu = zone[O_COUL + 1].toInt() and 255; val fv = zone[O_COUL + 2].toInt() and 255

@@ -2166,8 +2166,8 @@ fun EcranCompagnon() {
     DisposableEffect(Unit) { onDispose { Compagnon.ecranOuvert = false; PlanWW.enregistrer(Compagnon.ctx) } }
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
         val id = Compagnon.jeu
-        Doux(if (id.isNotEmpty() && Compagnon.pris(id)) Compagnon.PRIS[id] + " (" + Compagnon.jeuReel.ifEmpty { id } + ")" else "Pendant une partie lancée avec Pulse, l'appli lit le jeu en direct : jauges, carte, chrono.", taille = 12)
-        if (Compagnon.statut.isNotEmpty()) Doux(Compagnon.statut, taille = 12, couleur = C.Orange)
+        // build 558 : en-tete de la partie (icone, nom du jeu, etat) au lieu de deux lignes de texte
+        EnTeteCompagnon(id)
         // build 343 : la photo de la memoire ici, pendant la partie (avant : dans le chercheur de codes) : le jeu se met en
         // pause le temps de la copie, puis le fichier (.bin.gz) part dans Telechargements/GC Remote et le partage s'ouvre
         val st = act as? StationActivity
@@ -2201,6 +2201,9 @@ fun EcranCompagnon() {
             Bouton(if (occupe) msgPack else "📦 Installer / mettre à jour les packs de ce jeu (.zip)", Modifier.fillMaxWidth(), actif = !occupe) { choix.launch(arrayOf("*/*")) }
             if (!occupe && msgPack.isNotEmpty()) Doux(msgPack, taille = 11)
         }
+        // build 558 : les accessoires du telephone, sous un titre
+        val avecMicro = MicTel.VISIBLE && (id.isEmpty() || id.startsWith("GP6") || id.startsWith("GP7") || MicTel.etat.marche)
+        if (avecMicro || !id.startsWith("GZL")) TitreSection("Accessoires du téléphone")
         // build 373 : le micro du telephone (slot B, essai ; MicroTel.kt) : jeux a micro, ou jeu pas encore lu
         if (MicTel.VISIBLE && (id.isEmpty() || id.startsWith("GP6") || id.startsWith("GP7") || MicTel.etat.marche)) MicroTelephone()   // (build 458 : cache)
         // build 373 : la GBA du telephone ailleurs que dans Wind Waker ; build 376 : pour tous les jeux (Rayman 3, Pac-Man Vs....)
@@ -2973,4 +2976,33 @@ internal fun matricesCompactes(b: ByteArray, o: Int, nj: Int): FloatArray? {
         for (c in 0..2) mm[r + 4 * c + 3] = (t0[c] + s16(p + 12 + 2 * c)) / 4f
     }
     return mm
+}
+
+/** build 558 : l'en-tete de la page du compagnon : le jeu lu en direct (ou pas de partie), et l'etat de Pulse */
+@Composable
+fun EnTeteCompagnon(id: String) {
+    val pris = id.isNotEmpty() && Compagnon.pris(id)
+    val nom = when { pris -> Compagnon.PRIS[id] ?: id; id.isNotEmpty() -> Compagnon.jeuReel.ifEmpty { id }; else -> "Aucune partie lue" }
+    val probleme = Compagnon.statut.isNotEmpty()
+    Carte(Modifier.fillMaxWidth(), androidx.compose.foundation.layout.PaddingValues(14.dp)) {
+        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            androidx.compose.foundation.layout.Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
+                IconeRonde(if (id.isEmpty()) "🎮" else "🕹️", if (probleme) C.Orange else if (id.isNotEmpty()) C.Vert else C.Violet, 52)
+                androidx.compose.foundation.layout.Spacer(Modifier.width(12.dp))
+                Column(Modifier.weight(1f)) {
+                    androidx.compose.material3.Text(nom, color = C.Texte, fontSize = 18.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold, maxLines = 2)
+                    Doux(when { pris -> Compagnon.jeuReel.ifEmpty { id } + " · lu en direct"; id.isNotEmpty() -> "$id · pas encore de compagnon pour ce jeu"
+                                else -> "Lance un jeu avec Pulse : jauges, carte et chrono ici" }, taille = 11, lignes = 2)
+                }
+            }
+            androidx.compose.foundation.layout.Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                when {
+                    probleme -> Pastille("Pulse ne répond pas", C.Orange)
+                    id.isNotEmpty() -> Pastille("En direct", C.Vert)
+                    else -> Pastille("En attente d'une partie", C.Pale)
+                }
+            }
+            if (probleme) Doux(Compagnon.statut, taille = 12, couleur = C.Orange)
+        }
+    }
 }

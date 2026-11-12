@@ -110,7 +110,9 @@ def depuis_gitlab(quoi):
             print("publish_github : APK publique pas trouvee (%s) : release sans l'appli" % e)
         corps = note("## Nouveautés %s (build %s" % (ver, build)) or ("GC Station %s (build %s)" % (ver, build))
         corps += ("\n\n---\nMise a jour : sur la console, START > Mise a jour. Installation neuve : copier `gc-mp3player-b%s.dol` "
-                  "sur la carte SD et le lancer depuis Swiss.\n" % build)
+                  "sur la carte SD et le lancer comme un autre homebrew : GC Station et Pulse font le reste.\n" % build)
+        # (build 559) le guide des testeurs RetroAchievements (anglais), dans docs/ du depot GitHub
+        corps += "Testeurs RetroAchievements / RetroAchievements testers : [guide](%s)\n" % "https://github.com/antho13otz/gc-mp3/blob/main/docs/RA-TESTER-GUIDE.md"
         if apk:
             corps += "Appli Android (GC Remote Lite, version publique du moment) : `%s`.\n" % os.path.basename(apk[0])
         open("github/notes.md", "w", encoding="utf-8").write(corps)

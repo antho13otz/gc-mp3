@@ -12,9 +12,12 @@ et la dernière appli (`gc-remote-lite-NNN.apk`).
 > (cheats, achievements shown on the TV, live 3D view on your phone), and *GC Remote Lite*, its Android companion app.
 > Grab the latest `.dol` and `.apk` from the [Releases](https://github.com/antho13otz/gc-mp3/releases) page. The interface is in
 > French and English.
+>
+> **RetroAchievements testers:** see the [tester guide](https://github.com/antho13otz/gc-mp3/blob/main/docs/RA-TESTER-GUIDE.md).
 
 ## Installation
-- **Console** : copie `gc-mp3player-bNNN.dol` sur la carte SD (SD2SP2 ou SD Gecko) et lance-le depuis Swiss.
+- **Console** : copie `gc-mp3player-bNNN.dol` sur la carte SD (SD2SP2 ou SD Gecko) et lance-le comme tes autres homebrew.
+  GC Station et Pulse s'occupent ensuite de tout, jeux compris.
   La version `gc-station-compresse-bNNN.bin` est la même, plus petite.
 - **Mises à jour** : sur la console, START > Mise à jour. Elle se met à jour toute seule depuis les publications du projet.
 - **Téléphone** : installe `gc-remote-lite-NNN.apk` (Android). L'appli se met ensuite à jour toute seule.

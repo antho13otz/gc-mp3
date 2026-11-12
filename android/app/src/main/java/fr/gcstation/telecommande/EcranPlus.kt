@@ -187,6 +187,9 @@ fun EcranPulse() {
                     Spacer(Modifier.height(12.dp))
                     Bouton("Écran de la partie", Modifier.fillMaxWidth(), plein = true, hauteur = 40.dp) { St.jeuMasque = false }
                 }
+                if (Prive.ACTIF && g != null) RetourMenu(act)   // (build 548, console v418 : comme A+Z+START, appli privee)
+                if (g != null) ExtrasRA.Touches()               // (build 554, appli privee : touches de la manette 1 vues par Pulse)
+                if (g == null && St.connecte) ExtrasRA.Redemarrer(act)   // (build 554, console v420, appli privee)
                 // build 509 (console v397) : le bandeau des succes sur la tele : essai, et succes RetroAchievements oui / non
                 // (build 521 : aussi dans la version publique : la console v397+ publique a le bandeau)
                 BandeauPulse(act)
@@ -489,4 +492,29 @@ private fun Vignette(x: JSONArray, dire: (String) -> Unit) {
             Icon(Ic.Lecture, null, tint = C.Cyan, modifier = Modifier.size(36.dp))
         }
     }
+}
+
+
+/** build 548 (console v418, appli privee) : retour au menu de GC Station, comme A+Z+START tenus 1 s (Pulse : demande « Q ») */
+@Composable
+private fun RetourMenu(act: StationActivity) {
+    var demande by remember { mutableStateOf(false) }
+    Spacer(Modifier.height(10.dp))
+    Bouton("Retour au menu (A+Z+START)", Modifier.fillMaxWidth(), hauteur = 40.dp) { demande = true }
+    if (demande) androidx.compose.material3.AlertDialog(
+        onDismissRequest = { demande = false },
+        title = { Text("Revenir au menu de GC Station ?") },
+        text = { Text("Comme A+Z+START : la partie s'arrête tout de suite, sans sauvegarder.") },
+        confirmButton = {
+            androidx.compose.material3.TextButton(onClick = {
+                demande = false
+                Api.pool {
+                    val r = MemoireJeu.demande('Q', 0x51554954L, garde = false)
+                    act.runOnUiThread {
+                        Lang.toast(act, if (r != null) "Retour au menu demandé" else "Pulse ne répond pas : « Chercheur de codes (appli) » allumé, console v418 ou plus ?", android.widget.Toast.LENGTH_LONG).show()
+                    }
+                }
+            }) { Text("Revenir au menu") }
+        },
+        dismissButton = { androidx.compose.material3.TextButton(onClick = { demande = false }) { Text("Annuler") } })
 }

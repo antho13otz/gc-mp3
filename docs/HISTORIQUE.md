@@ -5,7 +5,7 @@
 Lecteur audio pour GameCube : **ta musique** (carte SD), des **webradios**, un **navigateur web**,
 la **musique de jeux rétro**, des **podcasts**, tes **photos et vidéos**, un **explorateur de fichiers**,
 la **météo / actualités / réveil**, et une **télécommande sur téléphone** (Broadband Adapter),
-dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Indigo.
+dans une interface GX style Indigo. Lancer `gc-mp3player.dol` comme un autre homebrew.
 
 ## Où sont les fichiers sur la carte SD
 - Tes fichiers : `SD:/mp3` (musique), `SD:/retro`, `SD:/photos`, `SD:/videos`, `SD:/ecran`, `SD:/downloads`.
@@ -23,6 +23,202 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 **L / R** passent à l'onglet précédent / suivant (v386 ; avant : **Z**) : MUSIQUE, RADIO, WEB, RÉTRO, PODCASTS, PHOTOS, FICHIERS, INFOS,
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
+
+## Appli 559 — guide des testeurs, plus de « Swiss » dans les consignes
+- Guide des testeurs RetroAchievements (anglais) : `docs/RA-TESTER-GUIDE.md`, lié depuis le README et depuis chaque publication GitHub.
+- Installation : « lancer comme un autre homebrew » (README, texte des publications) ; Swiss n'est que le moteur du lanceur de secours.
+- La cartouche dans la GBA du téléphone (lire un .gba, rendre le .sav) n'est plus compilée du tout dans l'appli publique : ses fonctions natives n'existent que dans l'appli privée.
+
+## Console v421 (build 950) — cartes virtuelles au nom du jeu
+- Avec « une carte par jeu » (ou la carte propre d'un jeu), le fichier de la carte porte le nom du jeu : `carte-A-GALE01-Super-Smash-Bros-Melee.raw` (lettres, chiffres et tirets seulement, accents enlevés). Les cartes déjà créées (`carte-A-GALE01.raw`) sont renommées au lancement suivant du jeu ; si le renommage échoue, l'ancien nom reste et la carte sert quand même.
+
+## Appli privée 558 — page du compagnon plus visuelle
+- En-tête de la partie : icône, nom du jeu, pastille d'état (en direct, Pulse ne répond pas, en attente).
+- Accessoires du téléphone (micro, GBA, Tingle Tuner) : cartes avec icône et pastille d'état ; les modes d'emploi, la licence de l'émulateur et les détails techniques sont repliés.
+- Cartouche dans la GBA : une fente qui montre la cartouche insérée (nom du jeu, version, sauvegarde) ; les cartouches du dossier dessinées à la couleur du jeu (Rouge Feu, Vert Feuille, Rubis, Saphir, Émeraude reconnus) ; les actions rares en petit (actualiser, changer de dossier, fichiers à la main, exporter le .sav).
+
+## Appli privée 557 — dossier des cartouches
+- *Cartouche dans la GBA* : un dossier du téléphone choisi une fois (par exemple Documents/GC Station/Cartouches) ; ses jeux .gba sont listés avec leur titre et leur région ; un jeu touché est inséré avec le .sav du même nom. La sauvegarde changée est réécrite dans le dossier, à côté du jeu ; l'ancienne est gardée en .sav.bak. Pas de changement de cartouche pendant que la GBA tourne.
+
+## Appli privée 556 — cartouche dans la GBA du téléphone (Pokémon Colosseum, essai)
+- Carte *GBA du téléphone* (compagnon, hors Wind Waker) : *Cartouche dans la GBA* : ton jeu GBA (.gba) et sa sauvegarde (.sav). Quand le jeu GameCube envoie son programme à la GBA (Pokémon Colosseum, XD, Box, Channel), ce programme lit et écrit la sauvegarde de la cartouche, comme sur une vraie GBA. La sauvegarde changée est gardée sur le téléphone (toutes les 5 s et à l'arrêt), la copie d'origine reste à part, et *Récupérer le .sav* la rend en fichier. Appli privée seulement ; pas encore essayé sur la console.
+
+## Appli privée 555 — filtres des jeux sur une ligne
+- Le filtre des jeux avec succès s'appelle « 🏆 Succès » ; les boutons de filtre ne passent plus jamais sur plusieurs lignes, et la rangée défile si elle ne tient pas.
+
+## Console v420 (build 949) et appli privée 554 — historique des succès, hardcore sans cheats et pauses comptées, rapport de partie, touches en direct, redémarrage à distance
+- **Appli privée** : *Historique des succès* (Plus → Succès → RetroAchievements, sous le journal) : chaque succès débloqué, avec son badge, la date, les points et le mode, rangé par jeu (300 gardés sur le téléphone).
+- **Appli privée** : en mode hardcore, un jeu lancé depuis le téléphone avec Pulse part toujours **sans cheats** (patch « H »). **Console v420** : avec « H », la console annonce le jeu sans cheats (le hardcore reste possible) et n'utilise plus le lanceur de secours pour des cheats que Pulse ne comprend pas.
+- **Appli privée** : les **pauses de la vérification** (adresse nouvelle attendue) sont comptées ; en hardcore, une pause de plus d'1 s (60 images) fait passer la partie en mode normal, comme une image manquée. Les pauses de plus de 10 images sont notées dans le journal.
+- **Appli privée** : **rapport de test** à la fin de chaque partie (jeu, durée, images vérifiées et manquantes, pauses, compression, liste, mode gardé ou pourquoi perdu, build et téléphone), avec un bouton *Copier* ; les 5 derniers sont gardés.
+- **Appli privée** : *Touches de la manette en direct* (Plus, pendant une partie) : les touches de la manette 1 vues par Pulse (en-tête de Pulse, pas la mémoire du jeu).
+- **Console v420** : nouvelle requête `/api/redemarrer` : GC Station se relance proprement, comme le bouton Reset (réglages enregistrés ; pas pendant une mise à jour). **Appli privée** : bouton *Redémarrer GC Station* (Plus, hors partie), avec confirmation.
+
+## Appli privée 553 — Sunshine : pages d'objets entières ; jeux avec succès ; classements de la partie
+- **Super Mario Sunshine : pages chaudes** (`ListeRA`, sortie de RetroSucces, essayée sur le PC) : les pages de 1 Ko où de nouvelles zones apparaissent sans arrêt (objets que le jeu crée et détruit, suivis par pointeurs) sont demandées entières à leur 3e nouvelle zone (au plus 6 Ko, liste aux 3/4 du maximum) : les objets suivants y sont déjà, plus de pause à chaque nouvel objet. Essai sur le PC (Sunshine simulé : objets dans 4 pages, 30 zones fixes) : après 10 s, 0 zone manquante au lieu de 59. Bilan par minute : nombre de pages entières.
+- **Jeux avec succès** (onglet Jeux) : filtre « 🏆 Avec succès » ; bouton « Chercher les succès de mes jeux » (la console donne l'empreinte de chaque jeu, le téléphone demande ses succès ; gardé sur le téléphone ; arrêt possible) ; sur chaque jaquette : 🏆 obtenus / total (orange : tout obtenu). Mis à jour aussi à chaque ouverture de fiche.
+- **Classements de la partie** (page des succès) : chaque classement commencé, raté ou envoyé, avec le score, le rang (« rang 3 sur 120 ») et ton meilleur score ; celui en cours avec sa valeur en direct. (Les notifications et la télé les montraient déjà.)
+- Vérifié : essais de l'appli (19 OK : 16 du direct, 3 de la liste), compilation des deux applis. Appli publique pas publiée.
+
+## Appli privée 552 — marge stable pendant la partie
+- **Essai 551** (Sunshine) : plus de « liste trop grosse » (3 à 8 Ko), mais la marge allait et venait (7,8 Ko avec, 3 Ko sans) : chaque bascule changeait toute la liste. Maintenant, une fois coupée, elle le reste jusqu'à la fin de la partie.
+
+## Appli privée 551 — Super Mario Sunshine : liste plus courte, marge, temps en pause mesuré
+- **Essai v419 + 550** : 256 morceaux bien envoyés (2 paquets), mais la liste ne fait que grandir (22 → 256 zones, puis plus de 12 Ko) et la vérification se met en pause presque chaque seconde : Sunshine change sans arrêt d'objets (adresses suivies par pointeurs).
+- **Zones oubliées après 5 s** sans lecture (au lieu de 30 s) : la liste ne garde que ce qui sert.
+- **Marge de 64 octets** après chaque zone (objets voisins déjà reçus : moins de pauses), seulement si la liste reste aux 3/4 du maximum avec elle (Wind Waker et Paper Mario pas gênés).
+- **Bilan par minute** : part des images en pause (« adresse attendue »), en %.
+- Appli publique pas publiée (demandé).
+
+## Nouveautés v419 (build 948) et appli privée 550 — 256 morceaux pour RetroAchievements ; succès repliables
+- **Essai v418 + 549** (Super Mario Sunshine) : le rodage finit (12 s) mais la vérification reste presque toujours en pause : le jeu suit des centaines de petites zones éparpillées ; avec 96 morceaux au plus, réunies en blocs de 12 à 38 Ko, coupés à 12 Ko. Aucune image perdue, compression 8 %, 0 refusée.
+- **Pulse** : avec la réserve du direct (chercheur de codes de l'appli), la liste vit dans la structure du téléphone, après la réserve (`NATRES_MSL_BYTES`, 2 Ko pris sur la mémoire du jeu) : **256 morceaux** au lieu de 96, sans place en plus dans Pulse (il n'en reste qu'~1,1 Ko). Option bit 6 : suite de la liste (un paquet ne tient que ~180 morceaux). Réponse « GCMA » de 60 octets : le nombre de morceaux acceptés.
+- **Appli privée** : demande à la console combien elle accepte, envoie la liste en 2 paquets au-delà de 180 morceaux ; bilan par minute : zones lues avant regroupement (nombre, octets) et capacité de la console. **Page des succès** : la liste se range (appui sur son titre, retenu) et le journal est juste au-dessus d'elle. Appli publique pas publiée cette fois (demandé).
+- Vérifié : banc (54 OK, 1 échec attendu ; nouveau : 200 morceaux en 2 paquets, 3 200 octets justes ; GCMA 60 octets), essais de l'appli (16 OK), simulateur PC. Pulse : fin 817FFAA0.
+
+## Appli 549 (publique et privée) — Super Mario Sunshine : liste RetroAchievements sans octets inutiles
+- **Essai v418 + 548** : Super Mario Sunshine toujours en « rodage » : la liste touchait le maximum de 12 Ko (13 à 29 morceaux pour ~30 zones lues) : les zones éloignées étaient réunies en gros blocs (écart fixe de 64, 256, 1024 puis 4096 octets), la liste coupée ne couvrait pas tout.
+- **Maintenant** (console v416+) : jusqu'à 96 morceaux (la limite de Pulse ; avant 32, et 64 au plus envoyés si l'écran compagnon n'avait pas été ouvert) ; les zones sont réunies en commençant par les plus proches (le moins d'octets en plus) seulement s'il y en a trop. Si RetroAchievements demande quand même plus de 12 Ko, le journal le dit (« liste trop grosse »).
+
+## Nouveautés v418 (build 947) et appli privée 548 — bouton « Retour au menu (A+Z+START) »
+- **Pulse** : demande « Q » du téléphone (avec le mot « QUIT », chercheur de codes de l'appli allumé) : le même retour au menu de GC Station qu'A+Z+START tenus 1 s (journal, photo de l'endroit où en était le jeu), fait à la prochaine lecture des manettes. Marche même si A+Z+START est coupé dans les réglages.
+- **Appli privée** : onglet Pulse, carte « Partie en cours » : bouton « Retour au menu (A+Z+START) », avec confirmation (la partie s'arrête sans sauvegarder). Pas dans l'appli publique.
+- Vérifié : banc (54 OK, 1 échec attendu), simulateur PC, compilation des deux applis. Pulse : fin 817FFA00.
+
+## Appli 547 (publique et privée) — plus de « Console injoignable » après une partie ; page des succès remise à zéro
+- **Essais v417 + 546** : Paper Mario : rodage fini en 10 s, vérification active, listes jusqu'à 11,4 Ko, 0 image manquante, compression 4 %.
+- **Corrigé : « Console injoignable » après avoir quitté un jeu, jusqu'à relancer l'appli.** Le travail de fond (notifications du téléphone vers la télé, succès sur la télé...) prenait les 4 fils des requêtes à la console. Après la partie, les notifications attendaient Pulse (parti) et s'empilaient : tous les fils occupés, la question « /api/state » n'était plus posée, l'appli ne voyait jamais la console revenue (et croyait le jeu toujours lancé). Maintenant : 3 fils à part pour le travail de fond, et au plus 3 notifications en attente vers la télé (les suivantes sont laissées).
+- **Page des succès** : à la fin d'une partie, elle repart de zéro (état, jeu, liste, « en ce moment », liaison) ; le compte reste connecté, le journal reste.
+
+## Nouveautés v417 (build 946) et appli 546 (publique et privée) — listes jusqu'à 12 Ko (Sunshine, Paper Mario), abonnement plus patient
+- **Essais v416 + 545** : Wind Waker 23 630 images, 0 manquante, compression ~4-5 %, 12 images bus pris toutes renvoyées. Super Mario Sunshine (25 418 images) et Paper Mario : 0 perdue, mais **toujours en « rodage »** : les succès n'étaient jamais vérifiés. RetroAchievements a aussi débloqué « Warning: Unsupported Emulator » (l'appli n'est pas encore acceptée).
+- **Cause** : la liste demandée à la console était coupée à 4 Ko ; ces jeux lisent plus (une seule plage de plus de 4 Ko) : la liste ne couvrait pas tout et le rodage attendait pour toujours. **Appli** : avec une console v416+ (compression vue), jusqu'à 12 Ko et 32 morceaux ; les plages de plus de 4 608 octets (limite de Pulse par morceau) sont coupées.
+- **Pulse** : avec la compression, l'image de référence n'est gardée que dans sa copie (plus aussi dans le journal) ; le journal ne garde que les changements (au plus un quart du journal chacun, sinon image de référence) : listes jusqu'à ~12 Ko dans la réserve de 16 Ko (avant : ~3,9 Ko).
+- **Pulse : l'abonnement dure 10 s au lieu de 3** sans renouvellement : Paper Mario, appli quittée : téléphone gelé ~3 s, la console s'est arrêtée d'envoyer (8 images). Les paquets attendent maintenant le téléphone (tampon de réception de 4 Mo).
+- Vérifié : banc (54 OK, 1 échec attendu ; nouveau : liste de 12 000 octets en 3 morceaux, compressée : 70 images toutes refaites justes, bus pris 5 images rattrapé), essais de l'appli (16 OK), simulateur PC. Pulse : fin 817FF980.
+
+## Nouveautés v416 (build 945) et appli 545 (publique et privée) — images du direct compressées, 24 Ko rendus au jeu
+- **Essais avant** (v415 + 544) : plus de 50 000 images sans aucune perte. Demandé ensuite : rendre de la mémoire au jeu.
+- **Pulse : la réserve devient un journal d'images** (table de 32 images, puis les images à la suite, de la taille qu'elles font) : une image écrasée sort de la table ; une image pas partie (bus pris) repart dès le prochain envoi ; copies 2, 7, 15 et 31 images plus tard si elle y est encore.
+- **Compression** (l'appli la demande : option bit 5) : toutes les 30 images, une image de référence complète ; entre deux, seulement les octets changés depuis elle (sauter, nombre, octets). Chaque image dépend seulement de la référence (pas de la précédente). En-tête de 16 octets : image de référence, octets de l'image entière, deux sommes (s1 des octets, s2 des s1) ; bit 7 du nombre de morceaux dans les paquets. Si les changements prennent plus de place que l'image : image complète. Référence plus dans le journal : la suivante est une référence.
+- **Appli** : refait l'image (référence + changements) et vérifie les sommes : si la référence manque ou si la somme ne va pas, l'image est refusée (comptée manquante), **jamais une fausse valeur**. Attente jusqu'à 32 images ; plus d'envoi double (le journal suffit). Journal : taux de compression et images refusées chaque minute.
+- **Mémoire** : réserve de 40 Ko à 16 Ko : **24 Ko rendus au jeu** (seulement avec le chercheur de codes de l'appli). Une appli plus ancienne (sans l'option) reçoit les images entières, comme avant.
+- Vérifié : banc de Pulse (54 OK, 1 échec attendu du mode trap ; essais nouveaux : chaque image refaite comme sur le téléphone = la mémoire du jeu, bus pris 8 images toutes renvoyées, changements de 26 octets au lieu de 2 736), essais de l'appli (16 OK : 100 % d'images justes avec coupures et bus pris ; ~254 octets par image au lieu de 2 736 ; somme fausse et référence absente refusées), simulateur PC. Pulse : +~900 octets (fin 817FF840). Pas encore essayé en vrai.
+
+## Appli 544 (publique et privée) — RetroAchievements continue appli en arrière-plan
+- **6e essai** (Wind Waker, v415 + appli 543) : 20 503 images, aucune perdue, aucune pas envoyée : 100 %, hardcore gardé. Mais des images se perdaient dès que l'appli passait en arrière-plan.
+- **Service au premier plan** (`RetroService`, type « appareil connecté ») pendant une partie RetroAchievements, avec une notification discrète « RetroAchievements : partie en cours » : Android (et HyperOS) ne gèle plus l'appli derrière. Démarré au début de la partie (ou au retour de l'appli s'il n'avait pas pu démarrer), arrêté à la fin.
+
+## Nouveautés v415 (build 944) et appli 543 (publique et privée) — réserve de la console à 40 Ko
+- **5e essai, avec le diagnostic v414** : à l'écran titre (8,9 s), le jeu garde le bus ~8 images d'affilée (lecture de la carte mémoire) ; Pulse les a toutes gardées (7 puis 8 « gardées sans être envoyées »), mais l'anneau n'avait que 5 cases pour des images de 2 736 octets : les plus anciennes ont été écrasées avant de pouvoir partir (5 puis 6 « renvoyées ») : 3 images manquantes, hardcore coupé. Aucun paquet perdu par l'adaptateur (0 attente trop longue), rien sauté sans être gardé.
+- **Réserve de 40 Ko au lieu de 16 Ko** (`NATRES_MSR_BYTES`) : 14 cases pour 2 736 octets (233 ms de bus pris), 9 pour 4 Ko, 32 pour les petites listes. Prise sur la mémoire du jeu (sous le résident, avec les aiguillages), seulement avec le chercheur de codes de l'appli : 24 Ko de plus.
+- Appli : mêmes calculs (cases, attente). Vérifié : banc de Pulse (54 OK, 1 échec attendu du mode trap ; essai nouveau : bus pris 8 images de 2 paquets : toutes renvoyées, données justes), essais du direct (13 OK), simulateur PC.
+
+## Nouveautés v414 (build 943) et appli 542 (publique et privée) — diagnostic de l'anneau dans le journal
+- Le 4e essai était bien avec la console v413 (942) : 2 images « pas envoyées » à 8,9 s malgré l'anneau, alors que le banc d'essai les voit renvoyées. Pour savoir ce qui se passe sur la vraie console :
+- **Pulse** : le paquet de mesure envoyé chaque seconde ("GCMT", 36 octets au lieu de 28) porte 4 compteurs depuis le lancement : images gardées sans être envoyées (bus pris), images en attente renvoyées ensuite, images sautées sans être gardées (et pourquoi : bus pris sans anneau, ou adaptateur pris par le jeu), attentes trop longues de la file d'envoi de l'adaptateur (paquet écrit quand même : il peut se perdre).
+- **Appli** : le journal note ces compteurs à chaque changement, avec le moment.
+
+## Appli 541 (publique et privée) — sécurité avec une console plus ancienne ; journal : version de la console
+- **4e essai** (journal détaillé) : 2 images pas envoyées par la console à 8,9 s (écran titre), hardcore coupé ; ensuite aucune perte.
+- **Corrigé (depuis 539)** : pour une image de plusieurs paquets, l'appli ne demandait plus l'envoi double, en comptant sur l'anneau de la console v413. Avec une console plus ancienne (pas d'anneau pour ces images), l'image n'avait alors plus aucune copie. Maintenant, l'appli ne s'en passe que si la console a prouvé qu'elle est v413 ou plus (numéro d'abonnement dans ses paquets).
+- **Journal** : chaque trou dit si la console est v413 ou plus (ou plus ancienne). L'appli publique a aussi le journal détaillé de 540.
+
+## Appli privée 540 — journal détaillé de RetroAchievements
+- **3e essai** (Wind Waker, v413 + appli 539) : 102 225 images, aucune perdue en route ; 3 pas envoyées par la console, au lancement du jeu, dans les menus (selon le propriétaire).
+- Journal détaillé (500 lignes au lieu de 60, bouton « Copier le journal ») : début de la partie (hardcore ou non) ; **chaque trou** : numéros des images, moment depuis le début de la partie, phase (rodage, vérification, attente d'adresse), cause (pas envoyées par la console, ou perdues en route), taille de la liste, réserve de la console (nombre d'images gardées, copies) ; et une ligne de bilan par minute.
+- Appli publique : avec la prochaine version publiée.
+
+## Nouveautés v413 (build 942) et appli 539 (publique et privée) — compteur figé corrigé, anneau pour toutes les images
+- **2e essai** (Wind Waker, v412 + appli 538) : aucune image perdue sur le Wi-Fi, mais le compteur figé à 2 000, et le hardcore perdu à cause de 12 images pas envoyées par la console.
+- **Compteur figé (appli)** : depuis 537, chaque image était lue avec la liste reconnue à sa taille ; mais la liste de RetroAchievements est souvent coupée à 4 096 octets (le maximum) : deux listes différentes de même taille, et toutes les images étaient laissées, pour toujours. Corrigé de deux façons : (1) **console v413** : chaque paquet porte le numéro de l'abonnement (option bit 4 ; bits 8-15 du mot des morceaux) : l'appli sait exactement quelle liste a demandé chaque image ; (2) sans ce numéro (console plus ancienne), une liste remplacée ne compte plus que 1,5 s.
+- **Anneau pour toutes les images (Pulse)** : avant, seulement les images d'un seul paquet (~1 400 octets) ; Wind Waker en lit ~4 Ko (3 paquets) : pas d'anneau du tout. Maintenant chaque image est gardée entière (tous ses paquets) dans une case à sa taille (3 cases au moins, sinon pas d'anneau) ; copies 2, 7, 15, 31 images plus tard selon les cases.
+- **Images pas envoyées (Pulse)** : gardées (v412) et maintenant renvoyées **dès le prochain envoi** (avant d'écrire la nouvelle image : sa case peut être la leur), plus seulement 2 images plus tard ; aussi pour les images de plusieurs paquets.
+- **Pas plus de temps pris au jeu** : pour une image de plusieurs paquets avec l'anneau, l'appli ne demande plus l'envoi double immédiat (la copie de l'anneau 2 images plus tard le remplace) : autant de paquets par image qu'avant. Le nombre d'images non envoyées est aussi dans les paquets avec l'anneau.
+- Vérifié : banc de Pulse (54 OK, 1 échec attendu du mode trap ; essais nouveaux : 4 Ko et bus pris 3 images : les 3 images (3 paquets chacune) renvoyées au prochain envoi ; numéro d'abonnement), essais du direct de l'appli (13 OK : 4 Ko avec coupures : 100 % ; images pas envoyées : toutes rattrapées), simulateur PC, compilation des deux applis. Pulse : +480 octets.
+
+## Appli 538 (publique et privée) — le téléphone n'est plus bridé pendant une partie RetroAchievements
+- Demandé par le propriétaire : « ne bride pas mon téléphone ».
+- **Wi-Fi** : en plus du mode « faible latence » (qui ne vaut qu'au premier plan, écran allumé), le mode « haute performance » pendant le direct. Et le Wi-Fi du direct est réglé même sans l'écran compagnon (avant : RetroAchievements seul n'avait aucun réglage du Wi-Fi : l'économie d'énergie pouvait retenir des paquets).
+- **Processeur** : pendant une partie, le fil de RetroAchievements passe en priorité haute et le téléphone ne s'endort pas (écran éteint compris), jusqu'à la fin de la partie.
+
+## Nouveautés v412 (build 941) et appli 537 (publique et privée) — RetroAchievements : images retrouvées
+- **Premier vrai essai** (11 novembre, Wind Waker, v411 + appli 536) : 95,58 % des images reçues (706 perdues sur 15 982), 61 pas envoyées par la console. Loin de la simulation : trois causes trouvées.
+- **Appli : file des images trop petite** (la vraie cause des pertes) : avec l'anneau, les images retenues en attendant une plus ancienne (jusqu'à 32) sortent toutes d'un coup ; la file vers RetroAchievements n'avait que 8 places, et jetait les plus anciennes. 256 places maintenant.
+- **Appli : changement de liste** : quand RetroAchievements change les adresses qu'il lit (nouvelle zone, pointeur), les images de 250 ms étaient ignorées, et celles encore en route avec l'ancienne liste aussi. Maintenant, chaque image est lue avec la liste qui a servi à l'envoyer (reconnue à sa taille parmi les 6 dernières ; si deux listes différentes ont la même taille : image laissée, comme avant).
+- **Pulse : images pas envoyées** : quand le jeu se sert du bus (carte mémoire...), Pulse ne pouvait pas envoyer l'image : elle était perdue pour de bon. Maintenant, elle est quand même préparée et gardée dans l'anneau (sans toucher au bus) et repart avec les copies 2, 7, 15 et 31 images plus tard. +128 octets dans Pulse.
+- Vérifié : banc de Pulse (54 OK, 1 échec attendu du mode trap ; essai nouveau : bus pris pendant 2 images, elles repartent 2 images plus tard avec leurs données), essais du direct de l'appli (10 OK), simulateur PC, compilation des deux applis. Pas encore essayé en vrai.
+
+## Appli 536 (publique et privée) — logos des applis de nouveau dans le bandeau de la télé
+- Corrigé : en jeu, les notifications de la télé montraient un carré vert au lieu du logo de l'application. L'appli croyait les logos encore dans le bandeau de la partie précédente : quand la nouvelle partie met son bandeau à la même adresse, ses cases sont vides (zéros : vert). Maintenant, avant de réutiliser une case, l'appli vérifie qu'elle est remplie, sinon elle y remet le logo.
+
+## Appli 535 (publique et privée) — le badge du succès quand il se débloque
+- **Téléphone** : la notification d'un succès RetroAchievements débloqué montre son badge (grande icône).
+- **Télé** : le bandeau montre le badge du succès (16 x 16, dans une case d'icône du bandeau, console v401 et plus) avec « Succès RetroAchievements » et le titre ; sans badge (pas reçu en 3 s, ou console plus ancienne) : le trophée, comme avant.
+- Vérifié : compilation des deux applis. Pas encore essayé en vrai.
+
+## Nouveautés v411 (build 940) et appli 534 (publique et privée) — succès dans chaque fiche de jeu
+- **Fiche du jeu** : les succès **RetroAchievements** du jeu (badge, titre, description, points ; obtenus ou non, et « obtenu en hardcore » dans l'appli privée), puis les succès **GC Station** du jeu, sans lancer de partie. Appli privée : sous-onglet « Succès » ; appli publique : dans la fiche, comme le reste. Le bouton « Copier le journal » (533) arrive aussi dans l'appli publique.
+- **Console** : nouvelle requête `/api/rahash` : l'empreinte RetroAchievements d'un jeu (gardée dans `ra-empreintes.txt`, sinon calculée : ~4 Mo du disque, quelques secondes, une seule fois par jeu). Le téléphone la garde aussi.
+- **Appli** : demande au site, avec le compte connecté (Pulse > Succès) : le jeu de cette empreinte, la liste des succès officiels, ceux obtenus. Pas de session de jeu ouverte (la présence du compte ne change pas). Il faut la console v411 pour les jeux jamais lancés avec RetroAchievements.
+- Vérifié : compilation des deux applis, essais du direct (10 OK), simulateur PC de la console. Requêtes au site pas essayées d'ici (site bloqué depuis l'environnement de travail) : format repris des essais de rcheevos.
+
+## Appli privée 533 — bouton « Copier le journal » (RetroAchievements)
+- Sous « Journal », un bouton copie tout le journal (fin de partie : images vérifiées, manquantes, pas envoyées par la console) pour l'envoyer tel quel. L'appli publique l'aura à sa prochaine version.
+
+## Appli 532 (publique et privée) — remise en ordre du direct essayée sur le PC ; vérification de la console v410
+- **Console v410 vérifiée sur le vrai code de Pulse** (banc d'essai, gcc comme la console) : copies de toute l'image, « images depuis le dernier envoi », et anneau : chaque image repart bien 2, 7, 15 et 31 images plus tard, avec ses propres données (11 cases pour 1 380 octets : seulement 2 et 7 ; rien pour une image de 2 paquets). Pas de nouvelle console : v410 était juste. Le banc comptait mal la structure du téléphone (tableaux d'octets oubliés) et gardait un vieux Pulse clang trop gros ; les deux Pulse du banc sont maintenant compilés avec gcc, comme la console.
+- **Appli** : le recollage du direct passe dans `RecolleDirect` (sans Android), le même code que l'appli utilise, essayé sur le PC (`gradle testPriveDebugUnitTest`, 10 essais) face à une console simulée comme Pulse v410 et un Wi-Fi avec pertes en rafales, coupures, doubles et retards : toujours dans l'ordre, une seule fois, données justes ; avec l'anneau, 100 % reçues avec 3 coupures de 40 ms par seconde ou une coupure de 120 ms par seconde (copies seules : 88,7 %).
+- **Corrigé grâce aux essais** : sans anneau (RetroAchievements lit plus de 1 400 octets), une image de plusieurs paquets arrivée juste après la suivante était perdue ; l'appli attend maintenant jusqu'à 3 images (50 ms) pour la remettre en ordre (pas d'attente si un écran est abonné au direct).
+
+## Nouveautés v410 (build 939) et appli 531 (publique et privée) — anneau de 16 Ko (copies 2, 7, 15, 31 images plus tard), hardcore strict
+- **Simulation** (`tools/claude/sim_direct.py`, Wi-Fi de plus en plus mauvais) : plus les copies sont étalées dans le temps, mieux elles résistent aux coupures longues. Copies 2 et 5 images plus tard (v409) : 98,9 % avec 3 coupures de 40 ms par seconde ; 2, 7, 15 et 31 : 99,998 %.
+- **Pulse** : l'anneau passe à 16 Ko (`NATRES_MSR_BYTES`), cases de la taille de l'image (32 au plus : images jusqu'à ~490 octets) ; copies 2, 7, 15 et 31 images plus tard, celles que l'anneau garde encore. Avec ~300 octets lus par RetroAchievements : 100 % jusqu'au Wi-Fi chargé, 99,95 % (3 coupures de 40 ms/s), 99,92 % (coupures de 120 ms). Pris au jeu : 16 Ko au lieu de 8,5 Ko, seulement avec le chercheur de codes de l'appli.
+- **Appli** : attend jusqu'à la copie la plus tardive que l'anneau peut garder (+1 image ; 32 images, ~0,5 s, pour une petite liste).
+- **Hardcore strict (appli privée)** : chaque image doit être vérifiée (exigence de RetroAchievements) ; si une seule manque pendant une partie hardcore (perdue malgré l'anneau, ou pas envoyée par la console), la partie passe en mode normal pour la suite, avec un message. Le texte du réglage le dit.
+- Pulse : 5 fonctions de plus en -Os (carte mémoire virtuelle, correction des manettes, suivi du lecteur) : ~1,2 Ko de libres en plus.
+- Vérifié : banc d'essai de Pulse (54 OK, 1 échec attendu du mode trap), simulateur PC, compilation des deux appli. Pas encore essayé en vrai.
+
+## Appli publique 530 — verre liquide, Aurore, barre d'onglets animée, notifications sur la télé
+- Choisi par le propriétaire (11 novembre) parmi les nouveautés de l'appli privée :
+  - **Verre liquide** (cartes, barre d'onglets, lecteur ; Android 13+, sinon verre simple), **allumé d'office**, désactivable dans Apparence → Style.
+  - **Thème Aurore**, **par défaut** au premier lancement de l'appli publique (l'appli privée garde le Néon par défaut).
+  - **Barre d'onglets animée** (bulle liquide, icônes animées, transitions).
+  - **Notifications du téléphone sur la télé**, avec le logo de l'appli (`NotifTele` passe de `src/prive` à `src/main`, service dans le manifeste commun ; il faut autoriser l'accès aux notifications).
+- Vérifié : aucune classe privée dans l'APK publique (même liste que la publication), signature de la clé publique.
+
+## Nouveautés v409 (build 938) et appli 529 (publique et privée) — direct RetroAchievements : anneau (copies 2 et 5 images plus tard)
+- **Simulation sans console** (`tools/claude/sim_direct.py`) : envois de Pulse et recollage de l'appli (même algorithme), pertes du Wi-Fi au hasard et en rafales (modèle de Gilbert-Elliott, en temps). Résultat : des copies envoyées dans la même image (v406, v408) aident peu contre les rafales (toutes partent dans la même milliseconde) : ~97,7 % sur un Wi-Fi chargé même avec 4 copies. Des copies envoyées **2 et 6 images plus tard** donnent ~99,96 %.
+- **Pulse** : anneau des 6 dernières images d'un seul paquet (en-tête GCMS compris), dans la zone du téléphone sous Pulse (~8,5 Ko, seulement avec le chercheur de codes de l'appli, que le direct demande déjà ; `natres_pad_t.msr`). Les images N-2 et N-5 repartent pendant l'image N (option bit 3 de l'abonnement). 400 octets de plus dans Pulse (place libérée en v407).
+- **Appli** : demande l'anneau quand RetroAchievements lit un seul paquet par image et qu'aucun autre écran ne s'abonne ; 1 copie de plus dans l'image. Recollage de 8 images à la fois ; les images complètes attendent et sont données **dans l'ordre**, au plus tard 6 images (100 ms) après. Simulation de la chaîne complète : 100 % (calme, rafales courtes et moyennes), 99,93 % (Wi-Fi chargé : 2 rafales de 20 ms par seconde), contre 97,7 % en v408 ; jamais de doublon ni de désordre.
+- Simulateur PC : Pulse compilé avec le seul pilote du BBA (comme la console), et une garde de taille à lui (clang fait plus gros que le gcc de devkitPPC ; la vraie garde reste dans la compilation de la console). `MEM_OS` donne aussi `minsize` à clang.
+- Vérifié : banc d'essai de Pulse (54 OK, 1 échec attendu du mode trap), simulateur PC, compilation des deux appli. Pas encore essayé en vrai.
+
+## Nouveautés v408 (build 937) et appli 528 (publique et privée) — direct RetroAchievements : copies espacées, images non envoyées comptées à part
+- But : 99,9 % des images reçues ou plus (une première estimation à 99,8 %, c'est une image perdue toutes les ~8 s).
+- **Copies espacées** (Pulse) : au lieu d'envoyer chaque paquet deux fois de suite (v406), Pulse renvoie **toute l'image** 1 à 3 fois de suite (options bits 1-2 de l'abonnement). Une coupure brève du Wi-Fi, qui emportait souvent les deux exemplaires collés, n'en emporte plus qu'un. Le jeu est arrêté pendant l'interruption : les copies sont identiques. L'appli demande 3 copies en plus si RetroAchievements lit un seul paquet par image (≤ 1 400 octets), 2 jusqu'à deux paquets, 1 au-delà ou si un autre écran s'abonne aussi.
+- **Images pas envoyées du tout** : Pulse saute parfois une image quand le jeu se sert du bus EXI ; elles étaient comptées comme perdues. Avec les copies, chaque paquet dit combien d'images ont passé depuis le dernier envoi (bits 24-31 du mot de la taille) ; l'appli les compte à part (« N pas envoyées par la console »), en dehors du pourcentage du Wi-Fi.
+- **Toutes les images pour RetroAchievements** : quand un écran (vue 3D…) s'abonnait une image sur deux, RetroAchievements n'en recevait qu'une sur deux aussi (et les comptait perdues). Avec RetroAchievements, l'abonnement est maintenant à chaque image.
+- 56 octets de plus dans Pulse. Vérifié : banc d'essai de Pulse (54 OK, 1 échec attendu du mode trap), compilation des deux appli. Pas encore essayé en vrai.
+
+## Nouveautés v407 (build 936) et appli 527 (publique et privée) — liaison, défis sur la télé, place dans Pulse, PAL 60 Hz détecté
+- **Liaison avec la console** (appli, RetroAchievements) : pendant la partie, « X % des images reçues (N perdues sur M) », mis à jour toutes les 2 s ; le bilan de la dernière partie reste affiché (« Dernière partie · … »). Le journal des succès garde aussi la ligne de fin de partie.
+- **Défis, progression et classements sur la télé** (appli) : en plus des succès débloqués, le bandeau de Pulse montre le début d'un défi, la progression d'un succès mesuré (au plus toutes les 4 s), le début d'un classement, un classement raté et le rang obtenu. Même réglage que les succès sur la télé.
+- **Place dans Pulse** : cinq fonctions peu utilisées compactées en -Os (cheats à chaque image, écritures du jeu dans les registres du lecteur, OSExec, mode trap) : environ 2,5 Ko de libres.
+- **Jeux PAL qui refusent le 60 Hz, trouvés tout seuls** (natif.c, `na_pal60_scan`) : dans le .dol, un appel à VIGetTvFormat (fonction qui compare le format à 6) suivi d'un aiguillage qui compare le résultat à 1 et à 3 (tout format ≥ 3 refusé) sans jamais le comparer à 5 (EURGB60). Ces jeux reçoivent toujours le PAL 50 Hz, même avec le réglage Vidéo « PAL 60 Hz », 480p ou 240p. Essayé sur le main.dol de Rayman 3 (trouvé en 80153E4C), rien trouvé dans GC Station. Le journal du lancement le dit.
+- Vérifié : banc d'essai de Pulse (54 OK, 1 échec attendu du mode trap), simulateur PC, compilation des deux appli.
+
+## Appli 526 (publique et privée) — plus de mode hardcore dans l'appli publique
+- **Appli publique** : RetroAchievements en mode normal (softcore) seulement. Tout le mode hardcore (réglage, refus des aides du téléphone, textes) est sorti du code commun vers l'appli privée (`src/prive/.../ModeHardcore.kt`) ; l'appli publique a un `ModeHardcore` vide (`src/publique`). Vérifié dans l'APK publique : aucun texte du mode hardcore. Elle dit toujours à rcheevos « pas de hardcore » au chargement d'un jeu.
+- **Appli privée** : mode hardcore inchangé (même réglage, mêmes règles).
+- Demandé après l'échange avec RetroAchievements (Discord) : l'appli reste en softcore pour l'instant.
+
+## Nouveautés v406 (build 935) et appli 525 (publique et privée) — RetroAchievements : plus d'image perdue pour un paquet perdu
+- Remarque de KickMeElmo (RetroAchievements, Discord) : en UDP, une image dont un paquet se perd était sautée, sans renvoi ni remise en ordre. Pour le mode hardcore, une condition vraie pendant une seule image, ou une comparaison entre deux images qui se suivent, pouvait être ratée ou fausse.
+- **Pulse** : nouvelle option du direct (bit 1 de l'abonnement « GCMS ») : chaque paquet est envoyé **deux fois** (`ms_udp`, `ms_dup`). Une image n'est perdue que si les deux exemplaires d'un même paquet se perdent. 44 octets de plus dans Pulse. Les anciennes Pulse ignorent l'option.
+- **Appli** (`Chercheur.kt`) : l'option est demandée dès que RetroAchievements surveille la partie. Recollage de jusqu'à 3 images à la fois (un paquet en retard arrive après le début de l'image suivante) ; chaque image n'est donnée qu'une fois, et jamais après une plus récente (doubles et retards ignorés). Le compte « images perdues en route » du journal des succès reste là pour vérifier.
+- Pas dans le mode « envoi sans copie » du direct (Pulse 3, à l'essai) : seulement le direct normal.
+- Vérifié : banc d'essai de Pulse (54 OK, 1 échec attendu du mode trap), compilation des deux appli.
 
 ## Nouveautés v405 (build 934) — réglage « Vidéo : comme le jeu » vraiment respecté (tous les jeux)
 - Le réglage **Vidéo** de chaque jeu sur **« comme le jeu »** donne maintenant vraiment le format du jeu : **PAL 50 Hz** pour un jeu PAL, NTSC pour un jeu NTSC, comme une console d'origine (un jeu qui connaît le 60 Hz le propose lui-même si la console est réglée en 60 Hz). Avant (depuis v362), un jeu PAL recevait le PAL 60 Hz dès que la console était réglée en 60 Hz, même avec « comme le jeu » : c'est ce qui bloquait Rayman 3.

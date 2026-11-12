@@ -661,6 +661,7 @@ static void reset_pump(void) {
     { static int fired = 0; const char *e = getenv("PCSIM_RESET_AT");   /* (simulateur : bouton Reset a N ms) */
       if (e && !fired && now_ms() > (u64)atol(e)) { fired = 1; reset_pressed = 1; } }
 #endif
+    if (tp_reboot_req) { tp_reboot_req = 0; reset_pressed = 1; crumb("telephone : redemarrage de GC Station demande"); }   /* v420 */
     if (!reset_pressed) return;
     reset_pressed = 0;
     if (up_state == UP_DL || up_state == UP_WRITE) return;      /* (pas pendant une mise a jour) */

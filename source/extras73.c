@@ -1615,6 +1615,13 @@ static void x73_misc_pump(void) {
     else if (op == 8) r = cp_json();                          /* v255 : pastilles des jeux */
     else if (op == 10) r = sj_add(x73_mo_id, x73_mo_codes);   /* v306 : succes cree par le chercheur de codes (codes = la ligne) */
     else if (op == 9) { cp_set_manual(x73_mo_id, x73_mo_d >= 0 && x73_mo_d < CP_N ? x73_mo_d : 0); r = cp_json(); }
+    else if (op == 11) {                                      /* v411 : empreinte RetroAchievements (cache, sinon ~4 Mo lus : quelques s) */
+        int k = x73_game_of(x73_mo_id, x73_mo_i);
+        char h[33] = "";
+        if (k >= 0) ra_hash_game(gl[k].path, h);
+        snprintf(m, sizeof(m), "{\"h\":\"%s\"}", h);
+        r = strdup(m);
+    }
     free(x73_mo_res);
     x73_mo_res = r;
     x73_mo_op = 0; x73_mo_ready = 1;
