@@ -3,14 +3,14 @@
 //        du disque, la place de la carte mémoire, et l'image du vrai disque (GameTDB). Ouverture comme avant.
 // v283 : avec la jaquette complète de GameTDB (dos | tranche | avant) quand elle existe : les 3 faces sont les vraies.
 // Une boîte GameCube aux proportions des jaquettes (3 x 4, comme le pack : 192 x 256), la jaquette devant, la tranche,
-// le dos (résumé, genre, joueurs, PEGI, capture). Elle tourne doucement ; le stick C la fait tourner. ↑ : elle s'ouvre
+// le dos (résumé, genre, joueurs, PEGI, capture). Le stick C la fait tourner (build 1068 : elle ne bouge plus toute seule). ↑ : elle s'ouvre
 // (le couvercle pivote sur la tranche), le disque s'allume dedans ; A : prendre le disque et jouer ; ↑ : fermer.
 // v304 : ouverte, ↓ : sortir le disque (il se souleve, vient devant nous et tourne) ; ↓ encore : le ranger.
 // v305 : sorti, on le manipule : stick : le tourner dans tous les sens (retourne : la face gravee) ; C haut / bas : zoom ;
 //        C gauche / droite : le lancer en rotation ; Y : de face ; B ou ↓ : le ranger.
 // Tout est projeté par le processeur (comme le globe) puis dessiné en 2D, de la face la plus loin à la plus proche.
 
-static f32 bx_yaw = 28, bx_pitch = 7, bx_open = 0, bx_open_to = 0, bx_spin = 0;
+static f32 bx_yaw = 28, bx_pitch = 7, bx_open = 0, bx_open_to = 0;
 static f32 bx_zoom = 1, bx_zoom_to = 1, bx_panx = 0, bx_pany = 0;   /* v284 : zoom (stick C haut / bas), deplacement (stick) */
 static f32 bx_out = 0, bx_out_to = 0, bx_dspin = 0;      /* v304 : le disque sorti de la boite (0 range, 1 devant nous), sa rotation */
 static f32 bx_dcx, bx_dcy, bx_dr;                         /* (le disque dans le bac, a l'ecran : centre, rayon) */
@@ -281,14 +281,7 @@ static void bx_draw(int k, f32 x, f32 y, f32 w, f32 h, GXTexObj *cov, int big, G
     } else { bx_panx *= 1 - (1 - expf(-dt * 8)); bx_pany *= 1 - (1 - expf(-dt * 8)); }
     bx_zoom += (bx_zoom_to - bx_zoom) * (1 - expf(-dt * 8));
     if (bx_pitch > 40) bx_pitch = 40; if (bx_pitch < -30) bx_pitch = -30;
-    if (now - bx_touch > 4000 && bx_open_to < 0.5f && bx_zoom_to < 1.03f) {   /* (v287 : pas quand elle est zoomee) */    /* (seule : un lent balancement autour de 3/4 face) */
-        bx_spin += ui_dt;
-        f32 target = 28 + sinf(bx_spin * 0.55f) * 16;
-        while (bx_yaw - target > 180) bx_yaw -= 360;
-        while (bx_yaw - target < -180) bx_yaw += 360;
-        bx_yaw += (target - bx_yaw) * (1 - expf(-ui_dt * 1.5f));
-        bx_pitch += (7 - bx_pitch) * (1 - expf(-ui_dt * 1.5f));
-    }
+    /* build 1068 : plus de balancement tout seul (demande d'Antho : genant) ; la boite reste comme on l'a laissee */
     if (bx_open_to > 0.5f && now - bx_touch > 600) {     /* (ouverte : face a nous) */
         while (bx_yaw > 180) bx_yaw -= 360;
         while (bx_yaw < -180) bx_yaw += 360;

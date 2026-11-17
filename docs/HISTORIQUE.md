@@ -7,6 +7,10 @@ la **musique de jeux rétro**, des **podcasts**, tes **photos et vidéos**, un *
 la **météo / actualités / réveil**, et une **télécommande sur téléphone** (Broadband Adapter),
 dans une interface GX style Indigo. Lancer `gc-mp3player.dol` comme un autre homebrew.
 
+## Console v539 (build 1068) — la boîte 3D du jeu ne bouge plus toute seule
+
+- Demande d'Antho : dans la fiche d'un jeu, la boîte 3D se balançait d'elle-même (±16° autour de la vue de trois quarts, après 4 s sans toucher au stick C) : gênant, et jamais demandé. Le balancement est retiré (`box3d.c`) : la boîte reste comme on l'a laissée ; le stick C la fait toujours tourner, ↑ l'ouvre.
+
 ## Console v538 (build 1067) et appli 584 — anglais complété, Link en direct dans Ocarina of Time (essai), outil de mémoire
 
 - Anglais (console) : 120 textes de plus dans `lang_tab.h` (jeu de cartes, erreurs du réseau et des téléchargements, puissance 4, test de la console : écrans, mesures, conclusions), trouvés avec `tools/trad_audit.py` et en parcourant GC Station en anglais dans le simulateur (`SIM_TRLOG`). Quelques morceaux assemblés passent maintenant par `TR()` (disposition du lecteur, description des mini-jeux, « Connexion à … », noms des mesures et des essais du test de la console). Restent en français : les pages du rapport du test de la console et les pages internes du navigateur.
