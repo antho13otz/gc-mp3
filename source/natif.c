@@ -4299,6 +4299,9 @@ static void na_mem_flush(void) {
     crumb("natif : memoire videe pour le lancement (%u -> %u Ko libres)", (unsigned)k0, (unsigned)na_free_kb());
 }
 static void *na_big_alloc(u32 n, int align) {
+#ifndef GEKKO
+    { extern void pcsim_alloclog_mark(const char *); char m_[48]; snprintf(m_, sizeof(m_), "gros bloc %u", (unsigned)n); pcsim_alloclog_mark(m_); }   /* (simulateur : tas_morcele.py) */
+#endif
     void *b = align ? memalign(32, n) : malloc(n);
     if (b) return b;
     na_mem_flush();
@@ -4311,6 +4314,58 @@ static void *na_stage_alloc(u32 total) { return na_big_alloc(total, 1); }
 static u32 na_free_kb(void) { return 0; }
 static void *na_big_alloc(u32 n, int align) { return align ? memalign(32, n) : malloc(n); }
 static void *na_stage_alloc(u32 total) { return memalign(32, total); }
+#endif
+/* build 1064 : memoire de GC Station trop morcelee pour le tampon du lancement (~4 Mo d'un seul bloc), meme videe : au lieu du
+   message « redemarre la console », GC Station note le jeu (SD:/gc-mp3/natif/lancer-apres.txt), se relance lui-meme (comme le
+   bouton Reset : d'un bloc, sinon par le lanceur de secours) et, au demarrage, lance ce jeu avant tout le reste, memoire neuve.
+   Une seule fois : si la memoire manque encore apres la relance, le message revient. */
+static const char na_nomem[] = "Pas assez de m\xC3\xA9moire libre dans GC Station, m\xC3\xAAme apr\xC3\xA8s l'avoir vid\xC3\xA9" "e (red\xC3\xA9marre la console)";
+#ifndef NATIF_BENCH
+#define NA_APRES GCD "/natif/lancer-apres.txt"
+static int na_fresh = 0;                                   /* (lancement repris apres la relance : pas de 2e relance) */
+static const char *na_restart_launch(int k, const char *e) {
+    if (e != na_nomem || na_fresh || !sd_ok || sd_virtual || k < 0 || k >= gl_n) return e;
+    FILE *f = fopen(NA_APRES, "wb");
+    if (!f) return e;
+    fprintf(f, "%s\n", gl[k].path);
+    if (fclose(f) != 0) { remove(NA_APRES); return e; }
+    crumb("natif : memoire trop morcelee (%u Ko libres) : GC Station se relance pour lancer %s", (unsigned)na_free_kb(), gl[k].title);
+    nat_ld("Red\xC3\xA9marrage de GC Station pour lib\xC3\xA9rer la m\xC3\xA9moire, puis lancement du jeu", 2);
+    if (bib_dirty) bib_save();
+    if (stats_dirty) stats_save();
+    if (settings_dirty) save_settings();
+    up_pick_target();
+    const char *e2 = gl_relaunch_self(up_target);        /* (ne revient pas si ca marche) */
+    crumb("natif : relance ratee : %s", e2 ? e2 : "?");
+    remove(NA_APRES);
+    return e;
+}
+/* au demarrage de GC Station (avant la boucle principale) : le jeu note avant la relance */
+static void na_pending_launch(void) {
+    if (!sd_ok || sd_virtual) return;
+    FILE *f = fopen(NA_APRES, "rb");
+    if (!f) return;
+    static char p[NAME_LEN + 8];
+    if (!fgets(p, sizeof(p), f)) p[0] = 0;
+    fclose(f);
+    remove(NA_APRES);                                      /* (d'abord : jamais de boucle, meme si le lancement plante) */
+    p[strcspn(p, "\r\n")] = 0;
+    if (!p[0]) return;
+    if (!gl) gl_scan();
+    for (int k = 0; k < gl_n; k++) {
+        if (strcmp(gl[k].path, p)) continue;
+        na_fresh = 1;
+        crumb("natif : apres la relance : lancement de %s (%u Ko libres)", gl[k].title, (unsigned)na_free_kb());
+        const char *e = game_boot_auto(k);               /* (ne revient pas si ca marche) */
+        na_fresh = 0;
+        if (e) gl_note(e);
+        return;
+    }
+    crumb("natif : apres la relance : jeu introuvable (%s)", p);
+}
+#else
+static const char *na_restart_launch(int k, const char *e) { (void)k; return e; }
+static void na_pending_launch(void) { }
 #endif
 static const char *nat_boot(int k) {
     if (sx_safe) { sx_block("lancer un jeu ou une appli"); return "Bloqu\xC3\xA9 pendant le test"; }   /* v278 : (test des touches) */
@@ -4472,7 +4527,7 @@ static const char *nat_boot(int k) {
     u32 stage = (top - total) & ~31u;
     if (stage < in.hi + 32 || stage + total > bi2_dest) return "Pas assez de m\xC3\xA9moire pour ce jeu (main.dol trop gros)";
     u8 *buf = (u8 *)na_stage_alloc(total);
-    if (!buf) return "Pas assez de m\xC3\xA9moire libre dans GC Station, m\xC3\xAAme apr\xC3\xA8s l'avoir vid\xC3\xA9" "e (red\xC3\xA9marre la console)";
+    if (!buf) return na_nomem;
     memset(buf, 0, total);
     u32 o_dol = 0, o_bi2 = (dol_len + 31) & ~31u, o_fst = o_bi2 + NA_BI2, o_ann = o_fst + ((in.fst_sz + 31) & ~31u), o_res = o_ann + ann;   /* (v159 : place a part juste avant le resident : memes positions qu'en memoire) */
     if (res) {                                            /* image du resident, deja reglee (en-tete : natres.h) */
@@ -5121,7 +5176,7 @@ static const char *nat_boot_drive(int k, int reset) {
     if (total + hi + 32 > top) return "Pas assez de m\xC3\xA9moire pour ce jeu (main.dol trop gros)";
     u32 stage = (top - total) & ~31u;
     u8 *buf = (u8 *)na_stage_alloc(total);
-    if (!buf) return "Pas assez de m\xC3\xA9moire libre dans GC Station, m\xC3\xAAme apr\xC3\xA8s l'avoir vid\xC3\xA9" "e (red\xC3\xA9marre la console)";
+    if (!buf) return na_nomem;
     memset(buf, 0, total);
     int ok = na_dvd_read(di, dol_off, buf, o_bi2, 54, 88)
           && na_dvd_read(di, 0x440, buf + o_bi2, NA_BI2, 88, 90)

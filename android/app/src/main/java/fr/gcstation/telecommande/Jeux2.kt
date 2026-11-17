@@ -487,6 +487,12 @@ object JeuSMB : ModuleJeu("Super Monkey Ball", "GMBE8P") {
 object JeuOoT : ModuleJeu("Ocarina of Time (émulé)", "PZLP01", "D43P01", "PZLE01", "D43E01", "PZLJ01", "D43J01") {
     @Volatile var progres = -1f
     @Volatile var entree = -1                                    // (build 580 : entree de la sauvegarde en cours : le lieu en 3D, appli privee)
+    /** build 1067 : position de Link en direct (coordonnees du jeu x, y, z ; y vers le haut), ou null */
+    @Volatile var pos: FloatArray? = null
+    // (build 1067) memoire de la N64 dans celle de la GameCube (adresse GameCube de 0x80000000 N64), et l'endroit qui pointe sur
+    // Link (liste des acteurs « joueur » du jeu : un compteur a 1 puis l'adresse) : trouves pendant la recherche
+    @Volatile private var n64 = -1L
+    @Volatile private var teteLink = -1L
     @Volatile private var candidats: LongArray? = null
     @Volatile private var choisi = -1
     private var dernierTemps = IntArray(0)
@@ -494,8 +500,57 @@ object JeuOoT : ModuleJeu("Ocarina of Time (émulé)", "PZLP01", "D43P01", "PZLE
     private fun cle(id: String) = "oot_$id"
     private fun charger(c: android.content.Context?, id: String) {
         if (candidats != null || c == null) return
-        val s = c.getSharedPreferences("gcs", 0).getString(cle(id), "") ?: ""
+        val p = c.getSharedPreferences("gcs", 0)
+        val s = p.getString(cle(id), "") ?: ""
         candidats = s.split(',').mapNotNull { it.trim().toLongOrNull() }.toLongArray()
+        n64 = p.getLong(cle(id) + "_n64", -1L); teteLink = p.getLong(cle(id) + "_link", -1L)
+    }
+    // build 1067 : Link = un acteur du jeu : numero 0, categorie « joueur » (2), echelle 0,01 sur les trois axes
+    private const val ECHELLE_LINK = 0x3C23D70A
+    private fun mot(m: ByteArray, o: Int) = ((m[o].toInt() and 255) shl 24) or ((m[o + 1].toInt() and 255) shl 16) or ((m[o + 2].toInt() and 255) shl 8) or (m[o + 3].toInt() and 255)
+    /** (dans la copie de la memoire) le debut de la memoire N64 et l'endroit qui pointe sur Link ; -1 si pas trouve.
+     *  Link : cherche partout (sa signature ne depend pas de l'emplacement de la memoire N64) ; puis un compteur a 1 suivi d'une
+     *  adresse N64 (liste des acteurs « joueur ») qui donne, avec l'adresse de Link, le debut de la memoire N64 : garde si la
+     *  sauvegarde tombe alors vers 0x8011xxxx (la ou le jeu la range) et si la N64 y note bien la taille de sa memoire. */
+    private fun chercherLink(mem: ByteArray, saves: List<Long>): Pair<Long, Long> {
+        val fin = MemoireJeu.FIN - 0x400
+        val links = ArrayList<Int>()
+        var i = 0x3100
+        while (i < fin - 0x60 && links.size < 4) {
+            if (mem[i] == 0.toByte() && mem[i + 1] == 0.toByte() && mem[i + 2] == 2.toByte()
+                && mot(mem, i + 0x50) == ECHELLE_LINK && mot(mem, i + 0x54) == ECHELLE_LINK && mot(mem, i + 0x58) == ECHELLE_LINK) {
+                val x = java.lang.Float.intBitsToFloat(mot(mem, i + 0x24)); val y = java.lang.Float.intBitsToFloat(mot(mem, i + 0x28)); val z = java.lang.Float.intBitsToFloat(mot(mem, i + 0x2C))
+                if (x.isFinite() && y.isFinite() && z.isFinite() && kotlin.math.abs(x) < 40000f && kotlin.math.abs(y) < 40000f && kotlin.math.abs(z) < 40000f) links.add(i)
+            }
+            i += 4
+        }
+        if (links.isEmpty()) return -1L to -1L
+        val sv = saves.map { (it - MemoireJeu.BASE).toInt() }
+        var j = 0x3104
+        while (j < fin - 4) {
+            if (mot(mem, j - 4) == 1) {
+                val v = mot(mem, j).toLong() and 0xFFFFFFFFL
+                if (v in 0x80000000L until 0x80800000L) for (lk in links) {
+                    val base = lk - (v - 0x80000000L).toInt()
+                    if (base < 0 || base % 0x20 != 0 || base + 0x31C >= fin) continue
+                    val bonneSave = sv.any { it - base in 0x0F0000..0x150000 }
+                    val t = mot(mem, base + 0x318)
+                    if (bonneSave && (t == 0x00400000 || t == 0x00800000 || t == 0)) return MemoireJeu.BASE + base to MemoireJeu.BASE + j
+                }
+            }
+            j += 4
+        }
+        return -1L to -1L
+    }
+    /** build 1067 : la position de Link maintenant (par l'endroit qui pointe sur lui : il change de place a chaque lieu) */
+    private fun lirePos(l: Lecteur): FloatArray? {
+        if (n64 < 0 || teteLink < 0) return null
+        val pt = l.u32(teteLink) ?: return null
+        if (pt < 0x80000000L || pt >= 0x80800000L) return null
+        val a = n64 + (pt - 0x80000000L)
+        if (l.s16(a) != 0 || l.u8(a + 2) != 2 || l.u32(a + 0x50) != ECHELLE_LINK.toLong()) return null
+        val x = l.f32(a + 0x24) ?: return null; val y = l.f32(a + 0x28) ?: return null; val z = l.f32(a + 0x2C) ?: return null
+        return if (x.isFinite() && y.isFinite() && z.isFinite()) floatArrayOf(x, y, z) else null
     }
     private fun vraisemblable(l: Lecteur, a: Long): Boolean {
         if (l.texte(a + 0x1C, 6) != "ZELDAZ") return false
@@ -533,7 +588,9 @@ object JeuOoT : ModuleJeu("Ocarina of Time (émulé)", "PZLP01", "D43P01", "PZLE
                             i += 2
                         }
                         candidats = r.toLongArray(); choisi = -1
-                        c.getSharedPreferences("gcs", 0).edit().putString(cle(id), r.joinToString(",")).apply()
+                        val (b, t) = chercherLink(mem, r)
+                        n64 = b; teteLink = t
+                        c.getSharedPreferences("gcs", 0).edit().putString(cle(id), r.joinToString(",")).putLong(cle(id) + "_n64", b).putLong(cle(id) + "_link", t).apply()
                     }
                 }
             } catch (x: Exception) { }
@@ -571,6 +628,7 @@ object JeuOoT : ModuleJeu("Ocarina of Time (émulé)", "PZLP01", "D43P01", "PZLE
         dernierTemps = temps
         val a = ok[if (choisi in ok.indices) choisi else 0]
         entree = l.s32(a) ?: -1
+        pos = lirePos(l)
         fun s16(o: Int) = l.s16(a + o) ?: 0
         val cap = s16(0x2E); val vie = s16(0x30); val rubis = s16(0x34)
         val magieNiv = l.u8(a + 0x32)?.toByte()?.toInt() ?: 0; val magie = l.u8(a + 0x33) ?: 0
@@ -611,7 +669,9 @@ object JeuOoT : ModuleJeu("Ocarina of Time (émulé)", "PZLP01", "D43P01", "PZLE
         blocs.add(Bloc("Équipement", pastilles = (epees + boucliers + tuniques + bottes).map { it to true }))
         blocs.add(Bloc("Partie", listOf(Ligne("Heure", heureJeu(heure)), Ligne("Jours", jours.toString()), Ligne("Morts", morts.toString()))))
         return Fiche(id, "Ocarina of Time", (if (adulte) "Link adulte" else "Link enfant") + " · " + heureJeu(heure), 0xFF3E7A26, 0xFF0B1E06,
-            grands = listOf("cœurs" to (vie / 16).toString(), "rubis" to rubis.toString(), "skulltulas" to tokens.toString()), blocs = blocs)
+            grands = listOf("cœurs" to (vie / 16).toString(), "rubis" to rubis.toString(), "skulltulas" to tokens.toString()), blocs = blocs,
+            // build 1067 : Link en direct sur la 3D (appli privee) : il faut la recherche une fois de plus si elle date d'avant
+            bouton = if (Prive.ACTIF && teteLink < 0) "Trouver Link pour la 3D en direct (une fois)" else "")
     }
 }
 

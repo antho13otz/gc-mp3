@@ -556,6 +556,7 @@ static const char *game_boot2(int k, int resident) {
     snprintf(card, sizeof(card), "%s", vc_active);
     jeux_cfg_apply(gl[k].id, resident);
     const char *e = resident ? nat_boot(k) : gl_launch(k);     /* (ne reviennent pas si ca marche) */
+    if (e && resident) e = na_restart_launch(k, e);            /* (build 1064 : ne revient pas si la relance marche) */
     if (e) jeux_cfg_undo(card);
     return e;
 }

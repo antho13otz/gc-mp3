@@ -7,6 +7,36 @@ la **musique de jeux rétro**, des **podcasts**, tes **photos et vidéos**, un *
 la **météo / actualités / réveil**, et une **télécommande sur téléphone** (Broadband Adapter),
 dans une interface GX style Indigo. Lancer `gc-mp3player.dol` comme un autre homebrew.
 
+## Console v538 (build 1067) et appli 584 — anglais complété, Link en direct dans Ocarina of Time (essai), outil de mémoire
+
+- Anglais (console) : 120 textes de plus dans `lang_tab.h` (jeu de cartes, erreurs du réseau et des téléchargements, puissance 4, test de la console : écrans, mesures, conclusions), trouvés avec `tools/trad_audit.py` et en parcourant GC Station en anglais dans le simulateur (`SIM_TRLOG`). Quelques morceaux assemblés passent maintenant par `TR()` (disposition du lecteur, description des mini-jeux, « Connexion à … », noms des mesures et des essais du test de la console). Restent en français : les pages du rapport du test de la console et les pages internes du navigateur.
+- Anglais (appli) : 47 textes de plus dans `en.tsv` (sauvegardes instantanées, micro, GBA, directions, compagnon de Super Monkey Ball, objets de Paper Mario). Les journaux et rapports de diagnostic restent en français.
+- Ocarina of Time (appli privée 584, essai) : pendant la recherche unique dans l'émulateur, l'appli cherche aussi Link (acteur numéro 0, catégorie « joueur », échelle 0,01) et l'endroit qui pointe sur lui (liste des acteurs « joueur » : un compteur à 1 puis son adresse N64), d'où l'emplacement de la mémoire N64. Ensuite, sa position est relue à chaque lecture et montrée en point rouge sur la 3D du lieu (fiche du jeu et compagnon). Les parties déjà trouvées proposent de relancer la recherche une fois.
+- Mémoire : le simulateur note chaque bloc pris et rendu (`PCSIM_ALLOCLOG`) ; `tools/pc-sim/tas_morcele.py` les rejoue dans un tas comme celui de la console et montre ce qui coupe le plus grand bloc libre. Session longue (onglets, photos, Mes jeux) : 8,4 Mo libres d'un seul bloc, aucun coupable ; le cas réel de la console n'est pas reproduit (la relance de la build 1064 reste le secours).
+- Démarrage (0,8 s) et fluidité du simulateur : rien de changé (gain trop petit pour le risque ; le pic de 76 ms vu dans le simulateur ne se retrouve pas sur la console).
+
+## Console v537 (build 1066) — fluidité : changement de morceau, téléphone, onglet Téléchargements, jaquettes
+
+- Mesure de fluidité d'Antho (build 1065) : 90 à 150 ms figées à chaque changement de morceau (tous les onglets), 1,9 s une fois (téléphone, juste après le démarrage), 80 à 97 ms à chaque passage dans TÉLÉCHARGEMENTS, 64 ms et plus dans Mes jeux (jaquettes : ralentissements, petits blocages).
+- Changement de morceau : `volumes.txt` (volumes mesurés) lu une seule fois et gardé en mémoire (avant : relu en entier à chaque morceau) ; les nouvelles mesures sont écrites par le fil de décodage (`rg_flush`). Les paroles (.lrc) sont cherchées par ce fil pendant la préparation du morceau suivant (`nx_work`), plus par la boucle.
+- Téléphone : la liaison directe avec l'appli (UDP 51236) est ouverte par le fil du téléphone avant son serveur (`tpl_open`) ; avant, la boucle l'ouvrait et attendait la pile réseau occupée par ce fil.
+- Téléchargements : l'historique n'est plus relu à chaque entrée dans l'onglet ; un nouveau fichier y est ajouté en mémoire (`dlh_add`).
+- Jaquettes : les petites jaquettes sont lues par un fil à part (`glc_thread` : par secteurs quand c'est possible, sinon par le fichier) ; la boucle les demande et les pose dès qu'elles arrivent, sans jamais attendre la carte SD. Celles autour du jeu choisi sont demandées à l'avance. Les .png / .jpg déposés à la main restent convertis par la boucle (une fois).
+- Simulateur : jaquettes visibles 0,4 s après l'ouverture de Mes jeux (120 jeux), toutes là après un défilement ; paroles d'un morceau enchaîné affichées ; AddressSanitizer : aucune erreur (enchaînements, jeux, tour des onglets, fluidité).
+
+## Console v536 (build 1065) — musique du disque : jamais ajoutée deux fois au même morceau de son
+
+- Retour de Platter (build 1063, GC2SD, Super Monkey Ball US) : l'ambiance des niveaux bien plus forte qu'elle ne devrait. Chez Antho (carte du port SD2SP2) : normal.
+- Cause probable : quand le DSP signale la fin de son calcul, Pulse remettait la musique sur tout le tampon dès que son empreinte avait changé. Depuis que Pulse ne bloque plus le jeu (build 1060), la musique peut être ajoutée pendant que le DSP écrit encore le tampon : le DSP n'en réécrit alors qu'une partie, et le reste recevait la musique une 2e fois (plus fort, sans saut ni accélération).
+- Pulse (`st_mix_from`, `st_bhash`) : une empreinte par tranche du tampon (32 tranches) ; la musique n'est remise que sur les tranches que le DSP a vraiment réécrites. Tampon rejoué tel quel : toutes les tranches identiques, rien d'ajouté (comme avant). Aucun changement quand tout se passait bien.
+- Banc : nouveau cas « le DSP ne réécrit que la 1re moitié » (160 échantillons justes ; 81 seulement sans la correction).
+- Place : pile des plantages / trame réseau 1568 octets (trame : 1536 au plus ; pile du plantage : moins de 600).
+
+## Console v535 (build 1064) — mémoire trop morcelée au lancement : GC Station se relance tout seul puis lance le jeu
+
+- Avant : « Pas assez de mémoire libre dans GC Station, même après l'avoir vidée (redémarre la console) » quand la mémoire, même vidée, n'a plus de bloc d'un seul tenant pour le tampon du lancement (~4 Mo) ; il fallait éteindre la console (Antho et les testeurs, souvent).
+- Maintenant (lancement par Pulse) : GC Station note le jeu dans `SD:/gc-mp3/natif/lancer-apres.txt`, enregistre ses réglages, se relance lui-même comme le bouton Reset (d'un bloc, sinon par le lanceur de secours) et, au démarrage, lance ce jeu avant la boucle principale, mémoire neuve (`na_restart_launch`, `na_pending_launch`). Le fichier est effacé avant le lancement (jamais de boucle) ; une seule relance : si la mémoire manque encore, le message revient. Quand la mémoire suffit : rien ne change.
+
 ## Console v534 (build 1063) — carte mémoire virtuelle : plus aucune attente de la carte SD pendant le jeu
 
 - Essai d'Antho sur la build 1062 (Kirby Air Ride) : « carte virtuelle » 0,20 ms en moyenne (0,27 avant) mais toujours 8,9 ms au pire ; « lecture en fond » montée à 7,2 ms au pire (elle attendait la fin d'enregistrement de la carte SD à la place de la carte mémoire). Antho veut la solution complète d'un coup.

@@ -401,7 +401,14 @@ static void dlh_add(const char *from, const char *path) {
     mkdir(GCD, 0777);
     FILE *f = fopen(DLH_FILE, "a");
     if (f) { fprintf(f, "%s | %s | %s | %ld\n", when, from, path, sz); fclose(f); }
-    dlh_loaded = 0;                                          /* (relu a l'affichage) */
+    if (dlh_loaded && dlh) {                                 /* build 1066 : ajoute en memoire (avant : tout relu a l'affichage) */
+        if (dlh_n == DLH_MAX) { memmove(&dlh[0], &dlh[1], sizeof(dlh_t) * (DLH_MAX - 1)); dlh_n--; }
+        dlh_t *h = &dlh[dlh_n++];
+        snprintf(h->when, sizeof(h->when), "%s", when);
+        snprintf(h->from, sizeof(h->from), "%s", from);
+        snprintf(h->path, sizeof(h->path), "%s", path);
+        h->size = sz;
+    }
 }
 static void dltab_pump(void) {
     while (tp_done_r != tp_done_w) {                         /* fichiers recus du telephone */

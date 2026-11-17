@@ -1639,7 +1639,7 @@ static void draw_selftest(void) {
                                           "carte SD : petits fichiers", "cartes mémoire A et B" };
         const int ns = sx_total ? 9 : 7;
         char b[120];
-        snprintf(b, sizeof(b), "Mesures : %s (%d / %d)...", nm[sx_bstep < ns ? sx_bstep : ns - 1], sx_bstep + 1, ns);
+        snprintf(b, sizeof(b), "Mesures : %s (%d / %d)...", TR(nm[sx_bstep < ns ? sx_bstep : ns - 1]), sx_bstep + 1, ns);
         gx_text_c(F_MED, 320, 220, b, RGBA(255, 230, 150, 255));
         gx_rrect_fill(170, 240, 300, 8, 4, RGBA(40, 30, 80, 255), RGBA(40, 30, 80, 255));
         gx_rrect_fill(170, 240, 300.0f * (sx_bstep + 1) / ns, 8, 4, RGBA(150, 100, 255, 255), RGBA(110, 60, 230, 255));
@@ -1661,7 +1661,7 @@ static void draw_selftest(void) {
     }
     if (sx_state == SX_NET) {
         char b[120];
-        snprintf(b, sizeof(b), "Réseau : %s...", sx_ni < sx_nn ? sx_net_name[sx_ni] : "");
+        snprintf(b, sizeof(b), "Réseau : %s...", sx_ni < sx_nn ? TR(sx_net_name[sx_ni]) : "");
         gx_text_c(F_MED, 320, 220, b, RGBA(255, 230, 150, 255));
         return;
     }
@@ -1681,8 +1681,8 @@ static void sx_overlay(void) {
     if (sx_state < SX_SOUND || sx_state > SX_STRESS) return;
     char b[160];
     if (sx_state == SX_SOUND) snprintf(b, sizeof(b), "Test : format audio %s  -  B : arrêter", sx_fmt_i >= 0 && sx_fmt_i < SX_NF ? sx_fmt_name[sx_fmt_i] : "");
-    else if (sx_state == SX_RADIO) snprintf(b, sizeof(b), "Test : radio (%s)  -  B : arrêter", sx_sub ? "écoute" : "connexion");
-    else if (sx_state == SX_NETUSE) snprintf(b, sizeof(b), "Test : réseau en vrai (%s)  -  B : arrêter", sx_sub < 2 ? "téléchargement" : sx_sub < 4 ? "page web" : "radio AAC");
+    else if (sx_state == SX_RADIO) snprintf(b, sizeof(b), "Test : radio (%s)  -  B : arrêter", TR(sx_sub ? "écoute" : "connexion"));
+    else if (sx_state == SX_NETUSE) snprintf(b, sizeof(b), "Test : réseau en vrai (%s)  -  B : arrêter", TR(sx_sub < 2 ? "téléchargement" : sx_sub < 4 ? "page web" : "radio AAC"));
     else if (sx_state == SX_SCRIPT) snprintf(b, sizeof(b), "Test total : %s (%d / %d)  -  B : arrêter", sx_ci >= 0 ? sx_it[sx_ci].nm : "...", sx_k + 1, sx_nk);
     else if (sx_state == SX_STRESS) snprintf(b, sizeof(b), "Test : stress (onglets très vite, menu, outils)  -  B : arrêter");
     else if (sx_i >= 0 && sx_i < sx_ntabs) snprintf(b, sizeof(b), "Test : parcours %d%s, onglet %d / %d  -  B : arrêter", sx_pass, sx_full ? "/2" : "", sx_i + 1, sx_ntabs);

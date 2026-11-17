@@ -111,6 +111,30 @@ void pcsim_memsites_report(const char *name) {
     for (int i = 0; i < k; i++) { ms_site_t *s = &ms_site[ord[i]]; if (s->bytes < 16384) break; printf("[memoire]   %7zu Ko %6zu  %p %p %p\n", s->bytes / 1024, s->n, s->f[0], s->f[1], s->f[2]); }
     pthread_mutex_unlock(&heap_m);
 }
+/* build 1067 : PCSIM_ALLOCLOG=fichier : chaque bloc pris / rendu, dans l'ordre (taille, 3 appelants), pour rejouer le tas
+   de la console hors du simulateur (tools/pc-sim/tas_morcele.py : ce qui morcelle la memoire) */
+#include <fcntl.h>
+#include <unistd.h>
+static int al_fd = -2;
+static __thread int al_busy = 0;
+static void al_write(const char *b, int n) { if (al_fd >= 0) { ssize_t r = write(al_fd, b, (size_t)n); (void)r; } }
+static void al_open(void) { if (al_fd == -2) { const char *e = getenv("PCSIM_ALLOCLOG"); al_fd = e ? open(e, O_WRONLY | O_CREAT | O_TRUNC, 0644) : -1; } }
+static void al_take(void *p, size_t n) {
+    al_open();
+    if (al_fd < 0 || al_busy) return;
+    al_busy = 1;
+    void *bt[8]; int k = backtrace(bt, 8);
+    al_busy = 0;
+    int b0 = 1;
+    uintptr_t lo_ = (uintptr_t)&pcsim_limits_init - 4096, hi_ = (uintptr_t)&pcsim_limits_init + 16384;
+    while (b0 < k && (uintptr_t)bt[b0] >= lo_ && (uintptr_t)bt[b0] < hi_) b0++;
+    char b[160];
+    int m = snprintf(b, sizeof(b), "a %lx %zu %lx %lx %lx\n", (unsigned long)(uintptr_t)p, n, (unsigned long)(uintptr_t)(b0 < k ? bt[b0] : 0),
+                     (unsigned long)(uintptr_t)(b0 + 1 < k ? bt[b0 + 1] : 0), (unsigned long)(uintptr_t)(b0 + 2 < k ? bt[b0 + 2] : 0));
+    al_write(b, m);
+}
+static void al_give(void *p) { al_open(); if (al_fd < 0 || al_busy) return; char b[40]; int m = snprintf(b, sizeof(b), "f %lx\n", (unsigned long)(uintptr_t)p); al_write(b, m); }
+void pcsim_alloclog_mark(const char *s) { al_open(); if (al_fd < 0) return; char b[200]; int m = snprintf(b, sizeof(b), "m %s\n", s); al_write(b, m); }
 static int heap_take(void *p) {                               /* 1 = gardee ; 0 = refusee (rendue) */
     if (!p) return 0;
     size_t n = malloc_usable_size(p) + CHUNK_OVH;
@@ -124,13 +148,14 @@ static int heap_take(void *p) {                               /* 1 = gardee ; 0 
     }
     heap_used += n; if (heap_used > heap_peak) heap_peak = heap_used;
     ms_add(p, n);
+    al_take(p, n);
     pthread_mutex_unlock(&heap_m);
     return 1;
 }
 static void heap_give(void *p) {
     if (!p) return;
     size_t n = malloc_usable_size(p) + CHUNK_OVH;
-    pthread_mutex_lock(&heap_m); heap_used = heap_used > n ? heap_used - n : 0; ms_del(p, n); pthread_mutex_unlock(&heap_m);
+    pthread_mutex_lock(&heap_m); heap_used = heap_used > n ? heap_used - n : 0; ms_del(p, n); al_give(p); pthread_mutex_unlock(&heap_m);
 }
 void *__wrap_malloc(size_t n) { PCSIM_LIB_ENTER(); void *p = __real_malloc(n); if (!heap_take(p)) p = NULL; PCSIM_LIB_EXIT(); return p; }
 void __wrap_free(void *p) { PCSIM_LIB_ENTER(); heap_give(p); __real_free(p); PCSIM_LIB_EXIT(); }

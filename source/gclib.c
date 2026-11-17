@@ -85,6 +85,7 @@ static const char *game_boot(int k, int resident);         /* v75 : lancement av
 static const char *game_boot_auto(int k);                  /* v90 : Resident, ou le lanceur de secours si des cheats sont actives */
 static void nat_run(int k) __attribute__((unused));        /* v50 : analyse (natif.c) ; v427 : plus appelee (manette) */
 static const char *nat_boot(int k);                        /* v51 : lanceur maison, demarrage natif (natif.c), en test */
+static const char *na_restart_launch(int k, const char *e);   /* build 1064 : memoire trop morcelee : GC Station se relance puis lance le jeu (natif.c) */
 static const char *nat_boot_disc(int k);                   /* v97 : disque du vrai lecteur (natif.c) */
 static const char *nat_boot_lan(int k);                    /* v359 : jeu en reseau local par Internet (Pulse LAN, natif.c) */
 static int gl_has_dvd(void);
@@ -1589,11 +1590,148 @@ static void gl_dl_cv_done(void) {                          /* (boucle principale
         gs_dirty = 1;
     }
 }
+static GXTexObj *gl_cover_sync(int k);
+/* ---------- build 1066 : petites jaquettes lues par un fil a part ----------
+   Avant : lues par la boucle principale (2 par image au plus) : 64 ms et plus par image dans Mes jeux (ouverture d'un
+   fichier, recherche dans posters.pak sur la carte SD), d'ou des ralentissements et de petits blocages. Maintenant : la
+   boucle demande (glc_post), le fil lit (par secteurs quand la carte des morceaux de posters.pak est la, sinon par le
+   fichier), la boucle pose la texture des qu'elle est lue (glc_collect). Les jaquettes autour du jeu choisi sont
+   demandees a l'avance. Les .png / .jpg deposes a la main (convertis une fois) restent lus par la boucle. */
+#define GLC_Q 16
+typedef struct { int k, kind; char path[NAME_LEN], fp[NAME_LEN]; u32 off, len; int w, h, nr; u32 rsd[FM_RUNS], rcnt[FM_RUNS], rhead; u8 *res; } glc_req_t;
+static glc_req_t glc_q[GLC_Q];
+static volatile u32 glc_w = 0, glc_d = 0, glc_c = 0;        /* demandes postees, lues par le fil, reprises par la boucle */
+static int glc_on = 0;                                      /* 1 : fil pret ; -1 : pas de fil (lecture dans la boucle, comme avant) */
+static lwp_t glc_h;
+static sem_t glc_sem;
+static u8 glc_stack[32 * 1024] ATTRIBUTE_ALIGN(32);
+static u8 glc_wait[GL_MAX];                                 /* (1 : demandee, pas encore reprise) */
+static u8 *glc_read(glc_req_t *q) {                         /* (fil) */
+    if (q->kind == 2) {                                     /* jaquette ajoutee, deja convertie (.tex) */
+        FILE *f = fopen(q->fp, "rb");
+        if (!f) return NULL;
+        u8 *t = (u8 *)memalign(32, q->len);
+        int ok = t && fread(t, 1, q->len, f) == q->len;
+        fclose(f);
+        if (!ok) { free(t); return NULL; }
+        DCFlushRange(t, q->len);
+        return t;
+    }
+    u8 *b = (u8 *)memalign(32, q->len);
+    if (!b) return NULL;
+    if (q->nr > 0 && sd_real_if) {                          /* par secteurs (pas de chaine FAT a suivre) */
+        u32 ns = 0;
+        for (int i = 0; i < q->nr; i++) ns += q->rcnt[i];
+        u8 *sb = (u8 *)memalign(32, ns * 512);
+        int ok = sb != NULL;
+        for (int i = 0, at = 0; ok && i < q->nr; at += (int)q->rcnt[i], i++) {
+            DCInvalidateRange(sb + at * 512, q->rcnt[i] * 512);
+            ok = sd_io_read(q->rsd[i], q->rcnt[i], sb + at * 512);
+            sd_rd_sec += q->rcnt[i];
+        }
+        if (ok) { memcpy(b, sb + q->rhead, q->len); free(sb); DCFlushRange(b, q->len); return b; }
+        free(sb);                                           /* (rate : par le fichier) */
+    }
+    FILE *f = fopen(q->fp, "rb");
+    int ok = f && fseek(f, (long)q->off, SEEK_SET) == 0 && fread(b, 1, q->len, f) == q->len;
+    if (f) fclose(f);
+    if (!ok) { free(b); return NULL; }
+    DCFlushRange(b, q->len);
+    return b;
+}
+static void *glc_thread(void *arg) {
+    (void)arg;
+    for (;;) {
+        LWP_SemWait(glc_sem);
+        while (glc_d != glc_w) {
+            glc_req_t *q = &glc_q[glc_d % GLC_Q];
+            glc_busy = 1;
+            q->res = gj_hold ? NULL : glc_read(q);          /* (carte SD bientot demontee : rien de lu) */
+            glc_busy = 0;
+            glc_d++;
+        }
+    }
+    return NULL;
+}
+static int glc_post(int k) {                                /* 1 : demandee (ou deja en route) ; 0 : file pleine ; -1 : pas par le fil */
+    if (k < 0 || k >= gl_n || gl[k].post < 0 || gj_hold) return 0;
+    if (k >= GL_MAX) return -1;
+    if (glc_wait[k]) return 1;
+    if (gl[k].post == GL_POST_DL) {
+        char p[NAME_LEN];
+        gl_dl_path(gl[k].id, "tex", p, sizeof(p));
+        if (glc_w - glc_c >= GLC_Q) return 0;
+        glc_req_t *q = &glc_q[glc_w % GLC_Q];
+        q->k = k; q->kind = 2; q->len = GL_DLW * GL_DLW * 2; q->nr = 0; q->res = NULL; q->w = q->h = GL_DLW;
+        snprintf(q->path, sizeof(q->path), "%s", gl[k].path);
+        snprintf(q->fp, sizeof(q->fp), "%s", p);
+        glc_wait[k] = 1; glc_w++; LWP_SemPost(glc_sem);
+        return 1;
+    }
+    swpk_t *pk = &gl_post;
+    int r = gl[k].post;
+    if (!pk->idx || r >= pk->n || pk->levels < 2) return -1;   /* (niveau 1 du pack) */
+    if (glc_w - glc_c >= GLC_Q) return 0;
+    glc_req_t *q = &glc_q[glc_w % GLC_Q];
+    q->off = be32(pk->idx + r * 32 + 8) + (u32)pk->cw * pk->ch / 2;
+    q->w = pk->cw / 2; q->h = pk->ch / 2;
+    q->len = (u32)q->w * q->h / 2;
+    q->k = k; q->kind = 1; q->res = NULL;
+    q->nr = fm_fresh(&pk->fm) ? fm_runs(&pk->fm, q->off, q->len, q->rsd, q->rcnt, &q->rhead) : 0;
+    snprintf(q->path, sizeof(q->path), "%s", gl[k].path);
+    snprintf(q->fp, sizeof(q->fp), "%s", GL_UI "/posters.pak");
+    glc_wait[k] = 1; glc_w++; LWP_SemPost(glc_sem);
+    return 1;
+}
+static void glc_collect(void) {                             /* (boucle) jaquettes lues : posees */
+    static u64 last_pf = 0;
+    while (glc_c != glc_d) {
+        glc_req_t *q = &glc_q[glc_c % GLC_Q];
+        int k = q->k;
+        u8 *b = q->res; q->res = NULL;
+        glc_c++;
+        if (k >= 0 && k < GL_MAX) glc_wait[k] = 0;
+        if (k < 0 || k >= gl_n || strcmp(gl[k].path, q->path)) { free(b); continue; }   /* (liste changee entre-temps) */
+        if (!b) {
+            if (gj_hold) continue;
+            if (q->kind == 2) { gl_cover_sync(k); continue; }   /* (.tex absent : un .png / .jpg depose, converti ici) */
+            if (++gl_cov_fail[k] < 4) gl_cov_retry[k] = now_ms() + 1500; else gl[k].post = -1;
+            continue;
+        }
+        gl_cov_fail[k] = 0; gl_cov_retry[k] = 0;
+        if (gl_find_slot(gl_cov, GL_SLOTS, k)) { free(b); continue; }
+        glslot_t *s = gl_new_slot(gl_cov, GL_SLOTS);
+        s->tex = (u16 *)b; s->game = k; s->used = now_ms();
+        GX_InitTexObj(&s->obj, b, q->w, q->h, q->kind == 2 ? GX_TF_RGB5A3 : GX_TF_CMPR, GX_CLAMP, GX_CLAMP, GX_FALSE);
+        GX_InvalidateTexAll();
+        GX_InitTexObjFilterMode(&s->obj, GX_LINEAR, GX_LINEAR);
+    }
+    if (gl_on && gl_n && gl_sel >= 0 && gl_sel < gl_n && now_ms() - last_pf > 100 && glc_w - glc_c < GLC_Q / 2) {   /* a l'avance : autour du jeu choisi */
+        last_pf = now_ms();
+        for (int d = 1; d <= 6; d++)
+            for (int sg = -1; sg <= 1; sg += 2) {
+                int k = ((gl_sel + sg * d) % gl_n + gl_n) % gl_n;
+                if (k < GL_MAX && !glc_wait[k] && gl[k].post >= 0 && !(gl_cov_retry[k] && now_ms() < gl_cov_retry[k])
+                    && !gl_find_slot(gl_cov, GL_SLOTS, k) && glc_w - glc_c < GLC_Q / 2) (void)glc_post(k);
+            }
+    }
+}
 static GXTexObj *gl_cover(int k, int load) {                 /* jaquette 128x256 (niveau 1 du pack) */
     glslot_t *s = gl_find_slot(gl_cov, GL_SLOTS, k);
     if (s) return &s->obj;
     if (!load || gl[k].post < 0) return NULL;
     if (k < GL_MAX && gl_cov_retry[k] && now_ms() < gl_cov_retry[k]) return NULL;
+    if (!glc_on) glc_on = LWP_SemInit(&glc_sem, 0, 64) >= 0 && LWP_CreateThread(&glc_h, glc_thread, NULL, glc_stack, sizeof(glc_stack), 20) >= 0 ? 1 : -1;
+    if (glc_on > 0) {                                     /* build 1066 : lue par le fil */
+        glc_collect();
+        s = gl_find_slot(gl_cov, GL_SLOTS, k);
+        if (s) return &s->obj;
+        if (glc_post(k) >= 0) return NULL;
+    }
+    return gl_cover_sync(k);
+}
+static GXTexObj *gl_cover_sync(int k) {                     /* (lecture dans la boucle, comme avant la build 1066) */
+    glslot_t *s;
     {   /* v356 : au plus 2 jaquettes lues par image : l'ecran s'affiche tout de suite, les jaquettes arrivent une a une
            (avant : toutes lues dans la 1re image ; ouverture de la liste des jeux : plus d'une seconde figee) */
         static u64 vi = 0; static u32 n = 0;           /* (par tranche de 15 ms : environ une image) */
@@ -2216,7 +2354,7 @@ static void gl_card_banner(int k, f32 x, f32 y, f32 w, f32 h, int on) {
 static int gl_loaded_frame = 0;                       /* jaquettes lues pendant cette image */
 /* v68 : une seule lecture par image (avant 3 : l'image sautait en defilant) ; pendant qu'on
    navigue, seulement la jaquette choisie ; les voisines quand on s'arrete */
-static int gl_may_load(int k) { return gl_loaded_frame < 1 && (k == gl_sel || now_ms() - last_input_ms > 150); }
+static int gl_may_load(int k) { return glc_on > 0 || (gl_loaded_frame < 1 && (k == gl_sel || now_ms() - last_input_ms > 150)); }   /* (build 1066 : fil des jaquettes : demander ne coute rien) */
 /* une jaquette (ou la banniere) dans le cadre x, y, w, h */
 static void gl_draw_cover(int k, f32 x, f32 y, f32 w, f32 h, int on) {
     int had = gl[k].post >= 0 && gl_find_slot(gl_cov, GL_SLOTS, k) != NULL;

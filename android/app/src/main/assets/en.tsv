@@ -2296,3 +2296,51 @@ Cette sauvegarde est d'un autre jeu	This save is from another game
 La sauvegarde n'a pas pu être écrite	The save couldn't be written
 Pas de réponse du moteur	No answer from the engine
 Reprendre une sauvegarde instantanée	Loading a save state
+# build 1067 : textes qui manquaient (trad_audit.py)
+Partie sauvée (emplacement $slot)	Game saved (slot $slot)
+Partie reprise (emplacement $slot)	Game loaded (slot $slot)
+Rien dans l'emplacement $slot	Nothing in slot $slot
+répond	answers
+éteint	off
+GBA débranchée	GBA unplugged
+GBA relancée	GBA restarted
+nord	north
+est	east
+sud	south
+ouest	west
+sud-ouest	south-west
+nord-ouest	north-west
+départ	start
+Gelée	Jammin' Jelly
+Pêche	Peachy Peach
+Raté	Mistake
+Compétition	Competition
+Entraînement	Practice
+Avancé	Advanced
+Expert	Expert
+Débutant $n	Beginner $n
+Débutant 	Beginner 
+Avancé 	Advanced 
+Étage bonus 	Bonus floor 
+Débutant Extra 2	Beginner Extra 2
+Extra (Débutant 3, Avancé 4, Expert 8)	Extra (Beginner 3, Advanced 4, Expert 8)
+Extra (Avancé 2, Expert 3)	Extra (Advanced 2, Expert 3)
+Avancé Extra 3	Advanced Extra 3
+Avancé Extra 5	Advanced Extra 5
+Monkey Course : autoroute gelée	Monkey Race: frozen highway
+Monkey Course : désert	Monkey Race: desert
+Monkey Combat : arène 	Monkey Fight: arena 
+Inscription du nom	Name entry
+Temps écoulé	Time over
+Tombé	Fell out
+Difficulté	Difficulty
+Bananes encore sur le niveau	Bananas left on the level
+Continues utilisés	Continues used
+Score jusqu'au dernier étage	Score up to the last floor
+Points de jeu	Play points
+Débloqué avec les points de jeu	Unlocked with play points
+Continues illimités	Unlimited continues
+points de jeu	play points
+Une vie de plus toutes les 100 bananes.	One extra life every 100 bananas.
+Trouver Link pour la 3D en direct (une fois)	Find Link for the live 3D view (once)
+Point rouge : Link, en direct.	Red dot: Link, live.

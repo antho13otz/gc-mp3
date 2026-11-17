@@ -640,6 +640,7 @@ static int share_input(u32 down);
 static int sh_on;
 static int stat_counted;                    /* morceau en cours deja compte (lib_extra.c) */
 static void lyrics_load(int track);
+static void lyrics_take(int track, unsigned char *d, long len);   /* build 1066 */
 static void bg_tick(void);              /* musique/radio pendant les attentes reseau */
 static void crumb(const char *fmt, ...);   /* journal de plantage (crashlog.c) */
 /* v448 : mesure de fluidite : une etape de plus de 60 ms est notee (son nom, sa duree, le temps pris par le reseau
@@ -2817,7 +2818,7 @@ static int rc_take(const char *url, int depth, const char *host, int port, int t
     rc_job = id; rc_depth = depth; rc_port = port; rc_tls = tls; rc_t0 = now_ms();
     snprintf(rc_url, sizeof(rc_url), "%s", url);
     snprintf(rc_host, sizeof(rc_host), "%s", host);
-    snprintf(conn_msg, sizeof(conn_msg), "%s %s...", tls ? "Connexion s\xC3\xA9" "curis\xC3\xA9" "e \xC3\xA0" : "Connexion \xC3\xA0", host);
+    snprintf(conn_msg, sizeof(conn_msg), "%s %s...", TR(tls ? "Connexion s\xC3\xA9" "curis\xC3\xA9" "e \xC3\xA0" : "Connexion \xC3\xA0"), host);
     return -1;
 }
 
@@ -4652,6 +4653,7 @@ typedef struct {
     stb_vorbis *vb; int vrate;                            /* (OGG) */
     u16 *cvtex;                                           /* pochette (cache des pochettes), ou NULL */
     char cvkey[NAME_LEN + 24];
+    unsigned char *lrc; long lrc_len; int lrc_done;       /* build 1066 : paroles (.lrc) lues aussi par le fil ; lrc_done : cherchees */
 } nx_t;
 static unsigned char *id3_text_only(FILE *fp, const unsigned char *head, long tagend, long *outlen);
 static nx_t nx;
@@ -4663,6 +4665,7 @@ static void nx_drop(void) {                               /* (fil principal) */
     if (nx.vb) { stb_vorbis_close(nx.vb); nx.vb = NULL; }
     if (nx.fp) { fclose(nx.fp); nx.fp = NULL; }
     free(nx.cvtex); nx.cvtex = NULL;
+    free(nx.lrc); nx.lrc = NULL; nx.lrc_done = 0;
     nx.st = 0;
 }
 /* v195 : changement de morceau a la main (R / L / A) sans figer l'ecran : le fil de decodage prepare le morceau
@@ -4712,14 +4715,25 @@ static size_t nx_fread(void *b, size_t n, FILE *fp) {
     }
     return got;
 }
+static void rg_flush(void);
 static void nx_work(void) {                               /* (thread de decodage : aucune variable de la boucle principale) */
     nx.fp = NULL; nx.fl = NULL; nx.vb = NULL; nx.cvtex = NULL; nx.cvkey[0] = 0; nx.skip = 0; nx.left = -1; nx.audio = 0;
+    nx.lrc = NULL; nx.lrc_len = 0; nx.lrc_done = 0;
     tags_clear(&nx.tg);
+    rg_flush();                                           /* build 1066 : volumes mesures en attente, ecrits ici (pas dans la boucle) */
     FILE *fp = fopen(nx.path, "rb");
     long size = -1;
     if (fp && fseek(fp, 0, SEEK_END) == 0) size = ftell(fp);
     if (!fp || size <= 0) { if (fp) fclose(fp); nx.st = 3; return; }
     nx.size = size;
+    {   /* build 1066 : paroles cherchees ici (avant : par la boucle au debut du morceau, avec volumes.txt : 90 a 150 ms) */
+        char lp[NAME_LEN + 8];
+        snprintf(lp, sizeof(lp), "%s", nx.path);
+        strip_audio_ext(lp);
+        strcat(lp, ".lrc");
+        nx.lrc = read_file(lp, 256 * 1024, &nx.lrc_len);
+        nx.lrc_done = 1;
+    }
     int ok = 0;
     if (nx.fmt == FMT_MP3) {                              /* (comme start_track_u) */
         unsigned char head[10], v1[128];
@@ -4804,22 +4818,69 @@ static void nx_work(void) {                               /* (thread de decodage
     nx.st = nx.fp || nx.cvtex ? 2 : 3;
 }
 #define VOL_FILE GCD_REG "/volumes.txt"
-static int rg_lookup(const char *path, float *g, float *pk) {     /* gain deja mesure pour ce fichier */
+/* build 1066 : volumes.txt lu une seule fois, garde en memoire (une empreinte du chemin par morceau) ; avant : relu
+   en entier a chaque morceau par la boucle (avec les paroles : 90 a 150 ms figees a chaque changement de morceau).
+   Les nouvelles mesures sont ajoutees en memoire tout de suite, et ecrites dans le fichier par le fil de decodage
+   (nx_work, rg_flush) ; sans ce fil : tout de suite, comme avant. */
+typedef struct { u32 h1, h2; float g, pk; } rgv_t;
+static rgv_t *rgv = NULL;
+static int rgv_n = 0, rgv_cap = 0, rgv_loaded = 0;
+#define RGQ_N 8
+static char rgq[RGQ_N][NAME_LEN + 40];
+static volatile int rgq_w = 0, rgq_r = 0;
+static void rg_hash(const char *s, u32 *h1, u32 *h2) {
+    u32 a = 2166136261u, b = 5381u;
+    for (; *s; s++) { a = (a ^ (u8)*s) * 16777619u; b = b * 33u + (u8)*s; }
+    *h1 = a; *h2 = b;
+}
+static void rgv_set(const char *path, float g, float pk) {
+    u32 h1, h2;
+    rg_hash(path, &h1, &h2);
+    for (int i = 0; i < rgv_n; i++) if (rgv[i].h1 == h1 && rgv[i].h2 == h2) { rgv[i].g = g; rgv[i].pk = pk; return; }   /* (le dernier gagne, comme avant) */
+    if (rgv_n == rgv_cap) {
+        int nc = rgv_cap ? rgv_cap * 2 : 256;
+        rgv_t *n = (rgv_t *)realloc(rgv, sizeof(rgv_t) * nc);
+        if (!n) return;
+        rgv = n; rgv_cap = nc;
+    }
+    rgv[rgv_n].h1 = h1; rgv[rgv_n].h2 = h2; rgv[rgv_n].g = g; rgv[rgv_n].pk = pk; rgv_n++;
+}
+static void rgv_load(void) {
+    rgv_loaded = 1;
     FILE *f = sd_ok ? fopen(VOL_FILE, "r") : NULL;
-    if (!f) return 0;
+    if (!f) return;
     static char l[NAME_LEN + 48];
-    int found = 0;
     while (fgets(l, sizeof(l), f)) {
         char *b1 = strchr(l, '|'), *b2 = b1 ? strchr(b1 + 1, '|') : NULL;
         if (!b2) continue;
-        char *p = trim(b2 + 1);
-        if (!strcmp(p, path)) { *g = (float)atof(l); *pk = (float)atof(b1 + 1); found = 1; }
+        rgv_set(trim(b2 + 1), (float)atof(l), (float)atof(b1 + 1));
     }
     fclose(f);
-    return found;
+}
+static int rg_lookup(const char *path, float *g, float *pk) {     /* gain deja mesure pour ce fichier */
+    if (!rgv_loaded) rgv_load();                          /* (une seule fois) */
+    u32 h1, h2;
+    rg_hash(path, &h1, &h2);
+    for (int i = 0; i < rgv_n; i++) if (rgv[i].h1 == h1 && rgv[i].h2 == h2) { *g = rgv[i].g; *pk = rgv[i].pk; return 1; }
+    return 0;
+}
+static void rg_flush(void) {                               /* (fil de decodage : nx_work) */
+    if (rgq_r == rgq_w) return;
+    FILE *f = fopen(VOL_FILE, "a");
+    while (rgq_r != rgq_w) {
+        if (f) fputs(rgq[rgq_r % RGQ_N], f);
+        rgq_r++;
+    }
+    if (f) fclose(f);
 }
 static void rg_store(const char *path, float g, float pk) {
     if (!sd_ok) return;
+    if (rgv_loaded) rgv_set(path, g, pk);
+    if (mdec_h != LWP_THREAD_NULL && rgq_w - rgq_r < RGQ_N) {   /* (ecrit plus tard par le fil) */
+        snprintf(rgq[rgq_w % RGQ_N], sizeof(rgq[0]), "%.2f|%.4f|%s\n", g, pk, path);
+        rgq_w++;
+        return;
+    }
     FILE *f = fopen(VOL_FILE, "a");
     if (f) { fprintf(f, "%.2f|%.4f|%s\n", g, pk, path); fclose(f); }
 }
@@ -5014,6 +5075,8 @@ static int start_track_u(int idx) {
 
     /* v165 : morceau prepare d'avance par le thread de decodage ? */
     int pre = nx.st == 2 && nx.idx == idx && !strcmp(nx.path, names[idx]);
+    unsigned char *lrc_pre = NULL; long lrc_pre_len = 0; int lrc_have = 0;   /* build 1066 : paroles deja cherchees par le fil */
+    if (pre && nx.lrc_done) { lrc_pre = nx.lrc; lrc_pre_len = nx.lrc_len; lrc_have = 1; nx.lrc = NULL; nx.lrc_done = 0; }
     free(cvpre_tex); cvpre_tex = NULL;
     if (pre && nx.cvtex) { cvpre_tex = nx.cvtex; nx.cvtex = NULL; snprintf(cvpre_key, sizeof(cvpre_key), "%s", nx.cvkey); snprintf(cvpre_path, sizeof(cvpre_path), "%s", nx.path); }
     if (pre && !nx.fp) pre = 0;                           /* (seule la pochette etait prete) */
@@ -5031,6 +5094,7 @@ static int start_track_u(int idx) {
     }
     if (!fp || size <= 0) {
         if (fp) fclose(fp);
+        free(lrc_pre);
         track_err = fp ? "Fichier vide" : "Ouverture impossible";
         xf_request = 0;
         if (xf) { src = SRC_NONE; f_head = f_tail = f_count = 0; xf_left = 0; consumed_skip = 0; }
@@ -5054,6 +5118,7 @@ static int start_track_u(int idx) {
     if (err) {
         other_close();
         fclose(fp);
+        free(lrc_pre);
         track_err = err;
         xf_request = 0;
         if (xf) { src = SRC_NONE; f_head = f_tail = f_count = 0; xf_left = 0; consumed_skip = 0; }
@@ -5096,7 +5161,8 @@ static int start_track_u(int idx) {
     eof = 0; playing = 1; paused = 0; cur_track = idx;
     cur_on_sd = !strncasecmp(names[idx], SD_ROOT, strlen(SD_ROOT));   /* v158 */
     src = SRC_FILE;
-    lyrics_load(idx);
+    if (lrc_have) lyrics_take(idx, lrc_pre, lrc_pre_len);   /* build 1066 : (lues par le fil ; NULL : pas de paroles) */
+    else lyrics_load(idx);
     return 1;
 }
 
@@ -5897,6 +5963,13 @@ static int cmp_lrc(const void *a, const void *b) {
 
 /* "[01:23.45]Paroles" (plusieurs [temps] possibles par ligne) */
 static void lyrics_parse(const unsigned char *d, long len);
+static void lyrics_take(int track, unsigned char *d, long len) {   /* build 1066 : paroles deja lues (d : a liberer ; NULL : aucune) */
+    free(lrc_text);
+    lrc_text = NULL;
+    lrc_n = 0;
+    lrc_track = track;
+    if (d) { lyrics_parse(d, len); free(d); }
+}
 static void lyrics_load(int track) {
     free(lrc_text);
     lrc_text = NULL;
@@ -10695,6 +10768,7 @@ static int dec_started = 0;
 static void *dec_thread_fn(void *arg);
 static volatile int gj_state = 0;           /* v92 : lecture pour l'onglet JEUX (gclib.c) : 0 libre, 1 a faire, 2 fini */
 static volatile int gj_hold = 0;            /* v96 : plus de nouvelle lecture en fond (la carte SD va etre demontee) */
+static volatile int glc_busy = 0;           /* build 1066 : le fil des petites jaquettes lit (gclib.c) */
 static void bg_quiesce(void);
 static void gl_job_run(void);
 static int dj_photo = 0;                    /* 1 = photo de l'economiseur (RGB, ajustee a dj_aw x dj_ah) */
@@ -11118,7 +11192,7 @@ static void bg_quiesce(void) {
     gj_hold = 1;
     lsc_hold_t = now_ms(); lsc_hold = 1;                  /* v390 : le fil de la bibliotheque aussi (parcours de dossiers) */
     u64 t0 = now_ms();
-    while ((gj_state == 1 || tj_state == 1 || lsc_busy) && now_ms() - t0 < 15000) usleep(2000);   /* (v391 : 15 s, et les parcours s'arretent tout de suite) */
+    while ((gj_state == 1 || tj_state == 1 || lsc_busy || glc_busy) && now_ms() - t0 < 15000) usleep(2000);   /* (v391 : 15 s, et les parcours s'arretent tout de suite) */
 }
 /* v118 : jusqu'a 3 images telechargees en meme temps (avant : une a la fois) ; le decodage reste un a un */
 #define IL_N 3
@@ -14354,7 +14428,7 @@ static void tab_enter_u(int t) {
     case TAB_FILES:   files_enter(); break;
     case TAB_INFO:    net_start_async(); infos_enter(); break;
     case TAB_PHONE:   net_start_async(); phone_enter(); break;
-    case TAB_DL:      dlh_loaded = 0; break;
+    case TAB_DL:      break;                             /* (build 1066 : l'historique n'est plus relu a chaque passage : 90 ms) */
     }
 }
 
@@ -14771,6 +14845,7 @@ int main(int argc, char **argv) {
     mdec_start();                            /* v157 : thread de decodage de la musique */
 
     reset_init();                            /* v38 : bouton Reset */
+    na_pending_launch();                     /* build 1064 : jeu note avant une relance (memoire trop morcelee) : lance tout de suite */
     resume_start();                          /* reprise du dernier morceau */
     last_input_ms = now_ms();
 

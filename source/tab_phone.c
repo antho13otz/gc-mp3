@@ -2079,6 +2079,7 @@ static void tp_park(void) {
     u64 t0 = now_ms();
     while ((tp_busy || tpu_c >= 0) && now_ms() - t0 < 3000) usleep(2000);
 }
+static void tpl_open(void);
 static void *phone_thread(void *arg) {
     (void)arg;
     s32 ls = net_socket(AF_INET, SOCK_STREAM, 0);
@@ -2095,6 +2096,7 @@ static void *phone_thread(void *arg) {
         tp_state = PS_ERR;
         return NULL;
     }
+    tpl_open();                                          /* build 1066 : la liaison directe avec l'appli, ouverte ici (avant : par la boucle) */
     tp_state = PS_ON;
     tp_update_free();
     /* v272 : priorite 66, au-dessus de la boucle (64) : il dort tant que rien n'arrive, mais des que des donnees sont la,
@@ -2188,19 +2190,21 @@ static int tpl_live(void) {                               /* un appareil abonne 
     for (int i = 0; i < tpl_n; i++) if (now - tpl_sub[i].seen < 30000) return 1;
     return 0;
 }
+/* build 1066 : ouverte par le fil du telephone, avant le serveur (avant : par la boucle principale, a la 1re image ou le
+   serveur etait pret ; elle attendait alors la pile reseau, occupee par le fil : 1,9 s figees une fois apres le demarrage) */
+static void tpl_open(void) {
+    if (tpl_fd >= 0) return;
+    s32 fd = net_socket(AF_INET, SOCK_DGRAM, 0);
+    if (fd < 0) return;
+    struct sockaddr_in a;
+    memset(&a, 0, sizeof(a));
+    a.sin_family = AF_INET; a.sin_port = htons(TPL_PORT); a.sin_addr.s_addr = INADDR_ANY;
+    if (net_bind(fd, (struct sockaddr *)&a, sizeof(a)) < 0) { net_close(fd); return; }
+    set_nonblock(fd, 1);
+    tpl_fd = fd;
+}
 static void tpl_pump(void) {
-    if (tpl_fd < 0) {
-        static u64 tried = 0;
-        if (tried && now_ms() - tried < 10000) return;
-        tried = now_ms();
-        tpl_fd = net_socket(AF_INET, SOCK_DGRAM, 0);
-        if (tpl_fd < 0) return;
-        struct sockaddr_in a;
-        memset(&a, 0, sizeof(a));
-        a.sin_family = AF_INET; a.sin_port = htons(TPL_PORT); a.sin_addr.s_addr = INADDR_ANY;
-        if (net_bind(tpl_fd, (struct sockaddr *)&a, sizeof(a)) < 0) { net_close(tpl_fd); tpl_fd = -1; return; }
-        set_nonblock(tpl_fd, 1);
-    }
+    if (tpl_fd < 0) return;
     for (int k = 0; k < 8; k++) {
         char m[64];
         if (!app_envoi) {                                 /* v330 : envoi vers l'appli coupe : on vide sans repondre (ni adresse) */

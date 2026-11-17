@@ -288,7 +288,7 @@ static int jh_draw(void) {
     gx_text1(F_SMALL, 24, 290, TR("MINI-JEUX"), RGBA(190, 172, 255, 255));
     {
         char rec[32]; jh_rec_text(sel, rec, sizeof(rec));
-        snprintf(buf, sizeof(buf), "%s \xC2\xB7 %s%s%s", gm_names[sel], gm_desc[sel], rec[0] ? " \xC2\xB7 " : "", rec);
+        snprintf(buf, sizeof(buf), "%s \xC2\xB7 %s%s%s", TR(gm_names[sel]), TR(gm_desc[sel]), rec[0] ? " \xC2\xB7 " : "", rec);
         fit_text(F_SMALL, buf, 500, a, sizeof(a));
         gx_text1(F_SMALL, 104, 290, a, jh_z >= 100 ? RGBA(255, 255, 255, 255) : RGBA(190, 185, 230, 255));
     }

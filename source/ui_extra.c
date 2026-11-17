@@ -412,7 +412,7 @@ static void draw_layout_bigviz(void) {
 static void draw_layout_toast(void) {
     if (now_ms() >= layout_toast_until) return;
     char buf[96];
-    snprintf(buf, sizeof(buf), "Disposition : %s   (stick C vers le bas)", layout_names[player_layout]);
+    snprintf(buf, sizeof(buf), "Disposition : %s   (stick C vers le bas)", TR(layout_names[player_layout]));
     int w = text_width(F_MED, buf, 0) + 30;
     gx_rrect_fill(320 - w / 2.0f, 440, (f32)w, 28, 10, RGBA(10, 6, 30, 235), RGBA(10, 6, 30, 235));
     gx_text_c(F_MED, 320, 459, buf, RGBA(255, 255, 255, 255));

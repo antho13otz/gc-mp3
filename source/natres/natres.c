@@ -812,7 +812,7 @@ static const natres_net_t *pn_cfg = 0;                   /* (H.net, ou les regla
 #define BB_SI_ACTRL2 0x60
 #define BB_RXINTT 0x14
 static volatile u32 *bx;                                   /* registres EXI du canal 0 */
-extern u8 exc_stack[1600];
+extern u8 exc_stack[1568];
 #define pn_fr exc_stack                                   /* (trame : la pile du retour a GC Station ne sert pas en meme temps) */
 static u8 pn_mac[6], pn_smac[6];
 static u32 pn_seq = 0x5000;
@@ -2211,7 +2211,7 @@ void ret_go(void) __attribute__((used));
 void ret_go(void) { ret_to_gcstation(); }
 extern void ret_entry(void);
 __asm__(".pushsection .text\n.globl ret_entry\nret_entry:\n"
-        "  lis 1,exc_stack@ha\n  addi 1,1,exc_stack@l\n  addi 1,1,1584\n  b ret_go\n.popsection\n");
+        "  lis 1,exc_stack@ha\n  addi 1,1,exc_stack@l\n  addi 1,1,1552\n  b ret_go\n.popsection\n");
 static MEM_OS void hot_reset(void) {
     volatile u32 *pi = (volatile u32 *)0xCC003000u;
     irq_off();
@@ -2384,7 +2384,7 @@ NR_HOOK(pet, H.cnt_pe)
    si c'est ipl.dol). Table des exceptions du SDK : 0x80003000 (2 DSI, 3 ISI, 5, 6).
    Le gestionnaire tourne sur sa propre pile (celle du jeu est peut-etre la cause). */
 #define OS_EXC_TABLE ((volatile u32 *)0x80003000u)
-u8 exc_stack[1600] __attribute__((aligned(32), used));   /* (builds 1061-1063 : 1600 au lieu de 2048, place ; une trame reseau tient en 1536 ;
+u8 exc_stack[1568] __attribute__((aligned(32), used));   /* (builds 1061-1063 : 1600 au lieu de 2048, place ; build 1065 : 1568 ; une trame reseau tient en 1536 ;
                                                             pile du plantage : moins de 600 octets au plus, mesure -fstack-usage) */   /* (v371 : 32 : le direct l'envoie par DMA) */
 void exc_c(u32 ex, u32 ctx) __attribute__((used));
 extern void exc_entry(void);
@@ -2394,7 +2394,7 @@ extern void exc_entry(void);
 __asm__(".pushsection .text\n.globl exc_entry\nexc_entry:\n"
         "  mtctr 0\n  oris 5,4,0x8000\n  rlwinm 0,5,7,25,31\n  cmplwi 0,0x40\n  mfctr 0\n  bne 1f\n"
         "  stw 0,0(5)\n  stw 1,4(5)\n  stw 2,8(5)\n  stmw 6,0x18(5)\n"
-        "1:\n  lis 1,exc_stack@ha\n  addi 1,1,exc_stack@l\n  addi 1,1,1584\n  b exc_c\n.popsection\n");
+        "1:\n  lis 1,exc_stack@ha\n  addi 1,1,exc_stack@l\n  addi 1,1,1552\n  b exc_c\n.popsection\n");
 /* v79 : details d'un plantage (format : natres.h, NATRES_CRASH_*), pour savoir POURQUOI le
    jeu s'est arrete : registres, chaine des appels (pile du jeu), textes passes a sa fonction
    d'erreur (un jeu qui s'arrete expres ecrit souvent a une adresse bidon comme 01234567,
@@ -2811,7 +2811,13 @@ static u32 st_status(u32 c0) { (void)c0; return 0; }   /* (v474 : Pulse compact)
    (certains jeux, Cocoto, programment le tampon suivant a la fin du calcul du DSP : avant, la musique
    etait ajoutee au tampon deja en train d'etre joue, donc en partie seulement : saccades), et jamais deux
    fois (un tampon rejoue tel quel quand le DSP est en retard gardait sa musique, et en recevait une 2e). */
-static u32 st_last_addr = 0xFFFFFFFFu, st_last_sum = 0, st_dsp_n = 0;
+static u32 st_last_addr = 0xFFFFFFFFu, st_dsp_n = 0;
+/* build 1065 : une empreinte par tranche du tampon (32 tranches) : si le DSP n'a reecrit qu'une partie du
+   tampon (Pulse ne bloque plus le jeu depuis la 1060 : la musique peut etre ajoutee pendant que le DSP ecrit
+   encore), la musique n'est remise que sur les tranches reecrites. Avant : remise partout, donc en double
+   sur le reste (ambiance trop forte dans Super Monkey Ball, GC2SD). */
+static unsigned short st_bh[32];
+static u32 st_bh_len = 0;
 /* v106 : certains jeux (Cocoto Kart Racer) programment le tampon suivant a l'interruption du son, PUIS
    le DSP le calcule : la musique ajoutee a l'interruption du son etait effacee, puis ajoutee une 2e fois a
    la fin du DSP avec les echantillons suivants : la musique avancait deux fois trop vite et sautait un
@@ -2832,8 +2838,18 @@ static MEM_OS void st_load(void) {
     st_pcm_i = s->pcm_i; st_phase = s->phase; st_hl1 = s->hl1; st_hl2 = s->hl2; st_hr1 = s->hr1; st_hr2 = s->hr2; st_cl = s->cl; st_cr = s->cr; st_pl = s->pl; st_pr = s->pr;
     for (int i = 0; i < 56; i++) st_pcm[i] = s->pcm[i];
 }
-static u32 st_sum(const u32 *w, u32 n) { u32 s = 0x9E3779B9u; for (u32 i = 0; i < n; i++) s = (s ^ w[i]) * 0x01000193u; return s; }
 #if !defined(NATRES_COMPACT)
+static __attribute__((noinline, optimize("Os"))) u32 st_bhash(const u8 *p, u32 len, u32 sh, u32 cmp) {
+    u32 m = 0;                                           /* (cmp : tranches inchangees ; sinon : empreintes notees) */
+    for (u32 o = 0, b = 0; o < len; o += 1u << sh, b++) {
+        u32 w = len - o < (1u << sh) ? len - o : 1u << sh;
+        u32 h = 0x9E3779B9u;
+        for (u32 i = 0; i < w; i += 4) h = (h ^ *(const u32 *)(p + o + i)) * 0x01000193u;
+        h = (unsigned short)h;
+        if (!cmp) st_bh[b] = h; else if (h == st_bh[b]) m |= 1u << b;
+    }
+    return m;
+}
 static void st_mix_from(int from_dsp) {
     volatile u32 *ai = HW6(0xCC006C00u);
     u32 cr = ai[0];
@@ -2842,10 +2858,13 @@ static void st_mix_from(int from_dsp) {
     u32 addr = ((((u32)dsp[0x30 / 2] & 0x3FFu) << 16) | dsp[0x32 / 2]) & ~31u;
     u32 len = ((u32)dsp[0x36 / 2] & 0x7FFFu) << 5;
     if (!len || len > 0x8000u || addr + len > 0x01800000u) return;
-    {
-        u8 *q = (u8 *)(addr | 0x80000000u);
-        for (u32 a = (u32)q; a < (u32)q + len; a += 32) __asm__ volatile("dcbi 0,%0" :: "r"(a) : "memory");
-        if (addr == st_last_addr && st_sum((const u32 *)q, len / 4) == st_last_sum) {   /* (deja complete) */
+    u8 *p = (u8 *)(addr | 0x80000000u);
+    for (u32 a = (u32)p; a < (u32)p + len; a += 32) __asm__ volatile("dcbi 0,%0" :: "r"(a) : "memory");   /* (ecrit par le DSP) */
+    u32 sh = 5, km = 0;
+    while ((len >> sh) > 32u) sh++;                      /* (32 tranches au plus) */
+    if (addr == st_last_addr && len == st_bh_len) {
+        km = st_bhash(p, len, sh, 1);
+        if (km == 0xFFFFFFFFu >> (32u - ((len + (1u << sh) - 1) >> sh))) {   /* (deja complete : rien de reecrit) */
             if (!from_dsp && H.crc_err < 0xFFFF0000u) H.crc_err += 0x10000u;            /* (journal : tampons rejoues) */
             return;
         }
@@ -2853,14 +2872,12 @@ static void st_mix_from(int from_dsp) {
     if (from_dsp && addr == st_last_addr && st_snap_addr == addr) {   /* v106 : le DSP a reecrit le tampon : memes echantillons */
         st_load();
         if (st_dsp_n < 0xFFFFu) { st_dsp_n++; H.xfer = (H.xfer & 0xFFFFu) | st_dsp_n << 16; }
-    }
+    } else km = 0;                                       /* (build 1065 : tranches non reecrites : deja leur musique) */
     st_save(addr);
     u32 vol = ai[1];
     int vl = (int)(vol & 0xFF), vr = (int)((vol >> 8) & 0xFF);
     u32 drate = (cr & 0x40) ? 32000u : 48000u, srate = (cr & 2) ? 48000u : 32000u;
     u32 step = (srate << 16) / drate;
-    u8 *p = (u8 *)(addr | 0x80000000u);
-    for (u32 a = (u32)p; a < (u32)p + len; a += 32) __asm__ volatile("dcbi 0,%0" :: "r"(a) : "memory");   /* (ecrit par le DSP) */
     short *s = (short *)p;
     u32 n = len / 4;
     /* v107 : musique a 48 kHz, son du jeu a 32 kHz : chaque echantillon de sortie est la moyenne des
@@ -2879,10 +2896,12 @@ static void st_mix_from(int from_dsp) {
             ol = al / k; orr = ar / k;
             st_pl = st_cl; st_pr = st_cr;
         }
+        if ((km >> ((i * 4) >> sh)) & 1) continue;
         s[i * 2] = (short)st_clamp(s[i * 2] + ((ol * vl) >> 8), -0x8000, 0x7fff);
         s[i * 2 + 1] = (short)st_clamp(s[i * 2 + 1] + ((orr * vr) >> 8), -0x8000, 0x7fff);
     }
-    st_last_addr = addr; st_last_sum = st_sum((const u32 *)p, len / 4);
+    st_bhash(p, len, sh, 0);
+    st_bh_len = len; st_last_addr = addr;
     cache_flush((u32)p, len);
     H.st_mix++;
 }
@@ -3927,7 +3946,7 @@ __asm__(".pushsection .text\n.globl xv_vec\n.globl xv_orig\n.p2align 5\nxv_vec:\
         "  stw 5,20(4)\n  stw 6,24(4)\n  stw 7,28(4)\n  stw 8,32(4)\n  stw 9,36(4)\n  stw 10,40(4)\n  stw 11,44(4)\n  stw 12,48(4)\n"
         "  mflr 3\n  stw 3,52(4)\n  mfctr 3\n  stw 3,56(4)\n  mfxer 3\n  stw 3,60(4)\n"
         "  mfmsr 3\n  stw 3,64(4)\n  ori 3,3,0x10\n  mtmsr 3\n  isync\n"            /* (traduction des donnees : registres sans cache) */
-        "  lis 1,exc_stack@ha\n  addi 1,1,exc_stack@l\n  addi 1,1,1584\n"
+        "  lis 1,exc_stack@ha\n  addi 1,1,exc_stack@l\n  addi 1,1,1552\n"
         "  bl xv_c\n"
         "  lis 4,trap_regs@ha\n  addi 4,4,trap_regs@l\n"                          /* (v440 : adresse normale : la traduction est encore active) */
         "  lwz 5,64(4)\n  mtmsr 5\n  isync\n  clrlwi 4,4,2\n"                    /* (de nouveau sans traduction, puis adresse physique) */
