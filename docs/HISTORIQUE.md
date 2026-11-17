@@ -7,6 +7,10 @@ la **musique de jeux rétro**, des **podcasts**, tes **photos et vidéos**, un *
 la **météo / actualités / réveil**, et une **télécommande sur téléphone** (Broadband Adapter),
 dans une interface GX style Indigo. Lancer `gc-mp3player.dol` comme un autre homebrew.
 
+## Appli 585 (publique) — patch de secours « Lectures immédiates » dans l'appli publique
+
+- Choix du propriétaire : le patch de secours « Lectures immédiates » (chaque lecture du disque finie d'un coup, jamais en fond), qui a réglé Super Mario Sunshine (build 1069), passe aussi dans l'appli publique, pour que les testeurs puissent l'essayer (Platter : ambiance trop forte dans Super Monkey Ball). Les autres patchs en test restent dans l'appli privée.
+
 ## Console v540 (build 1069) — Super Mario Sunshine : lectures immédiates d'office
 
 - Essais d'Antho (SD2SP2, 32 MHz, DMA, vrai lecteur présent) : Super Mario Sunshine se fige juste après START au menu principal, Pulse aussi (A+Z+START sans effet, journal arrêté au début). Bloque aussi : avec la vraie carte mémoire, sans aucune carte, en Pulse léger, en vitesse « comme un vrai lecteur ». **Passe avec le patch de secours « Lectures immédiates »** : le blocage est dans les lectures en fond.

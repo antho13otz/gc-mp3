@@ -354,14 +354,14 @@ private val FX = listOf(
     Triple("C", "Sans carte mémoire virtuelle", "Le jeu utilise tes vraies cartes"),
     Triple("H", "Sans cheats", "Le jeu démarre sans ses cheats (ils restent choisis)"),
     Triple("W", "Sans 16:9 forcé", "Image d'origine du jeu"),
-    Triple("V", "Vidéo d'origine", "Sans 480p / 60 Hz / sans flou / image large"))
+    Triple("V", "Vidéo d'origine", "Sans 480p / 60 Hz / sans flou / image large"),
+    Triple("I", "Lectures immédiates", "Chaque lecture du disque est finie d'un coup, jamais en fond"))   // (appli 585 : aussi dans l'appli publique, a reussi pour Sunshine)
 /** (build 1040) patchs de secours en test : appli privée seulement */
 private val FX_PRIVE = listOf(
     Triple("R", "Réveil provoqué", "Le jeu ne dépend plus du vrai lecteur : pour les vidéos qui saccadent ou se figent (a réglé Simpsons, Shrek, Sonic)"),
     Triple("L", "Pulse léger", "Le téléphone n'est pas écouté pendant la partie : un peu plus de mémoire pour le jeu"),
     Triple("K", "Pulse compact", "Le plus de mémoire pour le jeu : ni carte virtuelle, ni cheats, ni téléphone (carte SD pas dans un slot de carte mémoire)"),
     Triple("J", "Sans journaux", "Pulse normal sans comptes rendus de plantage : 5 Ko de plus pour le jeu"),
-    Triple("I", "Lectures immédiates", "Chaque lecture du disque est finie d'un coup, jamais en fond"),
     Triple("D", "Journal complet", "Diagnostic : tout ce qui se passe est noté (jeu un peu ralenti, sans téléphone)"))
 private val FX_LISTE = if (Prive.ACTIF) FX.map { if (it.first == "T") Triple("T", it.second, it.third + " ; ignoré pour Sonic Adventure 2, Simpsons et Shrek") else it } + FX_PRIVE else FX
 /** patchs qui s'excluent : en cocher un décoche les autres */
