@@ -947,6 +947,11 @@ static int na_selfirq_id(const char *id) {                /* v486 : jeux en reve
 static int na_selfirq = 0;
 static int na_min = 0;                                  /* v492 */                             /* v478 : ce lancement : reveil du jeu par l'interruption provoquee (NRO_SELFIRQ) */
 static int na_sync = 0;                                /* v473 : ce lancement : lectures toujours immediates (NRO_SYNC) */
+/* build 1069 : jeux en lectures immediates d'office : Super Mario Sunshine se figeait (Pulse aussi : A+Z+START sans effet) juste
+   apres START au menu principal avec les lectures en fond ; avec le patch de secours « Lectures immediates », il passe (Antho,
+   SD2SP2, vrai lecteur present). Cause dans les lectures en fond pas encore trouvee. */
+static int na_sync_id(const char *id) { return !strncmp(id, "GMS", 3); }
+static int na_sync_auto = 0;                           /* (journal : 1 = choisi automatiquement) */
 static int na_diag = 0;                                /* v467 : ce lancement : journal complet (Pulse leger force) */
 static int na_jcrash = 0;                              /* v79 : 2e secteur du journal (details d'un plantage) disponible */
 static int na_jpad = 0;                                   /* 7e secteur : manettes du telephone */
@@ -4386,6 +4391,8 @@ static const char *nat_boot(int k) {
     if (in.problems) return in.err;
     if (in.fst_max < in.fst_sz || in.fst_max > (4u << 20)) return "FST : taille maximale invalide";
     na_sync = (nat_fx & NFX_SYNC) != 0;                   /* v473 (v482 : lectures normales, comme la version europeenne qui marche ; v512 : patch de secours I) */
+    na_sync_auto = !na_sync && na_sync_id(in.id);         /* build 1069 */
+    if (na_sync_auto) na_sync = 1;
     na_selfirq = na_selfirq_id(in.id) || (nat_fx & NFX_SELF);   /* (v512 : patch de secours R) */
     na_min = 0;                                          /* v492 : Shrek : Pulse minimum (pas de crochet son, DSP, jeton de dessin) ; v500 : plus pour Shrek
                                                             (le plantage venait du redemarrage, corrige en v495-v498) : les lectures en fond avancaient
@@ -4880,7 +4887,7 @@ static const char *nat_boot(int k) {
         static const char *const vmn[4] = { "comme le jeu", "480p force", "PAL 60 Hz", "240p" };
         fprintf(f, "Video : %s%s%s ; %s\n", vmn[nat_vmode & 3], nat_deflick ? ", sans flou" : "", nat_wide ? ", image large" : "", na_rm_msg[0] ? na_rm_msg : "rien a changer");
         fprintf(f, "Manettes : options %08X ; %d acces branches, %d laisses au vrai materiel (sur %d trouves%s)\n", (unsigned)(na_opt() & 0x00FFFFFFu), na_si_done, na_si_skip, in.nsi, in.si_lost ? ", limite atteinte" : "");
-        fprintf(f, "Vitesse du lecteur : %s%s\n", nat_speed ? "comme un vrai lecteur" : "rapide (carte SD)", nat_speed_auto ? " (automatique : jeu connu pour bloquer si le disque repond trop vite)" : na_sync ? " ; lectures toujours immediates (v473 : jamais en fond)" : "");
+        fprintf(f, "Vitesse du lecteur : %s%s\n", nat_speed ? "comme un vrai lecteur" : "rapide (carte SD)", nat_speed_auto ? " (automatique : jeu connu pour bloquer si le disque repond trop vite)" : na_sync ? (na_sync_auto ? " ; lectures toujours immediates (automatique : jeu qui se fige avec les lectures en fond)" : " ; lectures toujours immediates (v473 : jamais en fond)") : "");
         if (nat_trap) fprintf(f, "Acces au lecteur par exception (Pulse universel, experimental) : demande\n");
         if (rep_msg[0]) fprintf(f, "Reparation automatique : %s\n", rep_msg);   /* v140 */
         if (na_z_msg[0]) fprintf(f, "Programme compresse (v152) : %s\n", na_z_msg);

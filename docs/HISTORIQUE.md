@@ -7,6 +7,12 @@ la **musique de jeux rétro**, des **podcasts**, tes **photos et vidéos**, un *
 la **météo / actualités / réveil**, et une **télécommande sur téléphone** (Broadband Adapter),
 dans une interface GX style Indigo. Lancer `gc-mp3player.dol` comme un autre homebrew.
 
+## Console v540 (build 1069) — Super Mario Sunshine : lectures immédiates d'office
+
+- Essais d'Antho (SD2SP2, 32 MHz, DMA, vrai lecteur présent) : Super Mario Sunshine se fige juste après START au menu principal, Pulse aussi (A+Z+START sans effet, journal arrêté au début). Bloque aussi : avec la vraie carte mémoire, sans aucune carte, en Pulse léger, en vitesse « comme un vrai lecteur ». **Passe avec le patch de secours « Lectures immédiates »** : le blocage est dans les lectures en fond.
+- Lanceur (`na_sync_id`) : Super Mario Sunshine (GMS, toutes régions) passe automatiquement en lectures immédiates, noté dans le journal du lancement (« automatique : jeu qui se fige avec les lectures en fond »). Le patch de secours n'est plus nécessaire.
+- Cause pas encore trouvée : le banc d'essai (88 essais, écritures du journal pendant les lectures en fond, vrai lecteur, carte occupée après une écriture) ne reproduit pas le blocage. Le main.dol (lu seulement) montre au démarrage les lectures normales de l'horloge et des réglages de la console (canal 0), sans rapport.
+
 ## Console v539 (build 1068) — la boîte 3D du jeu ne bouge plus toute seule
 
 - Demande d'Antho : dans la fiche d'un jeu, la boîte 3D se balançait d'elle-même (±16° autour de la vue de trois quarts, après 4 s sans toucher au stick C) : gênant, et jamais demandé. Le balancement est retiré (`box3d.c`) : la boîte reste comme on l'a laissée ; le stick C la fait toujours tourner, ↑ l'ouvre.
