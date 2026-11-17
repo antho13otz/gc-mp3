@@ -863,6 +863,7 @@ class FilesTab extends Tab {
     }
 
     private void download(int pos, String name) {
+        if (BuildConfig.PRIVE) { UiKit.dlDirect(a, "/api/get?h=" + h + "&i=" + pos, name); return; }
         try {
             DownloadManager.Request r = new DownloadManager.Request(Uri.parse("http://" + Api.host + "/api/get?h=" + h + "&i=" + pos));
             r.setTitle(name);

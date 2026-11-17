@@ -19,6 +19,8 @@ static bool (*exf_wr)(u32 s, u32 n, const void *b) = NULL;
 static LBA_t exf_nsec = 0;                                /* (taille du disque : seulement pour le banc d'essai) */
 
 /* ---- disque de FatFs (diskio.h) ; tampon aligne : le pilote de la carte veut des adresses multiples de 32 ---- */
+/* v454 : exf_off = 1er secteur de la partition choisie (sd_part, la plus grande) : FatFs la voit comme une carte sans table */
+static u32 exf_off = 0;
 #define EXF_BOUNCE 16
 static u8 exf_bb[EXF_BOUNCE * 512] __attribute__((aligned(32)));
 DSTATUS disk_status(BYTE pd) { (void)pd; return exf_rd ? 0 : STA_NOINIT; }
@@ -141,7 +143,7 @@ static int exf_extents(const char *path, int (*cb)(void *ctx, u32 sec, u32 n), v
         for (DWORD *p = tbl + 1; *p && left; p += 2) {
             u64 n = (u64)p[0] * cs;
             if (n > left) n = left;
-            u32 sec = (u32)(exf_fs.database + (LBA_t)(p[1] - 2) * cs);
+            u32 sec = (u32)(exf_fs.database + (LBA_t)(p[1] - 2) * cs) + exf_off;   /* (v454 : secteur de la carte) */
             if (cb(ctx, sec, (u32)n)) { ret = -2; break; }
             left -= n;
         }
@@ -260,11 +262,11 @@ static const devoptab_t exf_dotab = {
     .dirclose_r = exf_dirclose_r, .statvfs_r = exf_statvfs_r, .ftruncate_r = exf_ftruncate_r, .fsync_r = exf_fsync_r,
     .rmdir_r = exf_unlink_r, .lstat_r = exf_stat_r,
 };
-static bool exf_io_rd(u32 s, u32 n, void *b) { sd_rd_sec += n; return sd_io_read(s, n, b); }
+static bool exf_io_rd(u32 s, u32 n, void *b) { sd_rd_sec += n; return sd_io_read(s + exf_off, n, b); }
 static bool exf_io_wr(u32 s, u32 n, const void *b) {
     sd_wr_sec += n;
     if (sd_mx_ok) LWP_MutexLock(sd_mx);
-    bool r = sd_real_if->writeSectors(s, n, b);
+    bool r = sd_real_if->writeSectors(s + exf_off, n, b);
     if (sd_mx_ok) LWP_MutexUnlock(sd_mx);
     return r;
 }
@@ -273,7 +275,8 @@ static int exf_mount_sd(const DISC_INTERFACE *i) {
     if (!sd_mx_ok && LWP_MutexInit(&sd_mx, true) >= 0) sd_mx_ok = 1;
     if (!i->startup() || !i->isInserted()) return 0;
     sd_real_if = i;
-    if (!exf_mount_io(exf_io_rd, exf_io_wr)) return 0;
+    exf_off = sd_part_set ? sd_part : 0;
+    if (!exf_mount_io(exf_io_rd, exf_io_wr)) { exf_off = 0; return 0; }
     if (AddDevice(&exf_dotab) < 0) { exf_umount(); return 0; }
     return 1;
 }

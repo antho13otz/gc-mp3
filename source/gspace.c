@@ -74,7 +74,7 @@ static void gs_build(void) {
     gs_dirty = 0; gs_built_n = gl_n; gs_built_t = now_ms(); gs_built_f = gs_filter;
 }
 static void gs_check(void) {                    /* (la liste des jeux a pu changer : tri, favori, actualiser) */
-    if (gs_dirty || gs_built_n != gl_n || now_ms() - gs_built_t > 3000) gs_build();
+    if (gs_dirty || gs_built_n != gl_n || now_ms() - gs_built_t > 3000) SLOW("mes jeux : liste", gs_build());
     if (gs_apps()) { if (gs_pos >= gs_n) gs_pos = gs_n ? gs_n - 1 : 0; ap_sel = gs_pos; return; }
     if (gs_n && (gs_pos >= gs_n || gs_idx[gs_pos] != gl_sel)) {   /* (choisi ailleurs : fiche, jeu au hasard...) */
         int f = -1;
@@ -129,7 +129,7 @@ static void gs_input(u32 down, u32 nav, int fire) {
         if (down & PAD_BUTTON_B) { gl_on = 0; if (gl_list_dirty) { gl_list_dirty = 0; gl_list_save(); } }
         return;
     }
-    if ((down & PAD_BUTTON_A) && gs_n) { gl_detail = 1; if (gl[gl_sel].dvd) gl_launch_sel = gl_sel; }   /* v376 : A : la fiche d'abord (A encore : jouer) ; avant : "Lancer ce jeu ?" */
+    if ((down & PAD_BUTTON_A) && gs_n) { gl_detail = 1; crumb("fiche du jeu : %.40s", gl[gl_sel].title);   /* (v422 : pour la mesure de fluidite) */ if (gl[gl_sel].dvd) gl_launch_sel = gl_sel; }   /* v376 : A : la fiche d'abord (A encore : jouer) ; avant : "Lancer ce jeu ?" */
     if ((down & PAD_BUTTON_X) && gs_n && !gl[gl_sel].dvd) gl_open_cheats(gl_sel);
     if ((down & PAD_BUTTON_Y) && gs_n && !gl[gl_sel].dvd) {   /* favori (v390 : Y ; L change d'onglet depuis la v386, et la croix
                                                              haut de la fiche ouvre la boite : plus de favori dans cette vue) */

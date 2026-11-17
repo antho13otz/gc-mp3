@@ -24,16 +24,15 @@ must not be misrepresented as being the original software.
 distribution.
 
 -------------------------------------------------------------*/
-/*  GC Station v326 : version modifiee pour la libogc de devkitPro (altered source version, see notice above).
-    Origine : libogc2 (Extrems' Corner.org), lwip/netif/w5500if.c, licence zlib (texte ci-dessus).
-    Changements : EXI_LockEx / EXI_DmaEx / EXI_SPEEDMAX / ECIDn fournis ici (absents de la libogc de devkitPro) ;
-    sans le W5500 branche sur le port EXI 2 (interruption de debogage du PI, absente de cette libogc) : port serie 1
-    (ETH2SP1, comme le Broadband Adapter) et ports des cartes memoire (A, B) seulement. */
+/*  GC Station v455 : version modifiee pour la libogc de devkitPro (altered source version, see notice above).
+    Origine : libogc2 (Extrems' Corner.org), lwip/netif/w5500if.c, licence zlib (texte ci-dessus), produite par
+    tools/netif/adapte.py. Changements : gcs_compat.h fournit ce que la libogc de devkitPro n'a pas (EXI_LockEx, EXI_DmaEx,
+    EXI_GetIDEx, EXI_SPEEDMAX, ECIDn, IRQ_Request a 3 arguments) ; le port serie 2 (canal EXI 2) n'est pas essaye quand
+    la carte SD y est (gcmp3_net_skip_exi2). */
 
 
 #include <gctypes.h>
 #include <ogc/exi.h>
-#include <ogc/cache.h>
 #include <ogc/irq.h>
 #include <ogc/lwp.h>
 #include <ogc/machine/asm.h>
@@ -45,34 +44,9 @@ distribution.
 #include "lwip/pbuf.h"
 #include "netif/etharp.h"
 #include "netif/w5500if.h"
+#include "gcs_compat.h"
 
-
-/* ---- GC Station : ce que la libogc de devkitPro n'a pas ---- */
-#ifndef EXI_SPEEDMAX
-#define EXI_SPEEDMAX (EXI_SPEED32MHZ + 1)
-#endif
-#ifndef ECID0
-#define ECID0 924
-#define ECID1 925
-#define ECID2 926
-#define ECID3 927
-#endif
-static s32 EXI_LockEx(s32 chan, s32 dev) { return EXI_LockSync(chan, dev); }
-/* transfert : debut et fin hors de l'alignement de 32 octets en immediat, le reste en DMA (cache vide / ecrit avant) */
-static s32 EXI_DmaEx(s32 chan, void *data, u32 len, u32 mode)
-{
-	u8 *p = data;
-	u32 head = -((u32)p) & 31;
-	if (!p || !len) return 0;
-	if (len < head + 32) return EXI_ImmEx(chan, p, len, mode);
-	if (head) { if (!EXI_ImmEx(chan, p, head, mode)) return 0; p += head; len -= head; }
-	u32 body = len & ~31u;
-	if (mode == EXI_READ) DCInvalidateRange(p, body); else DCStoreRange(p, body);
-	if (!EXI_Dma(chan, p, body, mode, NULL) || !EXI_Sync(chan)) return 0;
-	p += body; len -= body;
-	if (len && !EXI_ImmEx(chan, p, len, mode)) return 0;
-	return 1;
-}
+static vu32 *const _piReg = (u32 *)0xCC003000;
 
 #define W5500_CID (0x03000000)
 
@@ -581,6 +555,12 @@ static s32 ExtHandler(s32 chan, s32 dev)
 	return TRUE;
 }
 
+static void DbgHandler(u32 irq, void *ctx)   /* (GC Station : pas de frame_context dans devkitPro) */
+{
+	_piReg[0] = 1 << 12;
+	ExiHandler(EXI_CHANNEL_2, EXI_DEVICE_0);
+}
+
 static bool W5500_Init(s32 chan, s32 dev, struct w5500if *w5500if)
 {
 	bool err = false;
@@ -660,6 +640,9 @@ static bool W5500_Init(s32 chan, s32 dev, struct w5500if *w5500if)
 			EXI_RegisterEXICallback(chan, ExiHandler);
 		} else if (chan == EXI_CHANNEL_0 && dev == EXI_DEVICE_2) {
 			EXI_RegisterEXICallback(EXI_CHANNEL_2, ExiHandler);
+		} else if (chan == EXI_CHANNEL_2 && dev == EXI_DEVICE_0) {
+			GCS_IRQ_REQUEST(IRQ_PI_DEBUG, DbgHandler);
+			__UnmaskIrq(IM_PI_DEBUG);
 		}
 	}
 
@@ -738,6 +721,12 @@ err_t w5500if_init(struct netif *netif)
 	if (W5500_Init(EXI_CHANNEL_0, EXI_DEVICE_2, w5500if)) {
 		netif->name[0] = 'W';
 		netif->name[1] = '1';
+		return ERR_OK;
+	}
+
+	if (!gcmp3_net_skip_exi2 && W5500_Init(EXI_CHANNEL_2, EXI_DEVICE_0, w5500if)) {
+		netif->name[0] = 'W';
+		netif->name[1] = '2';
 		return ERR_OK;
 	}
 

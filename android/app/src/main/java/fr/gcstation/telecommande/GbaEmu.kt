@@ -65,6 +65,7 @@ object GbaNatif {
     // (build 556 ; build 559 : ces deux fonctions natives n'existent que dans l'appli privee : appelees seulement par src/prive/Cartouche.kt)
     @JvmStatic external fun cartouche(rom: ByteArray?, sav: ByteArray?): Boolean   // (cartouche du prochain demarrage)
     @JvmStatic external fun sauvegarde(): ByteArray?                               // (build 556 : sa sauvegarde, maintenant)
+    @JvmStatic external fun demarrerCartouche(): Boolean                           // (build 562 : allumee sur le jeu de la cartouche)
 }
 
 object GbaEmu {
@@ -302,9 +303,13 @@ object GbaEmu {
         return liste("droite seulement (x ?)", cx) + liste("bas seulement (y ?)", cy) + liste("les deux", cxy)
     }
 
-    fun demarrer(programme: ByteArray) {
+    /** build 562 : vrai si la GBA a ete allumee sur sa cartouche (sans programme du jeu) : Pulse relaie le cable des le debut */
+    @Volatile var modeCartouche = false
+    fun demarrer(programme: ByteArray?) {
         Saut.raz()                                          // (build 487)
         arreter()
+        modeCartouche = programme == null
+        if (programme == null) { codeJeu = -1L; avaler = emptySet() }
         if (!GbaNatif.pret) { message = "Émulateur GBA absent de cette version de l'appli"; return }
         entrees.clear(); evts.clear(); file.clear(); resetsVus = 0; transId = 0; transVal = 0; luPret = false; drapeaux = 0; tidLuPulse = 0; nRecus = 0; nEnvoyes = 0; nAvales = 0
         stop = false
@@ -317,9 +322,13 @@ object GbaEmu {
         marche = false
     }
 
-    private fun boucle(programme: ByteArray) {
-        Cartouche.preparer()                                // (build 556, appli privee : une cartouche dans la GBA ; publique : jamais)
-        if (!GbaNatif.demarrer(programme)) { message = "Le programme ne démarre pas dans l'émulateur"; return }
+    private fun boucle(programme: ByteArray?) {
+        if (programme == null) {                            // (build 562 : allumee sur la cartouche ; appli publique : impossible)
+            if (!Cartouche.allumer()) { message = "Pas de cartouche dans la GBA"; return }
+        } else {
+            Cartouche.preparer()                            // (build 556, appli privee : une cartouche dans la GBA ; publique : jamais)
+            if (!GbaNatif.demarrer(programme)) { message = "Le programme ne démarre pas dans l'émulateur"; return }
+        }
         marche = true; message = "La GBA tourne"
         val px = IntArray(W * H)
         val son = ShortArray(4096)
@@ -565,6 +574,7 @@ object GbaEmu {
         if (id > 0) o = o or 1L or (id.toLong() shl 16)
         if (luPret) { o = o or 2L; luPret = false }
         if (marche) o = o or 8L or (drapeaux.toLong() shl 8) or 0x10L or ((resetsVus.toLong() and 0xFF) shl 24)
+        if (marche && modeCartouche) o = o or 0x40L        // (build 562, console v427 : Pulse relaie tout de suite, sans attendre un programme)
         return Pair(o, transVal)
     }
 }

@@ -790,8 +790,8 @@ static inline f32 gb_day(f32 x, f32 y, f32 z) {          /* 1 : jour ; 0 : nuit 
     return d < 0 ? 0 : d > 1 ? 1 : d;
 }
 static void draw_globe(void) {
-    gb_pump(5000);
-    gb_step();
+    SLOW("globe : stations lues", gb_pump(5000));
+    SLOW("globe : deplacement", gb_step());
     static u64 sun_t = 0;
     if (now_ms() - sun_t > 20000 || !sun_t) { sun_t = now_ms(); gb_sun_calc(); }
     f32 R = gb_r;

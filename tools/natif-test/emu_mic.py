@@ -12,7 +12,7 @@ from unicorn import *
 from unicorn.ppc_const import *
 BIN, ELF, HDR = sys.argv[1], sys.argv[2], sys.argv[3]
 hs = open(HDR, encoding='latin-1').read()
-AT = int(re.search(r'#define NATRES_AT\s+(0x[0-9A-Fa-f]+)', hs).group(1), 16)
+AT = int(re.search(r'#define NATRES_AT(?:_FULL)?\s+(0x[0-9A-Fa-f]+)', hs).group(1), 16)
 def fields(name_start, name_end):
     b = hs[hs.index(name_start):hs.index(name_end)]
     names = []

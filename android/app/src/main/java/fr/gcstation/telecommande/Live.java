@@ -7,7 +7,8 @@ package fr.gcstation.telecommande;
 //    (morceau, pause, volume, paroles, position) : l'etat est relu tout de suite, plus besoin de le demander chaque seconde ;
 //  - partie en cours : "GCSG1\tid\tnom\tminutes restantes (-1 : pas de limite)\tprofil" juste avant un jeu (la console
 //    ne repond plus pendant le jeu), "GCSE1" si le lancement a echoue. La partie est gardee (prefs) jusqu'au retour
-//    de la console.
+//    de la console. "GCSP1\t<0/1/2>" (v453) juste apres : sans Pulse / Pulse complet / Pulse leger (le telephone
+//    n'est pas ecoute pendant la partie).
 
 import android.content.Context;
 import android.content.SharedPreferences;
@@ -40,6 +41,7 @@ public final class Live {
         boolean mem;                                         // (GC Station v306) chercheur de codes : Pulse ouvre la memoire du jeu a l'appli
         String raHash = "";                                  // (GC Station v393, appli 491) empreinte RetroAchievements du jeu ("" : pas calculee)
         int cheats = -1;                                     // (GC Station v395, appli 500) 1 : cheats appliques au jeu, 0 : aucun, -1 : console plus ancienne
+        volatile int pulse = -1;                             // (GC Station v453, appli 565) 2 : Pulse leger (telephone pas ecoute pendant la partie), 1 : complet, 0 : sans Pulse, -1 : pas dit
         boolean enDirect;                                    // (appli 500) lancement vu par l'appli (pas une partie retrouvee apres coup) : hardcore possible
         long start;                                          // (ms, horloge du telephone)
         long playedSec() { return Math.max(0, (System.currentTimeMillis() - start) / 1000); }
@@ -125,6 +127,14 @@ public final class Live {
                         setGame(g);
                         break;
                     }
+                    case "GCSP1": {                          // (v453 : quel Pulse ; juste apres GCSG1)
+                        Game g = game;
+                        if (g == null || f.length < 2) break;
+                        try { g.pulse = Integer.parseInt(f[1].trim()); } catch (Exception e) { break; }
+                        if (prefs != null) prefs.edit().putInt("jeu_pulse", g.pulse).apply();
+                        ui.post(() -> { for (Listener l : listeners) l.changed(); });
+                        break;
+                    }
                     case "GCSE1": if (game != null) { session(game); setGame(null); } break;   // (build 185 : la partie notee pour les statistiques)
                     default: break;
                 }
@@ -156,7 +166,7 @@ public final class Live {
         if (appCtx != null) ui.post(() -> GcWidget.refresh(appCtx));   // (build 185 : le jeu en cours sur le widget)
         if (prefs != null) {
             if (g == null) prefs.edit().remove("jeu_id").apply();
-            else prefs.edit().putString("jeu_id", g.id).putString("jeu_nom", g.name).putString("jeu_prof", g.profile)
+            else prefs.edit().putInt("jeu_pulse", g.pulse).putString("jeu_id", g.id).putString("jeu_nom", g.name).putString("jeu_prof", g.profile)
                           .putInt("jeu_lim", g.leftMin).putLong("jeu_t", g.start).putInt("jeu_pad", g.padMask).putBoolean("jeu_mem", g.mem).putString("jeu_ra", g.raHash).apply();
         }
         ui.post(() -> { for (Listener l : listeners) l.game(g); });
@@ -174,6 +184,7 @@ public final class Live {
         g.padMask = prefs.getInt("jeu_pad", 0);
         g.mem = prefs.getBoolean("jeu_mem", false);
         g.raHash = prefs.getString("jeu_ra", "");
+        g.pulse = prefs.getInt("jeu_pulse", -1);
         if (System.currentTimeMillis() - g.start > 12 * 3600 * 1000L) { prefs.edit().remove("jeu_id").apply(); return; }   // (trop vieux)
         game = g;
     }

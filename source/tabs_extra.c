@@ -163,8 +163,6 @@ static void gm_hms(char *o, size_t cap, u32 s) {
     if (s >= 3600) snprintf(o, cap, "%u h %02u", (unsigned)(s / 3600), (unsigned)(s / 60 % 60));
     else snprintf(o, cap, "%u min", (unsigned)(s / 60));
 }
-static int gm_hub_input(void);                         /* v84 : stick C : jeux GameCube / applis / cartes memoire (tools.c) */
-static f32 gm_hub_bar(f32 x, f32 y);
 static void draw_gclib(void);
 static int jh_draw(void);                              /* v376 : accueil en Aurore (jeux_hub.c) */
 static int jh_input(u32 down, u32 nav, int fire);
@@ -288,7 +286,7 @@ static void draw_tab_games(void) {
         sc_check();                                             /* v177 : nouveaux succes */
         jh_refresh();                                           /* v376 : (l'accueil en Aurore relit en fond) */
     }
-    if (jh_draw()) return;                                      /* v376 : Aurore : accueil « A la une » */
+    { int jh_r_ = 0; SLOW("accueil des jeux", jh_r_ = jh_draw()); if (jh_r_) return; }                                      /* v376 : Aurore : accueil « A la une » */
     f32 t = gl_anim ? (f32)(now_ms() % 100000) / 1000.0f : 0.0f;   /* v368 : animations coupees (START > Animations) : icones immobiles */
     for (int k = 0; k < 3; k += 2) {   /* v25 : jeux GameCube ; v43 : + cartes memoire ; v196 : les applis sont dans l'espace jeux */
         static const char *const bl[3] = { "Jeux GameCube", "Mes applis", "Cartes m\xC3\xA9moire" };

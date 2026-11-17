@@ -11,7 +11,7 @@ BIN = sys.argv[1]
 SDHC = int(sys.argv[2]) if len(sys.argv) > 2 else 1
 CHAN = int(sys.argv[3]) if len(sys.argv) > 3 else 2
 DEV = int(sys.argv[4]) if len(sys.argv) > 4 else 0
-AT = 0x817EE000
+AT = int(os.environ.get('EMU_AT', '0x817EE000'), 16)   # (v452 : Pulse leger : EMU_AT=0x817F2800)
 random.seed(1)
 disk = bytearray(random.getrandbits(8) for _ in range(4096 * 512))   # carte de 2 Mo
 
@@ -23,6 +23,9 @@ def crc16(b):                                          # v94 : CRC des blocs (CC
     return c
 BAD32 = os.environ.get('EMU_BAD32') == '1'             # (32 MHz qui abime les donnees : le resident doit repasser a 16 MHz)
 NODMA = os.environ.get('EMU_NODMA') == '1'             # (adaptateur sans DMA : le resident doit le voir)
+NOCS = os.environ.get('EMU_NOCS') == '1'               # (build 1059 : carte de slot lue carte non choisie : choisie pour envoyer,
+                                                       #  lue horloge seule ; lu carte choisie a 32 MHz : faux (00), comme le GC2SD de Platter)
+COMPACT = os.environ.get('EMU_COMPACT') == '1'         # (v474 : Pulse compact : ni DMA ni 32 MHz, jamais essayes)
 fast = [False]
 def blk(sec):
     d = bytes(disk[sec * 512:(sec + 1) * 512]); c = crc16(d)
@@ -33,6 +36,7 @@ class Card:
         s.cmd = []; s.out = []; s.wr = None; s.wbuf = None; s.writes = []; s.idle = True; s.app = False; s.acmd41 = 0; s.log = []; s.multi = None
     def deselect(s): s.cmd = []; s.out = []; s.multi = None
     def xfer_in(s, b):
+        if getattr(s, 'busy', 0): s.lost = getattr(s, 'lost', 0) + 1; return   # (build 1062 : carte occupee a ecrire : commande perdue)
         if getattr(s, 'wr', None) is not None:         # v268 : CMD24 (ecriture d'un secteur) : jeton FE, 512 octets, CRC
             if s.wbuf is None:
                 if b == 0xFE: s.wbuf = []
@@ -40,13 +44,14 @@ class Card:
             s.wbuf.append(b)
             if len(s.wbuf) == 514:
                 disk[s.wr * 512:(s.wr + 1) * 512] = bytes(s.wbuf[:512]); s.writes.append(s.wr)
-                s.wr = None; s.wbuf = None; s.out = [0xE5, 0x00, 0x00, 0xFF]
+                s.wr = None; s.wbuf = None; s.out = [0xE5, 0xFF]; s.busy = 3
             return
         if s.out and b == 0xFF: return
         if not s.cmd and (b & 0xC0) != 0x40: return
         s.cmd.append(b)
         if len(s.cmd) == 6: s.exec_cmd(); s.cmd = []
     def xfer_out(s):
+        if getattr(s, 'busy', 0) and not s.out: s.busy -= 1; return 0x00   # (build 1062 : occupee a ecrire (00), meme apres CS relache)
         if not s.out and s.multi is not None:          # v88 : CMD18 : secteurs suivants (un peu d'attente avant chacun)
             sec = s.multi; s.multi += 1
             s.out = [0xFF] * 3 + [0xFE] + blk(sec)
@@ -91,24 +96,25 @@ def mmio_write(uc, off, size, value, data):
     ch, reg = off // 0x14, (off % 0x14) // 4
     if ch >= 3: return
     exi[ch][reg] = value & 0xFFFFFFFF
-    if reg == 0 and not (value & (0x80 << DEV)) and ch == CHAN: card.deselect()
+    if reg == 0 and not (value & (0x80 << DEV)) and ch == CHAN and not NOCS: card.deselect()
     if reg == 3 and (value & 1):
         n = ((value >> 4) & 3) + 1; mode = (value >> 2) & 3
         sel = ch == CHAN and (exi[ch][0] & (0x80 << DEV))
         fast[0] = ((exi[ch][0] >> 4) & 7) >= 5
         clk = ch == CHAN                       # horloge sans CS : la carte ne repond pas
         if value & 2:                          # v94 : DMA (lecture) : MAR, longueur
-            ln = exi[ch][2]; data = bytes((card.xfer_out() if sel else 0xFF) ^ (0x5A if NODMA else 0) for _ in range(ln))
+            ln = exi[ch][2]; data = bytes((card.xfer_out() if (clk and not (sel and fast[0]) if NOCS else sel) else 0xFF) ^ (0x5A if NODMA else 0) for _ in range(ln))
             dma_n[0] += 1
             uc.mem_write(0x80000000 | exi[ch][1], data); exi[ch][3] = value & ~1; return
         if mode == 1:
             for i in range(n):
                 b = (exi[ch][4] >> (24 - 8 * i)) & 0xFF
                 if sel: card.xfer_in(b)
+                elif NOCS and clk and b == 0xFF and not card.multi: card.deselect()   # (coups d'horloge carte relachee : fin de commande)
         elif mode == 0:
             v = 0
             for i in range(n):
-                b = card.xfer_out() if sel else 0xFF
+                b = ((0x00 if fast[0] else card.xfer_out()) if sel else card.xfer_out() if clk else 0xFF) if NOCS else card.xfer_out() if sel else 0xFF
                 v |= b << (24 - 8 * i)
             v |= (exi[ch][4] & ((1 << (32 - 8 * n)) - 1)) if n < 4 else 0
             exi[ch][4] = v
@@ -133,7 +139,7 @@ def call(fn, *args):
 
 assert rd32(AT) == 0x4743534E, 'magic'
 f_init, f_read, f_rsd = rd32(AT + 8), rd32(AT + 0xC), rd32(AT + 0x10)
-wr32(AT + 0x14, CHAN); wr32(AT + 0x18, 0); wr32(AT + 0x1C, 5)   # (dev 0 annonce : le resident doit trouver dev 2 tout seul)
+wr32(AT + 0x14, CHAN); wr32(AT + 0x18, 0); wr32(AT + 0x1C, 0x25 if NOCS else 5)   # (dev 0 annonce : le resident doit trouver dev 2 tout seul)
 r = call(f_init)
 print('init ->', r, 'sdhc', rd32(AT + 0x28), 'err', rd32(AT + 0x2C), 'stage', rd32(AT + 0x34), 'dev', rd32(AT + 0x18))
 assert r == 0 and rd32(AT + 0x28) == SDHC
@@ -159,8 +165,10 @@ assert call(f_read, buf, len(iso) + 10, 4) != 0 and rd32(AT + 0x2C) == 5
 print('commandes:', sorted(set(c for c, a in card.log)), 'lectures SD:', rd32(AT + 0x38))
 xf = rd32(AT + 0x160)
 print('transfert : DMA %d, 32 MHz %d, abandonne %d, CRC faux %d, DMA faits %d' % (xf & 1, xf >> 1 & 1, xf >> 2 & 1, rd32(AT + 0x164), dma_n[0]))
-assert (xf & 1) == (0 if NODMA else 1) and (dma_n[0] > 8 or NODMA), 'DMA'
-assert (xf >> 1 & 1) == (0 if BAD32 else 1), '32 MHz'
+if COMPACT: assert (xf & 3) == 0 and dma_n[0] == 0, ('compact : ni DMA ni 32 MHz', xf)
+else:
+    assert (xf & 1) == (0 if NODMA else 1) and (dma_n[0] > 8 or NODMA), 'DMA'
+    assert (xf >> 1 & 1) == (0 if BAD32 else 1), '32 MHz'
 
 ACH = int(os.environ.get('EMU_ACH', '0'), 16)          # v268 : succes (adresse de ach_run)
 if ACH:

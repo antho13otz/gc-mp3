@@ -13,7 +13,7 @@ static const char *const tr_tab[][2] = {
 #include "lang_tab.h"
 };
 #define TR_N ((int)(sizeof(tr_tab) / sizeof(tr_tab[0])))
-#define TR_H 4096                       /* table de hachage (puissance de 2, > 2 x TR_N) */
+#define TR_H 8192                       /* table de hachage (puissance de 2, > 2 x TR_N) */
 static short tr_hash[TR_H];
 static int tr_ready;
 #ifdef SIM_TRLOG

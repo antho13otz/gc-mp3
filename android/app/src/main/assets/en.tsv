@@ -917,3 +917,1382 @@ Effacer ce plan	Clear this map
 Le plan se dessine au fil de tes pas : explore, il se remplit (gardé sur le téléphone).	The map draws itself as you walk: explore and it fills up (kept on the phone).
 Ton chemin, gardé sur le téléphone · rose : la salle où tu es · pâle : les autres étages.	Your path, kept on the phone · pink: your current room · faint: other floors.
 La vraie carte du jeu arrive à la prochaine connexion hors partie (GC Station v313, Wind Waker européen sur la carte SD).	The game's real chart arrives at the next connection outside a game (GC Station v313, European Wind Waker on the SD card).
+# build 1054 : textes trouves par tools/trad_audit.py (ecrans principaux, compagnons)
+Exporter les réglages de l'appli	Export the app settings
+Importer des réglages de l'appli	Import app settings
+Téléphone coupé pour cette partie	Phone off for this game
+Le jeu tourne avec le Pulse léger (18 Ko de mémoire en plus pour le jeu). Manette du téléphone, chercheur de codes et compagnon ne marchent pas pendant cette partie. Pour les avoir la prochaine fois, active-les sur la console avant de lancer le jeu : START > Réglages > Chercheur de codes (ou Manettes du téléphone).	The game runs with light Pulse (18 KB more memory for the game). Phone controller, code finder and companion don't work during this game. To get them next time, turn them on on the console before launching the game: START > Settings > Code finder (or Phone controllers).
+Images par seconde du jeu : pas encore mesurées (il faut GC Station v495 ou plus)	Game frames per second: not measured yet (needs GC Station v495 or later)
+le jeu tourne à pleine vitesse	the game runs at full speed
+le jeu ralentit ($pct % de sa vitesse)	the game is slowing down ($pct % of its speed)
+dernière minute	last minute
+Verre liquide : surfaces transparentes avec reflets de lumière, boutons en verre teinté, appuis élastiques et bulle de la barre d'onglets qui s'étire en glissant.	Liquid glass: transparent surfaces with light reflections, tinted glass buttons, springy taps and a tab bar bubble that stretches as you slide.
+Le fond noir et les rubans de lumière de la console	The black background and light ribbons of the console
+Pulse ne répond pas : il faut une partie en cours, lancée avec « Chercheur de codes (appli) » allumé sur la console	Pulse isn't responding: you need a game in progress, launched with "Code finder (app)" on on the console
+Pas de bandeau dans cette partie : réglage « Succès sur la télé (Pulse) » coupé sur la console, ou console avant la v397	No banner in this game: "Achievements on the TV (Pulse)" setting off on the console, or console older than v397
+Pulse ne répond plus	Pulse stopped responding
+Succès RetroAchievements	RetroAchievements achievement
+Pas de bandeau dans cette partie	No banner in this game
+pas de configuration OpenGL	no OpenGL configuration
+Mémoire du jeu	Game memory
+console avant v413 (ou rien reçu encore), 	console older than v413 (or nothing received yet), 
+sans copies retardées	no delayed copies
+image trop grosse pour la réserve	frame too big for the buffer
+réserve de $n images, copies en plus : $copies	buffer of $n frames, extra copies: $copies
+Android 10 ou plus est nécessaire	Android 10 or later is required
+Photo de la mémoire	Memory snapshot
+Enregistré : Téléchargements/GC Remote/$nom	Saved: Downloads/GC Remote/$nom
+Erreur : 	Error: 
+Capture (jeu mis en pause)	Capture (game paused)
+Ce jeu tourne avec le Pulse léger : le téléphone n'est pas écouté pendant cette partie. Sur la console : START > Réglages > Chercheur de codes, puis relance le jeu.	This game runs with light Pulse: the phone isn't listened to during this game. On the console: START > Settings > Code finder, then relaunch the game.
+Épingler au compagnon	Pin to the companion
+Épingler au compagnon de jeu	Pin to the game companion
+Nom (ex. Vies, Pièces, Munitions)	Name (e.g. Lives, Coins, Ammo)
+Maximum (facultatif, pour une jauge)	Maximum (optional, for a gauge)
+La valeur s'affichera en direct dans le compagnon de ce jeu, à chaque partie (gardé sur le téléphone).	The value will show live in this game's companion, every session (kept on the phone).
+Donne un nom à la valeur	Give the value a name
+Épinglé : visible dans le compagnon de jeu	Pinned: visible in the game companion
+Trouver les adresses d'un jeu (3 photos)	Find a game's addresses (3 snapshots)
+Reste dans le même niveau du début à la fin. À chaque étape : joue, puis touche le bouton (le jeu se met en pause quelques secondes).	Stay in the same level from start to finish. At each step: play, then tap the button (the game pauses for a few seconds).
+Avant : par ex. avant de libérer une cage	Before: e.g. before freeing a cage
+Juste après : par ex. la cage libérée	Right after: e.g. the cage freed
+Encore après : par ex. quelques lums ramassés (score changé)	Later still: e.g. a few lums collected (score changed)
+Partager les photos (	Share the snapshots (
+d/M à HH:mm	d/M HH:mm
+Chercher les succès de mes jeux ($pasVus pas encore regardés)	Find achievements for my games ($pasVus not checked yet)
+Mettre à jour ma progression	Update my progress
+Succès de mes jeux	Achievements for my games
+\n\nLa console donne l'empreinte de chaque jeu (quelques secondes la première fois), le téléphone demande ses succès à RetroAchievements.	\n\nThe console gives each game's fingerprint (a few seconds the first time), the phone asks RetroAchievements for its achievements.
+Réveil provoqué	Provoked wake-up
+Le jeu ne dépend plus du vrai lecteur : pour les vidéos qui saccadent ou se figent (a réglé Simpsons, Shrek, Sonic)	The game no longer depends on the real drive: for videos that stutter or freeze (fixed Simpsons, Shrek, Sonic)
+Pulse léger	Light Pulse
+Le téléphone n'est pas écouté pendant la partie : un peu plus de mémoire pour le jeu	The phone isn't listened to during the game: a bit more memory for the game
+Le plus de mémoire pour le jeu : ni carte virtuelle, ni cheats, ni téléphone (carte SD pas dans un slot de carte mémoire)	The most memory for the game: no virtual card, no cheats, no phone (SD card not in a memory card slot)
+Pulse normal sans comptes rendus de plantage : 5 Ko de plus pour le jeu	Normal Pulse without crash reports: 5 KB more for the game
+Lectures immédiates	Immediate reads
+Chaque lecture du disque est finie d'un coup, jamais en fond	Each disc read finishes in one go, never in the background
+Diagnostic : tout ce qui se passe est noté (jeu un peu ralenti, sans téléphone)	Diagnostic: everything that happens is recorded (game slightly slower, no phone)
+Extraire un fichier du jeu (main.dol…)	Extract a file from the game (main.dol…)
+Extraire un fichier du disque	Extract a file from the disc
+Chemin dans le disque	Path in the disc
+/main.dol : le programme du jeu. Autre fichier : son chemin dans le disque (ex. /rel/aaa.rel). 	/main.dol: the game's program. Other file: its path in the disc (e.g. /rel/aaa.rel). 
+Extraire : dans Téléchargements/GC Remote, puis tu peux l'envoyer. Choisir où : dans le dossier de ton choix (tes fichiers, Drive…). Hors partie.	Extract: into Downloads/GC Remote, then you can send it. Choose where: into the folder of your choice (your files, Drive…). Outside a game.
+$nOn cheat	$nOn cheat
+Lecture des succès…	Reading achievements…
+Pas de succès GC Station pour ce jeu (fichier SD:/gc-mp3/succes/$id.txt).	No GC Station achievements for this game (file SD:/gc-mp3/succes/$id.txt).
+Succès GC Station	GC Station achievements
+Succès GC Station · 	GC Station achievements · 
+Envoi de la sauvegarde…	Sending the save…
+Envoyer une sauvegarde (.gci)…	Send a save (.gci)…
+Envoyer la sauvegarde sur…	Send the save to…
+Lecture des cartes de la console…	Reading the console's cards…
+Aucune carte virtuelle (Pulse en crée une au premier lancement du jeu).	No virtual card (Pulse creates one the first time the game is launched).
+Vraie carte mémoire (hors partie) :	Real memory card (outside a game):
+Extraire d'un .iso	Extract from an .iso
+Regarder un ami	Watch a friend
+Compagnon, codes, manette	Companion, codes, controller
+Duels, jeu de cartes	Duels, card game
+Musique, radios, jeux, globe	Music, radio, games, globe
+De la console, à lire ou envoyer	From the console, to read or send
+main.dol d'un jeu du téléphone	main.dol of a game on the phone
+Extraire d'un jeu du téléphone	Extract from a game on the phone
+Statistiques de jeu	Game statistics
+Slots A et B de la console	Console slots A and B
+Vraies cartes mémoire	Real memory cards
+Succès du site, en jeu	Site achievements, in game
+Temps par jeu et par semaine	Time per game and per week
+Un ami joue, ta caméra	A friend plays, your camera
+Ton jeu sur ton profil Discord	Your game on your Discord profile
+Aucun jeu en cours	No game in progress
+temps de jeu · 	play time · 
+Lance un jeu depuis l'onglet Jeux : Pulse reste en mémoire pendant la partie et ses outils marchent ici.	Launch a game from the Games tab: Pulse stays in memory during the game and its tools work here.
+Console pas connectée.	Console not connected.
+Écran de la partie	Game screen
+Pendant la partie	During the game
+Tester la notification sur la télé	Test the notification on the TV
+Ceci est un essai de GC Remote	This is a GC Remote test
+Bandeau envoyé : regarde la télé	Banner sent: look at the TV
+Succès RetroAchievements sur la télé	RetroAchievements achievements on the TV
+Le bandeau se coupe aussi sur la console : START > Jeux > « Succès sur la télé (Pulse) ».	The banner can also be turned off on the console: START > Games > "Achievements on the TV (Pulse)".
+Retour au menu (A+Z+START)	Back to menu (A+Z+START)
+Comme A+Z+START : la partie s'arrête tout de suite, sans sauvegarder.	Like A+Z+START: the game stops right away, without saving.
+Retour au menu demandé	Back to menu requested
+Pulse ne répond pas : « Chercheur de codes (appli) » allumé, console v418 ou plus ?	Pulse isn't responding: "Code finder (app)" on, console v418 or later?
+La console ne répond pas (GC Station v268 et plus).	The console isn't responding (GC Station v268 and later).
+Lecture des succès sur la console…	Reading achievements on the console…
+ / $total succès	 / $total achievements
+${js.size} jeux · ${js.count { it.obtenus == it.liste.size && it.liste.isNotEmpty() }} terminés à 100 %	${js.size} games · ${js.count { it.obtenus == it.liste.size && it.liste.isNotEmpty() }} 100 % complete
+Commencés	Started
+À finir	To finish
+Aucun succès sur la console : ajoute un fichier SD:/gc-mp3/succes/<ID du jeu>.txt.	No achievements on the console: add a file SD:/gc-mp3/succes/<game ID>.txt.
+Rien ici pour ce filtre.	Nothing here for this filter.
+À faire · ${restants.size}	To do · ${restants.size}
+Toucher pour voir la liste	Tap to see the list
+Arrêtée	Stopped
+Réglages de l'image	Picture settings
+  (toucher ce texte pour le masquer)	  (tap this text to hide it)
+Prêt	Ready
+Pulse reste en mémoire pendant les jeux : le résultat du dernier lancement s'affichera ici.	Pulse stays in memory during games: the result of the last launch will show here.
+Le dernier lancement s'affichera ici une fois la console connectée.	The last launch will show here once the console is connected.
+🏆 Succès	🏆 Achievements
+Historique des succès	Achievement history
+Les succès RetroAchievements débloqués apparaîtront ici, avec la date.	Unlocked RetroAchievements achievements will show here, with the date.
+Jeu inconnu	Unknown game
+Redémarrer GC Station	Restart GC Station
+Redémarrer GC Station ?	Restart GC Station?
+Comme le bouton Reset de la console : GC Station enregistre ses réglages et se relance. Pas pendant une partie ni une mise à jour.	Like the console's Reset button: GC Station saves its settings and restarts. Not during a game or an update.
+Redémarrer	Restart
+Recherche de la dernière version…	Looking for the latest version…
+La console ne répond pas (console v429 ou plus ?)	The console isn't responding (console v429 or later?)
+Impossible de lire la dernière version (GitLab)	Can't read the latest version (GitLab)
+Pas encore de fichier publié (compilation en cours ?)	No file published yet (build in progress?)
+La console est déjà à jour (build $a)	The console is already up to date (build $a)
+Téléchargement refusé (code ${cx.responseCode})	Download refused (code ${cx.responseCode})
+Téléchargement du build $b : ${lu * 100 / total} %	Downloading build $b: ${lu * 100 / total} %
+Téléchargement incomplet	Incomplete download
+Envoi à la console…	Sending to the console…
+Envoi à la console : ${d * 100 / taille} %	Sending to the console: ${d * 100 / taille} %
+Envoi interrompu (réessaie)	Sending interrupted (try again)
+Erreur : ${e.message ?: e.javaClass.simpleName}	Error: ${e.message ?: e.javaClass.simpleName}
+Mise à jour en cours…	Updating…
+Mettre à jour la console par le téléphone	Update the console from the phone
+Bien plus rapide que la mise à jour depuis la console : le téléphone télécharge, puis envoie sur le Wi-Fi.	Much faster than updating from the console: the phone downloads, then sends over Wi-Fi.
+Connecte-toi à RetroAchievements (Pulse > Succès) pour voir les succès de ce jeu.	Sign in to RetroAchievements (Pulse > Achievements) to see this game's achievements.
+Empreinte du jeu pas lue (console v411 et plus, allumée sur le même Wi-Fi).	Game fingerprint not read (console v411 and later, on the same Wi-Fi).
+Pas de réponse de RetroAchievements (Internet ?)	No answer from RetroAchievements (Internet?)
+Ce jeu (cette version du disque) n'a pas de succès sur RetroAchievements.	This game (this disc version) has no achievements on RetroAchievements.
+refusé (reconnecte-toi dans Pulse > Succès)	refused (sign in again in Pulse > Achievements)
+Réponse de RetroAchievements illisible	Unreadable answer from RetroAchievements
+Pas encore de succès officiels pour ce jeu sur RetroAchievements.	No official achievements for this game on RetroAchievements yet.
+Lecture des succès RetroAchievements…	Reading RetroAchievements achievements…
+Réessayer	Try again
+Dernier lancement d'un jeu	Last game launch
+Journal de la dernière partie	Last game log
+Mesure de fluidité	Smoothness measurement
+Démarrage de GC Station	GC Station startup
+Réparation d'un jeu	Game repair
+Pas de réponse de la console (GC Station v453 ou plus).	No answer from the console (GC Station v453 or later).
+Réponse illisible de la console.	Unreadable answer from the console.
+Retour	Back
+Trop long pour un partage direct : gardé dans $p	Too long for direct sharing: kept in $p
+Impossible de garder le fichier	Can't keep the file
+Gardé dans $p	Kept in $p
+\n…(la suite : Partager ou Garder)	\n…(the rest: Share or Keep)
+Les journaux de la console, à lire ici ou à partager, sans retirer la carte SD.	The console's logs, to read here or share, without removing the SD card.
+Aucun journal sur la carte pour l'instant.	No log on the card yet.
+Lecture de la photo…	Reading the photo…
+La jaquette de ta boîte, dans ta langue et en haute définition. Pour chaque face : une photo bien éclairée, 	Your box's cover, in your language and in high definition. For each side: a well-lit photo, 
+la jaquette entière dedans (même un peu de travers). Puis place les 4 points sur les 4 coins de la jaquette : 	with the whole cover in it (even a bit crooked). Then put the 4 dots on the 4 corners of the cover: 
+l'appli la redresse. Une face pas donnée garde celle de GameTDB.	the app straightens it. A side not given keeps the GameTDB one.
+Choisir la photo 	Choose the photo 
+du dos	of the back
+de la tranche	of the spine
+Fais glisser les 4 points sur les coins de la jaquette (	Drag the 4 dots onto the corners of the cover (
+la tranche : en haut, le logo GameCube	the spine: GameCube logo at the top
+dans le bon sens, le haut en haut	the right way up, top at the top
+Résultat :	Result:
+ gardé	 kept
+Revenir à la jaquette de GameTDB	Go back to the GameTDB cover
+Téléphone	Phone
+Message pour la télé	Message for the TV
+Envoyé sur la télé	Sent to the TV
+Notifications du téléphone sur la télé	Phone notifications on the TV
+Messages, appels, alarmes : en bas de l'image pendant un jeu (Pulse), en haut de l'écran dans GC Station (console v399).	Messages, calls, alarms: at the bottom of the picture during a game (Pulse), at the top of the screen in GC Station (console v399).
+Partage arrêté : 	Sharing stopped: 
+Connexion arrêtée : 	Connection stopped: 
+Recherche de ton adresse sur Internet…	Looking up your Internet address…
+adresse publique introuvable (pas d'Internet ?)	public address not found (no Internet?)
+personne n'est venu en 15 min	nobody came in 15 min
+aucun partage avec ce code	no share with this code
+la connexion directe n'a pas pu se faire (réseau trop fermé, souvent en 4G/5G)	the direct connection couldn't be made (network too locked down, often on 4G/5G)
+Ton ami est parti	Your friend left
+Connecté · en attente de l'image…	Connected · waiting for the picture…
+Plus d'image : le partage s'est arrêté	No more picture: sharing stopped
+point de rendez-vous refusé	meeting point refused
+rendez-vous coupé	meeting point cut
+Regarder la vue 3D d'un ami	Watch a friend's 3D view
+Ton ami ouvre sa vue 3D et touche « Partager » : un code de 6 lettres s'affiche. Tape-le ici. La vidéo passe directement de son téléphone au tien, par Internet.	Your friend opens their 3D view and taps "Share": a 6-letter code appears. Type it here. The video goes straight from their phone to yours, over the Internet.
+Arrêter le partage	Stop sharing
+Rapport du direct	Live report
+Aucune mesure : console en v370 ou plus, vue 3D en direct ouverte.	No measurement: console v370 or later, live 3D view open.
+Temps pris au jeu	Time taken from the game
+Données	Data
+Gardé	Kept
+Partager le texte	Share the text
+Avant (gris) puis après (rose) : touche deux rapports. « Maintenant » : celui de cette fenêtre.	Before (grey) then after (pink): tap two reports. "Now": the one from this window.
+Exporter : Android 10 ou plus est nécessaire.	Export: Android 10 or later is required.
+pas de fichier	no file
+Réglages enregistrés : Téléchargements/GC Remote/$nom	Settings saved: Downloads/GC Remote/$nom
+Réglages enregistrés	Settings saved
+Téléchargements/GC Remote/$nom\n\nPacks 3D installés :\n$liste\n\n	Downloads/GC Remote/$nom\n\nInstalled 3D packs:\n$liste\n\n
+Les exporter aussi (zip à côté, dans le même dossier) ? Après une réinstallation, « Importer des réglages » propose de les remettre.	Export them too (zip next to it, in the same folder)? After reinstalling, "Import settings" offers to put them back.
+Non merci	No thanks
+erreur	error
+Export des packs 3D en cours… (quelques minutes pour les gros packs)	Exporting 3D packs… (a few minutes for big packs)
+Packs exportés	Packs exported
+Installation des packs…	Installing packs…
+$n fichiers installés.	$n files installed.
+\nL'appli va redémarrer.	\nThe app will restart.
+Les succès sont vérifiés, même appli en arrière-plan	Achievements are checked, even with the app in the background
+$jeu · succès vérifiés, même appli en arrière-plan	$jeu · achievements checked, even with the app in the background
+service au premier plan refusé par Android : 	foreground service refused by Android: 
+service au premier plan pas démarré : 	foreground service not started: 
+Liaison avec la console : 	Link with the console: 
+ % des images reçues	 % of frames received
+ (aucune perdue sur $tot)	 (none lost out of $tot)
+ ($perdues perdues sur $tot)	 ($perdues lost out of $tot)
+ ; $nonEnv pas envoyées par la console (bus pris par le jeu)	 ; $nonEnv not sent by the console (bus taken by the game)
+bandeau de la télé : $it	TV banner: $it
+RetroAchievements : mémoire insuffisante	RetroAchievements: not enough memory
+Connecté	Connected
+Connexion refusée : 	Connection refused: 
+Jeu non chargé : 	Game not loaded: 
+🏁 Classement raté : $titre	🏁 Leaderboard failed: $titre
+Classement raté	Leaderboard failed
+🏁 Score envoyé : $titre	🏁 Score sent: $titre
+Score $desc · rang $points sur $msg · meilleur $url	Score $desc · rank $points of $msg · best $url
+Classement : rang $points sur $msg	Leaderboard: rank $points of $msg
+Défi	Challenge
+Tous les succès de ce jeu sont débloqués !	All achievements for this game are unlocked!
+Site injoignable : les succès seront envoyés plus tard	Site unreachable: achievements will be sent later
+Succès vérifiés en direct	Achievements checked live
+Chargement des notes…	Loading notes…
+Notes non reçues	Notes not received
+Pas de notes pour ce jeu	No notes for this game
+Pas d'empreinte du jeu : GC Station v393 ou plus, et « Chercheur de codes (appli) » activé	No game fingerprint: GC Station v393 or later, and "Code finder (app)" on
+Recherche du jeu sur RetroAchievements…	Looking up the game on RetroAchievements…
+Pulse n'envoie rien (réseau, ou partie finie ?)	Pulse is sending nothing (network, or game over?)
+Connecte ton compte retroachievements.org : pendant une partie lancée par GC Station, l'appli vérifie les succès du jeu avec la mémoire envoyée par Pulse. Mode normal (Softcore) seulement. Le mot de passe n'est pas gardé.	Connect your retroachievements.org account: during a game launched by GC Station, the app checks the game's achievements with the memory sent by Pulse. Normal mode (Softcore) only. The password isn't kept.
+Se déconnecter	Sign out
+Données envoyées à retroachievements.org (et nulle part ailleurs) : ton nom d'utilisateur, le jeton de connexion, le jeu en cours (son empreinte) et les succès débloqués. Le mot de passe sert une fois, à la connexion, et n'est pas gardé.	Data sent to retroachievements.org (and nowhere else): your username, the login token, the current game (its fingerprint) and unlocked achievements. The password is used once, to sign in, and isn't kept.
+Il faut GC Station v393 ou plus et le réglage « Chercheur de codes (appli) » : la console calcule l'empreinte du jeu au lancement.	Needs GC Station v393 or later and the "Code finder (app)" setting: the console computes the game's fingerprint at launch.
+⚔ Défi : $v	⚔ Challenge: $v
+Classements de la partie	Leaderboards for this game
+Cacher le journal	Hide the log
+Copier le journal	Copy the log
+Journal copié	Log copied
+Choisis des valeurs à suivre dans les notes des développeurs RetroAchievements (vie, argent, niveau…).	Choose values to follow in the RetroAchievements developers' notes (health, money, level…).
+Fermer les notes	Close the notes
+Choisir dans les notes	Choose from the notes
+Notes écrites par les développeurs de RetroAchievements. Les adresses avec pointeur montrent l'adresse pointée, pas la valeur finale.	Notes written by RetroAchievements developers. Addresses with a pointer show the pointed address, not the final value.
+Spectateurs arrêtés : 	Spectators stopped: 
+Recherche du partage $c…	Looking for share $c…
+Connecté · en attente du jeu (le joueur doit avoir sa vue 3D ouverte)…	Connected · waiting for the game (the player must have their 3D view open)…
+Plus rien ne vient : le partage s'est arrêté	Nothing coming anymore: sharing stopped
+En direct · tourne la caméra comme tu veux	Live · turn the camera however you like
+Arrêter les spectateurs	Stop spectators
+Regarder un ami en 3D, ta caméra	Watch a friend in 3D, your camera
+Ton ami ouvre sa vue 3D de Wind Waker et touche « 👥 Spectateurs 3D » : un code s'affiche. Ici, ce n'est pas une vidéo : ton téléphone redessine le jeu avec tes packs Wind Waker, et tu tournes la caméra comme tu veux. Plusieurs amis peuvent regarder en même temps.	Your friend opens their Wind Waker 3D view and taps "👥 3D Spectators": a code appears. Here, it's not a video: your phone redraws the game with your Wind Waker packs, and you turn the camera however you like. Several friends can watch at the same time.
+Il te faut le pack Wind Waker de ce lieu (	You need the Wind Waker pack for this place (
+) : installe-le depuis la fiche du jeu.	): install it from the game's page.
+Console retrouvée : $ip	Console found again: $ip
+ consoles GC Station sur ce Wi-Fi : laquelle ?	 GC Station consoles on this Wi-Fi: which one?
+Envoyé : $n fichier	Sent: $n file
+Envoyé sur la console ($n)	Sent to the console ($n)
+Envoyés : $n sur 	Sent: $n of 
+$n fichier(s) sur la console	$n file(s) on the console
+$n sur 	$n of 
+Envoi vers la carte $card…	Sending to card $card…
+L'appli s'est fermée la dernière fois	The app closed last time
+Envoie ce rapport pour que le problème soit corrigé :\n\n	Send this report so the problem gets fixed:\n\n
+Lecture de tes jeux sur la console…	Reading your games on the console…
+La console ne répond pas : seulement les parties notées par le téléphone.	The console isn't responding: only the sessions recorded by the phone.
+de jeu	of play
+jeux lancés	games launched
+Temps de jeu par semaine	Play time per week
+Les parties sont notées par le téléphone à partir de cette version (du lancement au retour à GC Station, appli ouverte ou en fond).	Sessions are recorded by the phone from this version on (from launch until back to GC Station, app open or in the background).
+ · la semaine dernière : 	 · last week: 
+Les plus joués (temps, depuis toujours)	Most played (time, all time)
+Les plus lancés	Most launched
+Joués dernièrement	Recently played
+Pas encore de jeu lancé avec GC Station.	No game launched with GC Station yet.
+Dernières parties	Recent sessions
+Carte illisible	Unreadable card
+Pas de réponse : GC Station v315 à l'écran (hors partie).	No answer: GC Station v315 on screen (outside a game).
+Réponse illisible (GC Station v315 ?)	Unreadable answer (GC Station v315?)
+Les cartes mémoire branchées sur la console. Hors partie seulement (pendant un jeu, la carte est au jeu).	The memory cards plugged into the console. Outside a game only (during a game, the card belongs to the game).
+Ajouter un .gci du téléphone sur cette carte	Add a .gci from the phone to this card
+Sauvegarde pas reçue (GC Station v315, hors partie ?)	Save not received (GC Station v315, outside a game?)
+Impossible d'enregistrer le fichier	Can't save the file
+Enregistrée : Téléchargements/GC Remote/$nom	Saved: Downloads/GC Remote/$nom
+Caverne du Dragon	Dragon Roost Cavern
+Bois Défendus	Forbidden Woods
+Tour des Dieux	Tower of the Gods
+Temple de la Terre	Earth Temple
+Temple du Vent	Wind Temple
+Île Étoilée	Star Island
+Îlot Septentrional des Fées	Northern Fairy Island
+Île du Croissant	Crescent Moon Island
+Île de la Face Quatre	Four-Eye Reef
+Île Géminée	Mother & Child Isles
+Île des Binocles	Spectacle Island
+Mercantîle	Windfall Island
+Pas de Chat	Pawprint Isle
+Île du Dragon	Dragon Roost Island
+Îlot Occidental des Fées	Western Fairy Island
+Île de la Rocaille	Rock Spire Isle
+Île de Tingle	Tingle Island
+Île Triangulaire du Nord	Northern Triangle Island
+Îlot Oriental des Fées	Eastern Fairy Island
+Île de la Face Trois	Three-Eye Reef
+Île du Poisson	Greatfish Isle
+Île de la Face Une	Cyclops Reef
+Île de la Face Six	Six-Eye Reef
+Île Triangulaire de l'Est	Eastern Triangle Island
+Îlot Épineux des Fées	Thorned Fairy Island
+Canonière	Islet of Steel
+Île de la Tête de Pierre	Stone Watcher Island
+Île Triangulaire du Sud	Southern Triangle Island
+Île de Qui-Ça	Private Oasis
+Île de la Bombe	Bomb Island
+Île aux Nichoirs	Bird's Peak Rock
+Île du Losange	Diamond Steppe Island
+Île de la Face Cinq	Five-Eye Reef
+Île du Requin	Shark Island
+Îlot Méridional des Fées	Southern Fairy Island
+Île Gelée	Ice Ring Isle
+Île aux Forêts	Forest Haven
+Île du Fer à Cheval	Horseshoe Island
+Île de l'Aurore	Outset Island
+Île de la Terre	Headstone Island
+Île de la Face Deux	Two-Eye Reef
+Îlots Kif Kif	Angular Isles
+Archipel de Cassiopée	Five-Star Isles
+Île 	Island 
+Écran titre	Title screen
+Château d'Hyrule	Hyrule Castle
+Baguette du Vent	Wind Waker
+Sac à butin	Spoils Bag
+Boîte à images	Picto Box
+Sac à appâts	Bait Bag
+Sac à courrier	Delivery Bag
+Lance-chaîne	Hookshot
+Boîte à images de luxe	Deluxe Picto Box
+Arc du héros	Hero's Bow
+Arc (flèches de feu et de glace)	Bow (fire and ice arrows)
+Arc (flèches de lumière)	Bow (light arrows)
+Épée du héros	Hero's Sword
+Épée de légende (sans pouvoir)	Master Sword (powerless)
+Épée de légende (à moitié réveillée)	Master Sword (half power)
+Épée de légende (réveillée)	Master Sword (full power)
+Bouclier du héros	Hero's Shield
+Collier de crâne	Skull Necklace
+Plume dorée	Golden Feather
+Gelée rouge	Red Chu Jelly
+Gelée verte	Green Chu Jelly
+Gelée bleue	Blue Chu Jelly
+Soupe d'Élixir	Elixir Soup
+Fée	Fairy
+Eau de la Forêt	Forest Water
+Appât à oiseaux	Hyoi Pear
+Appât	All-Purpose Bait
+Fleur de la ville	Town Flower
+Fleur de la mer	Sea Flower
+Drapeau du héros	Hero's Flag
+Drapeau de la grosse prise	Big Catch Flag
+Drapeau des soldes	Big Sale Flag
+Moulin à vent	Pinwheel
+Drapeau du croissant	Sickle Moon Flag
+Idole de la tour	Skull Tower Idol
+Idole de la fontaine	Fountain Idol
+Statue du facteur	Postman Statue
+Statue du gourou	Shop Guru Statue
+Lettre du père	Father's Letter
+Mot pour maman	Note to Mom
+Lettre du Moblin	Moblin's Letter
+Titre de la cabane	Cabana Deed
+Carte de membre	Complimentary ID
+nord-est	north-east
+sud-est	south-east
+Aéroport Delfino	Delfino Airstrip
+Vers le grand moulin	Road to the Big Windmill
+Le Piranha géant	Down with Petey Piranha!
+Le secret de la grotte	The Hillside Cave Secret
+Pièces rouges du village	Red Coins of Windmill Village
+Le retour du Piranha géant	Petey Piranha Strikes Back
+Le secret du lac pollué	The Secret of the Dirty Lake
+Pièces rouges du lac	The Red Coins of the Lake
+grotte : pièces rouges (niveau secret)	cave: red coins (secret level)
+lac pollué : pièces rouges (niveau secret)	dirty lake: red coins (secret level)
+Le Bloups géant s'échappe	Gooper Blooper Breaks Out
+Le soleil en cage	The Caged Shine Sprite
+Le secret de la tour Ricco	The Secret of Ricco Tower
+Le retour du Bloups géant	Gooper Blooper Returns
+Pièces rouges sur l'eau	Red Coins on the Water
+Les fruits de Yoshi	Yoshi's Fruit Adventure
+tour Ricco : pièces rouges (niveau secret)	Ricco Tower: red coins (secret level)
+Le château de sable	Dune Bud Sand Castle Secret
+Les miroirs	Mirror Madness! Tilt, Slam, Bam!
+Le Wiggler	Wiggler Ahoy! Full Steam Ahead!
+La course d'Il Piantissimo	Il Piantissimo's Sand Sprint
+Pièces rouges du récif	Red Coins in the Coral Reef
+Mario Ombre ! Rattrape-le !	It's Shadow Mario! After Him!
+La fête de la pastèque	The Watermelon Festival
+château de sable : pièces rouges (niveau secret)	sand castle: red coins (secret level)
+soleil caché	hidden Shine
+Le secret du canon	The Beach Cannon's Secret
+Pièces rouges des bateaux pirates	Red Coins of the Pirate Ships
+Les tournesols fanés	The Wilted Sunflowers
+La grande roue folle	The Runaway Ferris Wheel
+Le secret du manège de Yoshi	The Yoshi-Go-Round's Secret
+Mario Ombre dans le parc	Shadow Mario in the Park
+Les ballons des montagnes russes	Roller Coaster Balloons
+canon : pièces rouges (niveau secret)	cannon: red coins (secret level)
+manège de Yoshi : pièces rouges (niveau secret)	Yoshi-Go-Round: red coins (secret level)
+La raie géante	Manta Storm
+Le secret du hall de l'hôtel	The Hotel Lobby's Secret
+Le mystérieux hôtel Delfino	Mysterious Hotel Delfino
+Le secret du casino	The Secret of Casino Delfino
+Le Roi Boo	King Boo Down Below
+Nettoyage de la plage	Scrubbing Sirena Beach
+Mario Ombre à l'hôtel	Shadow Mario Checks In
+Pièces rouges de l'hôtel	Red Coins in the Hotel
+hall de l'hôtel : pièces rouges (niveau secret)	hotel lobby: red coins (secret level)
+casino : pièces rouges (niveau secret)	casino: red coins (secret level)
+Les petits Chomps	Chain Chomplets Unchained
+Le bain du Chomp	Chain Chomp's Bath
+Le secret sous le village	Secret of the Village Underside
+Les Piantas en détresse	Piantas in Need
+Mario Ombre se déchaîne	Shadow Mario Runs Wild
+Pièces rouges de la fête	Fluff Festival Coin Hunt
+sous le village : pièces rouges (niveau secret)	village underside: red coins (secret level)
+Déboucher la cascade	Uncork the Waterfall
+Le boss des ruines	The Boss of Tricky Ruins
+Pièces rouges dans une bouteille	Red Coins in a Bottle
+Le dentiste de l'anguille	Eely-Mouth's Dentist
+La nage d'Il Piantissimo	Il Piantissimo's Surf Swim
+Le secret du coquillage	The Shell's Secret
+Arrête-toi, Mario Ombre !	Hold It, Shadow Mario!
+Le poisson aux pièces rouges	The Red Coin Fish
+coquillage : pièces rouges (niveau secret)	shell: red coins (secret level)
+aéroport : le premier soleil	airstrip: the first Shine
+aéroport : pièces rouges (niveau secret)	airstrip: red coins (secret level)
+tuyau de la plage (niveau secret)	beach pipe (secret level)
+balade en nénuphar (niveau secret)	lily pad ride (secret level)
+tuyau dans l'herbe (niveau secret)	pipe in the grass (secret level)
+jeu des caisses 1	crate game 1
+jeu des caisses 2	crate game 2
+cloche gauche du clocher	bell tower left bell
+cloche droite du clocher	bell tower right bell
+statue du soleil	Shine statue
+sous le clocher	under the bell tower
+oiseau doré	golden bird
+100 pièces	100 coins
+M sur le moulin	M on the windmill
+pilier du moulin	windmill pillar
+haut d'un arbre	top of a tree
+Pianta de la tour du rempart	Pianta on the rampart tower
+Pokey de la colline	hill Pokey
+pilier (combat du Piranha)	pillar (Piranha fight)
+sous l'eau, à droite	underwater, right
+sous l'eau, à gauche	underwater, left
+sous le pont	under the bridge
+Pokey du moulin	windmill Pokey
+croix sur les plateformes	cross on the platforms
+M sur le côté du rempart	M on the side of the rampart
+M en haut du rempart	M on top of the rampart
+M sur la maison des tours	M on the tower house
+petit moulin à vent	small windmill
+X derrière le rempart	X behind the rampart
+bout de la rivière	end of the river
+O sur la maison des tours	O on the tower house
+O sur la maison au balcon	O on the balcony house
+X entre les remparts	X between the ramparts
+plateforme à voile	sail platform
+soleil peint sur la tour	Shine painted on the tower
+M sur la coque du bateau	M on the boat hull
+M en haut du bâtiment de départ	M on top of the starting building
+X sur la machine à fruits	X on the fruit machine
+ennemi du mur	wall enemy
+M sur un toit	M on a roof
+M au pied de la tour	M at the foot of the tower
+corniche du fond	back ledge
+plateforme de la tour	tower platform
+à côté de la passerelle	next to the walkway
+tour (buse fusée)	tower (Rocket Nozzle)
+entrée souterraine	underground entrance
+X sur la tour	X on the tower
+M sur la fontaine	M on the fountain
+M sur le côté du bâtiment de départ	M on the side of the starting building
+M sur la plateforme haute	M on the high platform
+ennemi du grillage (mur)	fence enemy (wall)
+ennemi du grillage (plafond)	fence enemy (ceiling)
+panier à poissons	fish basket
+M dans le bateau	M in the boat
+caisse de la tour	tower crate
+soleil de sable près de la cabane	sand Shine near the hut
+soleil de sable près de la cabane de surf	sand Shine near the surf hut
+soleil de sable du milieu	middle sand Shine
+bar à jus	juice bar
+M (buse fusée)	M (Rocket Nozzle)
+triangle du départ	starting triangle
+triangle des arbres	tree triangle
+bourgeon des dunes (bloc jaune)	Dune Bud (yellow block)
+corde la plus haute	highest rope
+mât	mast
+sous l'eau, près	underwater, near
+balançoire	swing
+toit de la cabane	hut roof
+M sur le mur orange	M on the orange wall
+M dans le sable	M in the sand
+oiseau de l'entrée	entrance bird
+haut des bateaux pirates	top of the pirate ships
+plateforme de la cage	cage platform
+X sur le mur blanc	X on the white wall
+X sur l'arbre	X on the tree
+M sur la grande roue	M on the Ferris wheel
+triangle de la banane	banana triangle
+triangle de la grande roue	Ferris wheel triangle
+papillon du parc	park butterfly
+corniche des montagnes russes	roller coaster ledge
+ennemis empilés	stacked enemies
+panier du départ	starting basket
+panier des fleurs	flower basket
+panier de l'entrée	entrance basket
+papillon de la plage	beach butterfly
+2e papillon de la plage	2nd beach butterfly
+panier du rocher	rock basket
+panier du milieu	middle basket
+panier des tournesols	sunflower basket
+soleil de sable du canon	cannon sand Shine
+corniche de l'hôtel	hotel ledge
+bibliothèque	bookshelf
+Boo du grenier	attic Boo
+M du 2e étage	3rd floor M
+M du casino	casino M
+lampe du 2e étage	3rd floor lamp
+triangle du rez-de-chaussée	ground floor triangle
+triangle du 1er étage	2nd floor triangle
+M du grenier	attic M
+X du 2e étage	3rd floor X
+X du 1er étage	2nd floor X
+torche du casino	casino torch
+machine à sous	slot machine
+Pianta en détresse n°10	Pianta in need #10
+Pianta en détresse n°3	Pianta in need #3
+Pianta en détresse n°5	Pianta in need #5
+Pianta en détresse n°4	Pianta in need #4
+Pianta en détresse n°6	Pianta in need #6
+Pianta en détresse n°7	Pianta in need #7
+Pianta en détresse n°9	Pianta in need #9
+Pianta en détresse n°8	Pianta in need #8
+nez de la statue	statue's nose
+M géant	giant M
+arbre du fond	back tree
+pont de la rivière	river bridge
+ruche du fond	back beehive
+triangle du mur	wall triangle
+triangle du bain chaud	hot bath triangle
+M du départ	starting M
+M sous le village	M under the village
+alcôve (buse fusée)	alcove (Rocket Nozzle)
+buse fusée	Rocket Nozzle
+alcôve de la poulie, en bas	pulley alcove, bottom
+alcôve de la poulie, en haut	pulley alcove, top
+grande alcôve	big alcove
+alcôve (buse turbo)	alcove (Turbo Nozzle)
+alcôve du coquillage	shell alcove
+panneau en haut à droite	top right panel
+panneau en bas à gauche	bottom left panel
+tunnel en haut à droite	top right tunnel
+tunnel en bas à droite	bottom right tunnel
+alcôve en bas à droite	bottom right alcove
+alcôve en bas à gauche	bottom left alcove
+panneau de la falaise de l'oiseau	bird cliff panel
+alcôve de la falaise de l'oiseau	bird cliff alcove
+côte	shore
+M du passage secret	secret passage M
+O du départ	starting O
+fond de la mer : pilier de devant	sea floor: front pillar
+fond de la mer : pilier de droite	sea floor: right pillar
+fond de la mer : pilier proche à gauche	sea floor: near left pillar
+O de la maison du bateau	boathouse O
+fond de la mer : pilier loin à gauche	sea floor: far left pillar
+aéroport : glaçon	airstrip: ice block
+X sur la statue	X on the statue
+X sur le clocher	X on the bell tower
+M sur la statue du soleil	M on the Shine statue
+M sur la tour (bloc jaune)	M on the tower (yellow block)
+M dans la salle du lanceur	M in the launcher room
+égout près de la mer	sewer near the sea
+bloc jaune près du clocher	yellow block near the bell tower
+cellule de la prison	prison cell
+bloc jaune près du policier	yellow block near the policeman
+égout de la statue du soleil	Shine statue sewer
+égout du canal	canal sewer
+oiseau du jeu des caisses	crate game bird
+lave derrière à droite	lava back right
+lave à gauche	lava left
+lave devant à gauche	lava front left
+lave devant à droite	lava front right
+lave derrière à gauche	lava back left
+lave tout au fond à gauche	lava far back left
+lave tout au fond à droite	lava far back right
+lave à droite	lava right
+Fusée	Rocket
+le soleil final (Bowser)	the final Shine (Bowser)
+Pièces bleues échangées	Blue coins traded
+Plan de la zone	Area map
+Croisière Daisy	Daisy Cruiser
+Colisée Wario	Wario Colosseum
+Château de Bowser	Bowser's Castle
+Désert Sec Sec	Dry Dry Desert
+Bébé Mario	Baby Mario
+Bébé Luigi	Baby Luigi
+Carrosse Cœur	Heart Coach
+Kart de la parade	Parade Kart
+Contre-la-montre	Time Trial
+Remise des prix	Award ceremony
+Générique	Credits
+Coupe Étoile	Star Cup
+Coupe Spéciale	Special Cup
+Toutes les coupes	All-Cup Tour
+Ce jeu ($id) n'a pas encore d'écran dédié. Avec le chercheur de codes, trouve une valeur (vies, pièces…) puis « Épingler au compagnon de jeu » : elle s'affichera ici en direct, à chaque partie.	This game ($id) doesn't have its own screen yet. With the code finder, find a value (lives, coins…) then "Pin to the game companion": it will show here live, every session
+Valeurs illisibles pour $id : autre version du jeu, ou partie pas encore commencée.	Unreadable values for $id: another version of the game, or game not started yet.
+Triforce complète	Triforce complete
+ · ép. 	 · ep. 
+📸 Photo de la mémoire (fichier à partager)	📸 Memory snapshot (file to share)
+Installation du pack ${i + 1} sur ${us.size}…	Installing pack ${i + 1} of ${us.size}…
+Pack installé : $total élément(s). La vue 3D se recharge.	Pack installed: $total item(s). The 3D view is reloading.
+Rien d'installable dans ce(s) fichier(s).	Nothing installable in these file(s).
+📦 Installer / mettre à jour les packs de ce jeu (.zip)	📦 Install / update this game's packs (.zip)
+ cœurs	 hearts
+Ép. légende	Master Sw.
+Épée	Sword
+ déchiffrées · 	 deciphered · 
+ trésors repêchés · Triforce : 	 treasures salvaged · Triforce: 
+Quête n° 	Quest # 
+2e quête	2nd quest
+🗺 carte · 🧭 boussole · 🔑 grande clé · 👹 boss vaincu · ❤ réceptacle de cœur	🗺 map · 🧭 compass · 🔑 big key · 👹 boss defeated · ❤ heart container
+petites clés	small keys
+grande clé	big key
+$connues îles sur 49 sur la carte	$connues islands of 49 on the chart
+Le vent souffle vers le 	The wind blows to the 
+Cœurs	Hearts
+ quarts de cœur (4 par réceptacle)	 heart pieces (4 per container)
+ rubis : agrandir jusqu'à 5000	 rupees: upgrade up to 5000
+${e.flechesMax} flèches : jusqu'à 99	${e.flechesMax} arrows: up to 99
+${e.bombesMax} bombes : jusqu'à 99	${e.bombesMax} bombs: up to 99
+jauge simple : la doubler	single magic meter: double it
+Chants de la Baguette du Vent	Wind Waker songs
+Fragments de la Triforce	Triforce Shards
+Trésors à repêcher	Treasures to salvage
+ carte(s) obtenue(s) dont le trésor n'est pas encore remonté	 chart(s) obtained whose treasure hasn't been salvaged yet
+Pour finir à 100 %	For 100 %
+Tout ce que l'appli sait lire est complet !	Everything the app can read is complete!
+Îles jamais visitées (	Islands never visited (
+Pas encore lus : quêtes annexes, quarts de cœur île par île.	Not read yet: side quests, heart pieces island by island.
+Pas encore lus : figurines, quêtes annexes, quarts de cœur île par île.	Not read yet: figurines, side quests, heart pieces island by island.
+pièces bleues / 240	blue coins / 240
+ pièces rouges 	 red coins 
+🦖 Sur le dos de Yoshi	🦖 Riding Yoshi
+🥚 Yoshi est là	🥚 Yoshi is here
+🦖 Yoshi débloqué	🦖 Yoshi unlocked
+ / 120 · pièces bleues 	 / 120 · blue coins 
+ép. 	ep. 
+☀ $ms soleil(s) à échanger contre 10 pièces bleues chacun (cabane du bateau, Place Delfino)	☀ $ms Shine(s) to trade for 10 blue coins each (boathouse, Delfino Plaza)
+Tout est trouvé !	Everything found!
+Noms des soleils et des pièces bleues traduits d'après la décompilation du jeu (pas les titres officiels).	Shine and blue coin names translated from the game's decompilation (not always the official titles).
+dérapage : mini-turbo 	drift: mini-turbo 
+Prêt : le chrono part tout seul 	Ready: the timer starts by itself 
+en lançant un nouveau fichier	when starting a new file
+à l'arrivée sur l'aéroport d'un nouveau fichier	when arriving at the airstrip on a new file
+au départ de la première course	at the start of the first race
+dans un jeu pris en charge	in a supported game
+Étapes : chaque grand lieu atteint pour la première fois (donjons, Château d'Hyrule, Tour de Ganon), chaque perle, chaque fragment de Triforce. Fin : bouton Fin.	Splits: each major place reached for the first time (dungeons, Hyrule Castle, Ganon's Tower), each pearl, each Triforce shard. End: End button.
+Étapes : chaque soleil (zone et épisode). Fin : le soleil du Mont Corona.	Splits: each Shine (area and episode). End: the Corona Mountain Shine.
+Étapes : chaque course terminée, avec les temps du jeu au millième. Fin : la dernière course.	Splits: each finished race, with the game's times to the thousandth. End: the last race.
+Lance The Wind Waker, Super Mario Sunshine ou Mario Kart Double Dash!! (versions européennes).	Launch The Wind Waker, Super Mario Sunshine or Mario Kart Double Dash!! (European versions).
+ Le téléphone lit le jeu 3 fois par seconde : les étapes automatiques sont précises à 0,3 s près.	 The phone reads the game 3 times per second: automatic splits are accurate to 0.3 s.
+Aucune partie lue	No game read
+$id · pas encore de compagnon pour ce jeu	$id · no companion for this game yet
+Lance un jeu avec Pulse : jauges, carte et chrono ici	Launch a game with Pulse: gauges, map and timer here
+En attente d'une partie	Waiting for a game
+Code trop court (4 caractères au moins).	Code too short (at least 4 characters).
+Connexion à $hote…	Connecting to $hote…
+refusé	refused
+Connecté ($hote) · code $code	Connected ($hote) · code $code
+👻 Fantôme d'un ami	👻 A friend's ghost
+Régler (code à partager)	Set up (code to share)
+Le Link de ton ami apparaît ici en fantôme (seulement sur le téléphone, jamais dans ta partie). 	Your friend's Link shows up here as a ghost (only on the phone, never in your game). 
+Donnez-vous le même code.	Use the same code.
+⚠ Serveur public gratuit (broker.hivemq.com, secours test.mosquitto.org) : quiconque connaît le code voit les positions 	⚠ Free public server (broker.hivemq.com, fallback test.mosquitto.org): anyone who knows the code sees the positions 
+de Link. Sans garantie : le service peut être lent ou s'arrêter.	of Link. No guarantee: the service may be slow or stop.
+Wind Waker, fantôme GC Station : mon code est $code	Wind Waker, GC Station ghost: my code is $code
+Partager le code	Share the code
+En attente de ton ami (même code : ${Fantome.code})…	Waiting for your friend (same code: ${Fantome.code})…
+Revenir à mon Link	Back to my Link
+Aller le voir	Go see them
+Ce lieu n'est pas dans tes packs : la vue ne peut pas y aller.	This place isn't in your packs: the view can't go there.
+pas de direct	no live feed
+Bombe : au bout du trajet	Bomb: at the end of the path
+Bombe lâchée	Bomb dropped
+Curseur arrivé	Cursor arrived
+Curseur du jeu pas reçu (positions en direct de la vue 3D ?)	Game cursor not received (live positions from the 3D view?)
+Curseur : arrêté (trop long)	Cursor: stopped (too long)
+Curseur bloqué : bord de la carte du Tingle Tuner (ou la carte n'est pas affichée)	Cursor stuck: edge of the Tingle Tuner map (or the map isn't shown)
+les deux	both
+Émulateur GBA absent de cette version de l'appli	GBA emulator not included in this version of the app
+Pas de cartouche dans la GBA	No cartridge in the GBA
+Le programme ne démarre pas dans l'émulateur	The program won't start in the emulator
+La GBA tourne	The GBA is running
+Émulateur arrêté : ${e.message}	Emulator stopped: ${e.message}
+⛶ Plein écran	⛶ Full screen
+Écran de la GBA ($n)	GBA screen ($n)
+Curseur posé (saut)	Cursor placed (jump)
+Saut coupé (2 échecs) : trajet à la croix	Jump cut (2 failures): path by the D-pad
+Saut pas suivi par le jeu : trajet à la croix	Jump not followed by the game: path by the D-pad
+Démarrage	Startup
+Jeu bonus	Bonus game
+Jeu bonus : chargement	Bonus game: loading
+Jeu bonus : course	Bonus game: race
+Chargement	Loading
+WWII Vehicle (fusée)	WWII Vehicle (rocket)
+À pied	On foot
+Version européenne	European version
+Recherche de la progression dans la mémoire du jeu… (lance ou charge une partie)	Looking for progress in the game's memory… (start or load a game)
+État	Status
+Délit de fuite	Hit and run
+poursuivi par la police !	chased by the police!
+Course à pari	Wager race
+pas gagnée	not won
+Guêpes	Wasps
+Tenues achetées	Outfits bought
+Voitures débloquées	Cars unlocked
+Tous les niveaux	All levels
+missions ${t.faites}/7 · cartes ${t.cartes}/7 · guêpes ${t.guepes}/20	missions ${t.faites}/7 · cards ${t.cartes}/7 · wasps ${t.guepes}/20
+Paper Mario : La Porte Millénaire	Paper Mario: The Thousand-Year Door
+Soleils trouvés	Shine Sprites found
+Éclats d'étoile trouvés	Star Pieces found
+Ennemis analysés (drapeaux)	Enemies tattled (flags)
+Étage le plus profond du Puits	Deepest floor of the Pit
+Piantas (jetons du casino)	Piantas (casino tokens)
+Nuits à l'auberge	Nights at the inn
+Séquence de l'histoire	Story sequence
+Collection (toute la partie)	Collection (whole game)
+Compte tout ce qui a été ramassé, même les soleils et éclats déjà échangés.	Counts everything picked up, even Shine Sprites and Star Pieces already traded.
+Égouts du port	Rogueport Sewers
+Château d'Hooktail	Hooktail Castle
+Le Grand Arbre	The Great Tree
+Sentier du crépuscule	Twilight Trail
+Île de Keelhaul	Keelhaul Key
+Grotte des pirates	Pirate's Grotto
+La Lune	The Moon
+Palais des Ombres	Palace of Shadow
+Puits des 100 épreuves	Pit of 100 Trials
+Salle de jeux des Piantas	Pianta Parlor
+Démonstration	Demo
+Éclair	Thunder Bolt
+Étoile filante	Shooting Star
+Tempête de glace	Ice Storm
+Séisme	Earth Quake
+Cape répulsive	Repel Cape
+Échange	Trade Off
+Champi séché	Dried Shroom
+Sirop d'érable	Maple Syrup
+Gâteau	Cake
+Mystère	Mystery
+Bouquet séché	Dried Bouquet
+Œuf mystique	Mystic Egg
+Feuille dorée	Golden Leaf
+Pâtes fraîches	Fresh Pasta
+Préparation à gâteau	Cake Mix
+Prêle	Horsetail
+Malédiction Koopa	Koopa Curse
+Champi rôti	Shroom Roast
+Champi à l'érable	Maple Shroom
+Champi en gelée	Jelly Shroom
+Super à l'érable	Maple Super
+Super en gelée	Jelly Super
+Ultra à l'érable	Maple Ultra
+Ultra en gelée	Jelly Ultra
+Soupe épicée	Spicy Soup
+Dîner de Zess	Zess Dinner
+Spécial de Zess	Zess Special
+Thé de Zess	Zess Tea
+Glace à l'eau	Icicle Pop
+Frappé de Zess	Zess Frappe
+Lapin des neiges	Snow Bunny
+Gâteau champi	Shroom Cake
+Crêpe champi	Shroom Crepe
+Gâteau mousse	Mousse Cake
+Œuf au plat	Fried Egg
+Œuf bombe	Egg Bomb
+Pâtes à l'encre	Ink Pasta
+Gâteau au chocolat	Choco Cake
+Délice mangue	Mango Delight
+Repas météore	Meteor Meal
+Ragoût d'épreuve	Trial Stew
+Gâteau des amoureux	Couple's Cake
+Sauce à l'encre	Inky Sauce
+Thé Koopa	Koopa Tea
+Koopâtes	Koopasta
+Pâtes épicées	Spicy Pasta
+Gâteau du cœur	Heartful Cake
+Tarte à la pêche	Peach Tart
+Sucette électrique	Electro Pop
+Bonbon en gelée	Jelly Candy
+Saut rétrécissant	Shrink Stomp
+Marteau séisme	Quake Hammer
+Lancer de marteau	Hammer Throw
+Coup perçant	Piercing Blow
+Coup étourdissant	Head Rattle
+Att.+ Déf.-	P-Up, D-Down
+Méga rush	Mega Rush
+Att.- Déf.+	P-Down, D-Up
+Défense +	Defend Plus
+Économie de fleurs	Flower Saver
+Pouvoir glacé	Ice Power
+Bouclier à pics	Spike Shield
+Bien-être	Feeling Fine
+Électrochoc	Zap Tap
+Retour à l'envoyeur	Return Postage
+Cœur joyeux	Happy Heart
+Fleur de pitié	Pity Flower
+Chercheur de cœurs	Heart Finder
+Première attaque	First Attack
+Attaque éclair	Quick Change
+Départ chanceux	Lucky Start
+Emblème L	L Emblem
+Emblème W	W Emblem
+Méga saut	Power Jump
+Méga coup	Power Smash
+Méga séisme	Mega Quake
+Émeraude	Emerald
+Départ chanceux (P)	Lucky Start (P)
+Une partie doit être chargée (pas l'écran titre).	A game must be loaded (not the title screen).
+Version du jeu inconnue	Unknown game version
+Inventaire pas encore trouvé	Inventory not found yet
+Le programme du jeu ne correspond pas à la version européenne connue : rien n'est affiché.	The game's program doesn't match the known European version: nothing is shown.
+Charge une partie : l'appli cherche toute seule où le jeu range l'inventaire (rien n'est affiché tant que ce n'est pas sûr).	Load a game: the app looks by itself for where the game keeps the inventory (nothing is shown until it's sure).
+Pas de partie chargée	No game loaded
+Écran titre ou chargement.	Title screen or loading.
+Débutant	Rookie
+Étoile montante	Rising Star
+Étoile	Star
+Pouvoir étoile	Star Power
+Points étoile (prochain niveau)	Star Points (next level)
+Pouvoirs étoile	Star powers
+Équipe	Team
+Étoiles de cristal	Crystal Stars
+Pièces	Coins
+Éclats d'étoile	Star Pieces
+${tenus.size} / 20 (réserve : ${reserve.size} / 32)	${tenus.size} / 20 (storage: ${reserve.size} / 32)
+${badges.size} (équipés : ${equipes.size})	${badges.size} (equipped: ${equipes.size})
+Record du Puits des 100 épreuves	Pit of 100 Trials record
+étage $record	floor $record
+Objets sur Mario	Items on Mario
+ amélioration(s) (Ultra bottes)	 upgrade(s) (Ultra Boots)
+ amélioration(s) (Ultra marteau)	 upgrade(s) (Ultra Hammer)
+étage $record / 100	floor $record / 100
+pas encore descendu	not gone down yet
+Partenaires à recruter : 	Partners to recruit: 
+En gris : les badges que tu n'as pas encore. 	In grey: the badges you don't have yet. 
+Éclats d'étoile et soleils : seulement ceux en poche (les dépensés ne se voient pas).	Star Pieces and Shine Sprites: only those in your pocket (spent ones don't show).
+Badges équipés	Equipped badges
+Avancée de l'histoire	Story progress
+Temps de jeu (depuis l'allumage, hors menus)	Play time (since power-on, menus excluded)
+Plan de la zone (	Area map (
+Ton chemin sur cette carte (il se dessine en avançant), M : Mario, points jaunes : les personnages	Your path on this map (it draws as you go), M: Mario, yellow dots: the characters
+Mont du Péril	Death Mountain
+Cimetière de Cocorico	Kakariko Graveyard
+Rivière Zora	Zora's River
+Bois Sacré	Sacred Grove
+Abords du Bourg d'Hyrule	Outside Castle Town
+Désert Gerudo	Gerudo Desert
+Source de la Rivière Zora	Upper Zora's River
+Étang de pêche	Fishing Pond
+Village caché	Hidden Village
+Mine des Gorons	Goron Mines
+Tour du Jugement	Arbiter's Grounds
+Temple du Temps	Temple of Time
+Cité Céleste	City in the Sky
+Palais du Crépuscule	Palace of Twilight
+Aérouage	Gale Boomerang
+Bâton Anima	Dominion Rod
+Canne à pêche	Fishing Rod
+Œil de faucon	Hawkeye
+Lait (moitié)	Milk (half)
+Larme de fée	Fairy Tears
+Canne à leurre	Lure Rod
+Flèches-bombes	Bomb Arrows
+Flèches de faucon	Hawkeye Arrows
+Épée de légende	Master Sword
+Épée d'Ordon	Ordon Sword
+Écran titre ou choix du fichier.	Title screen or file select.
+Huile de la lanterne	Lantern oil
+Flèches	Arrows
+Graines du lance-pierre	Slingshot seeds
+Âmes d'Esprits	Poe Souls
+Ombres fusionnées	Fused Shadows
+Éclats du Miroir des Ombres	Mirror of Twilight shards
+Larmes de lumière	Tears of Light
+Poissons pêchés	Fish caught
+Techniques secrètes	Hidden Skills
+ fragments de cœur (5 par cœur)	 heart pieces (5 per heart)
+$bourse rubis : agrandir jusqu'à 1000	$bourse rupees: upgrade up to 1000
+Éclats du Miroir	Mirror shards
+Scarabée	Beetle
+Éphémère	Dayfly
+Insectes dorés	Golden Bugs
+Bourse géante	Giant Wallet
+En gris : les objets et l'équipement pas encore trouvés. 	In grey: items and equipment not found yet. 
+Pas encore lus : poissons à attraper.	Not read yet: fish to catch.
+Pas encore lus : techniques secrètes, poissons à attraper.	Not read yet: hidden skills, fish to catch.
+Clé du boss	Boss Key
+Heure du jeu	Game time
+Temps de jeu (dernière sauvegarde)	Play time (last save)
+cœurs	hearts
+âmes	souls
+Pikmin sur la carte	Pikmin on the map
+Avec Olimar	With Olimar
+Dans les Oignons	In the Onions
+Pièces du vaisseau	Ship parts
+Pikmin nés	Pikmin born
+sur la carte	on the map
+dans les Oignons	in the Onions
+Expédition	Expedition
+Pokos de la grotte en cours	Pokos from the current cave
+Trésors	Treasures
+Dans une grotte · 	In a cave · 
+Créa-Main	Master Hand
+Dé-Main	Crazy Hand
+Dégâts	Damage
+Éjections	KOs
+Pas de combat en ce moment.	No fight right now.
+Menus ou résultats	Menus or results
+Frère Marto	Hammer Bro
+Frère Pyro	Fire Bro
+Frère Boomerang	Boomerang Bro
+Haut de la 	Top of the 
+Bas de la 	Bottom of the 
+Endurance du lanceur	Pitcher stamina
+Vitesse du lancer	Pitch speed
+Type de lancer	Pitch type
+Chargé	Charged
+Étoiles	Stars
+Extérieur	Away
+Extérieur $ext – $dom Domicile	Away $ext – $dom Home
+extérieur	away
+CS : coups sûrs/passages · CC : coups de circuit · PP : points produits · RAP : retraits sur prises	H: hits/walks · HR: home runs · RBI: runs batted in · K: strikeouts
+Pas de match en ce moment.	No match right now.
+Ocarina of Time (émulé)	Ocarina of Time (emulated)
+Bâton Mojo	Deku Stick
+Arc des fées	Fairy Bow
+Flèche de feu	Fire Arrow
+Ocarina des fées	Fairy Ocarina
+Ocarina du Temps	Ocarina of Time
+Flèche de glace	Ice Arrow
+Monocle de Vérité	Lens of Truth
+Masse des Titans	Megaton Hammer
+Flèche de lumière	Light Arrow
+Âme errante	Poe
+Œuf	Egg
+Forêt	Forest
+Lumière	Light
+Menuet des bois	Minuet of Forest
+Boléro du feu	Bolero of Fire
+Sérénade de l'eau	Serenade of Water
+Prélude de la lumière	Prelude of Light
+Chant du soleil	Sun's Song
+Curseur : saut pas prêt	Cursor: jump not ready
+Curseur : hors de la carte, trajet à la croix	Cursor: off the map, path by the D-pad
+Curseur : saut (carte ${cible[0]}, ${cible[1]})	Cursor: jump (map ${cible[0]}, ${cible[1]})
+Chant du temps	Song of Time
+Chant des tempêtes	Song of Storms
+Émeraude Kokiri	Kokiri Emerald
+Recherche dans l'émulateur…	Searching in the emulator…
+Pas encore trouvé	Not found yet
+Plus trouvé (nouvelle partie ?)	Not found anymore (new game?)
+Lance Ocarina of Time et charge une partie, puis touche le bouton : l'appli cherche le jeu dans la mémoire de l'émulateur 	Launch Ocarina of Time and load a game, then tap the button: the app looks for the game in the emulator's memory 
+(jeu en pause quelques dizaines de secondes, une seule fois). Majora's Mask et Zelda NES ne sont pas pris en charge.	(game paused for a few tens of seconds, only once). Majora's Mask and Zelda NES aren't supported.
+Trouver Ocarina of Time dans l'émulateur	Find Ocarina of Time in the emulator
+Âge	Age
+Quarts de cœur	Heart pieces
+Double défense	Double defence
+Oui	Yes
+Non	No
+Médaillons et pierres	Medallions and stones
+Carte Gerudo	Gerudo Card
+Bâtons Mojo	Deku Sticks
+Épée Kokiri	Kokiri Sword
+Épée de Biggoron	Biggoron's Sword
+Bottes des airs	Hover Boots
+Équipement	Equipment
+Mes valeurs (épinglées)	My values (pinned)
+Ajoute d'autres valeurs avec le chercheur de codes : une adresse trouvée > Épingler au compagnon de jeu.	Add more values with the code finder: an address found > Pin to the game companion.
+Mes valeurs épinglées	My pinned values
+étoile	star
+Bloc pièce	Coin block
+Hériss	Spiny
+Rêve des jouets	Toy Dream
+Rêve arc-en-ciel	Rainbow Dream
+Rêve des pirates	Pirate Dream
+Rêve sous-marin	Undersea Dream
+Rêve du futur	Future Dream
+Rêve sucré	Sweet Dream
+très difficile	very hard
+Mini-jeu bonus	Bonus mini-game
+Mini-jeu bonus (2 contre 2)	Bonus mini-game (2 vs 2)
+Les parties finies avec le compagnon ouvert apparaîtront ici (classement, étoiles bonus, pièces tour par tour).	Games finished with the companion open will show here (ranking, bonus stars, coins turn by turn).
+Dernière partie · 	Last game · 
+Pas de partie en cours.	No game in progress.
+aucune	none
+Pièces gagnées aux mini-jeux	Coins won in mini-games
+Pièces ramassées en tout	Coins picked up in total
+Pièces gagnées en duel / combat	Coins won in duels / battles
+Record de pièces / d'étoiles	Coin / star record
+Cases étoile	Star spaces
+Dernier mini-jeu	Last mini-game
+Menus ou mini-jeux libres	Menus or free play mini-games
+Pas de partie sur un plateau en ce moment.	No board game right now.
+À qui de jouer	Whose turn
+Mini-jeu	Mini-game
+$banque pièces	$banque coins
+Par équipes	Teams
+Oui (les 5 derniers)	Yes (last 5)
+Capsules posées sur le plateau	Capsules placed on the board
+Meilleur aux mini-jeux	Best at mini-games
+Les étoiles bonus sont comptées à partir du moment où la fin de partie commence (elles arrivent pendant les résultats).	Bonus stars are counted from the moment the end of the game starts (they come during the results).
+Pièces tour par tour	Coins turn by turn
+Depuis le tour $debut (l'écran a été ouvert en cours de partie).	Since turn $debut (the screen was opened mid-game).
+⭐ ${j.nom} est à $d cases de l'étoile	⭐ ${j.nom} is $d spaces from the star
+Cases : bleue, rouge, verte (?), jaune (étoile, entourée là où elle est), orange (VS), brune (DK), rouge foncé (Bowser) ; 	Spaces: blue, red, green (?), yellow (star, circled where it is), orange (VS), brown (DK), dark red (Bowser); 
+petit carré blanc : une capsule posée ; petits points gris : passages.	small white square: a placed capsule; small grey dots: paths.
+Lecture des cases du plateau…	Reading the board spaces…
+Historique des tours	Turn history
+Pièces et étoiles gagnées ou perdues à chaque tour (depuis que l'écran est ouvert).	Coins and stars won or lost each turn (since the screen was opened).
+Tour $tour sur $tours	Turn $tour of $tours
+ · étoile en case n° 	 · star on space # 
+Recherche dans la mémoire…	Searching memory…
+Plus trouvé (autre partie ?)	Not found anymore (another game?)
+Charge ta partie et joue quelques secondes, puis touche le bouton : l'appli cherche la partie en cours dans la mémoire 	Load your game and play a few seconds, then tap the button: the app looks for the current game in memory 
+(jeu en pause une trentaine de secondes, une seule fois). Recommence si tu changes de fichier de sauvegarde.	(game paused about thirty seconds, only once). Do it again if you change save file.
+Trouver ma partie dans la mémoire	Find my game in memory
+ (en jeu)	 (in game)
+Énergie de Tricky	Tricky's energy
+Fichier	File
+ · fichier $nom	 · file $nom
+Plusieurs endroits possibles : joue quelques secondes, l'appli garde celui dont le temps avance.	Several possible places: play a few seconds, the app keeps the one whose time moves.
+Air Ride : résultats	Air Ride: results
+Top Ride : résultats	Top Ride: results
+City Trial : résultats	City Trial: results
+Écran	Screen
+ · défis restants (	 · challenges left (
+Les 40 premiers (sur ${manq.size}).	The first 40 (of ${manq.size}).
+Liste complète !	Full list!
+Cases à cocher : 	Boxes to check: 
+ (numérotées dans l'ordre de la sauvegarde, ligne par ligne)	 (numbered in save order, row by row)
+Liste de défis	Challenge list
+Tout est coché !	Everything is checked!
+$total cases cochées sur 360	$total boxes checked of 360
+La Bamba	La Bamba
+Thème de DK2	DK2 theme
+Pas de morceau en cours	No song playing
+La fiche se remplit pendant un morceau (menus et mini-jeux : rien à lire pour l'instant).	The sheet fills in during a song (menus and mini-games: nothing to read for now).
+Morceau	Track
+Compteurs du juge (à identifier)	Judge counters (to identify)
+Le score, le combo et les pièces ne sont pas encore repérés. Fais une capture de cet écran ET une photo du jeu au même moment (en pause, après un peu de jeu) : je saurai lequel est lequel.	The score, combo and coins aren't located yet. Take a screenshot of this screen AND a photo of the game at the same moment (paused, after playing a bit): I'll know which is which.
+Morceau $no · $nom	Song $no · $nom
+Morceau en cours	Current song
+morceau	track
+Ton chemin ici (il se dessine en avançant), $lettre : ta position.	Your path here (it draws as you go), $lettre: your position.
+Frégate Orpheon	Frigate Orpheon
+Cratère d'impact	Impact Crater
+Cinématique de fin	Ending cutscene
+Combinaison gravité	Gravity Suit
+Fusion gravité	Gravity fusion
+Viseur à rayons X	X-Ray Visor
+Accélérateur	Boost Ball
+Boule araignée	Spider Ball
+Vérité	Truth
+Nouveau-né	Newborn
+Pas de partie	No game
+Énergie	Energy
+ (réservoirs 	 (tanks 
+Évacuation	Escape
+Réservoirs d'énergie	Energy Tanks
+Plan de la salle	Room map
+Région	Region
+énergie	energy
+Rayon des ténèbres	Dark Beam
+Rayon de lumière	Light Beam
+Écho	Echo
+Ténèbres	Dark
+Combinaison des ténèbres	Dark Suit
+Combinaison de lumière	Light Suit
+Viseur des ténèbres	Dark Visor
+Viseur écho	Echo Visor
+Traducteur émeraude	Emerald Translator
+Module de transfert d'énergie	Energy Transfer Module
+Munitions des ténèbres	Dark ammo
+Munitions de lumière	Light ammo
+Clés	Keys
+Clés du Temple céleste	Sky Temple Keys
+Clés de $n	$n keys
+Aether des ténèbres	Dark Aether
+Chao caché	Hidden Chao
+Contre la montre	Time attack
+Choix du niveau	Level select
+Histoire des héros	Hero story
+Dernière histoire	Last story
+Boss (héros)	Boss (hero)
+Tous les boss	All bosses
+Vie du rival / boss	Rival / boss health
+Vie du robot	Robot health
+Héros	Hero
+terminée	finished
+Emblèmes	Emblems
+Missions réussies	Missions completed
+Anneaux ramassés en tout	Rings collected in total
+Plan du niveau	Level map
+Améliorations	Upgrades
+Les 5 missions de chaque niveau (– : pas encore réussie).	The 5 missions of each level (–: not completed yet).
+emblèmes	emblems
+Le passé	The past
+Plan du lieu	Place map
+Collection (fichier ${fichier + 1})	Collection (file ${fichier + 1})
+Personnages débloqués	Characters unlocked
+Démo	Demo
+Invulnérable	Invulnerable
+Faible gravité	Low gravity
+\$ pour Merlin	\$ for Merlin
+Œufs dorés	Golden eggs
+fermé	closed
+Codes débloqués	Codes unlocked
+Arènes de bataille	Battle arenas
+Arène 5	Arena 5
+Arène 8	Arena 8
+Le circuit en 3D : installe le pack Mario Kart (fiche du jeu).	The track in 3D: install the Mario Kart pack (game page).
+Point rouge : toi · les autres karts aux couleurs de leur pilote · boîtes arc-en-ciel : boîtes à objets.	Red dot: you · the other karts in their driver's colours · rainbow boxes: item boxes.
+Installé : $total circuit(s), ci-dessous et dans le compagnon de jeu (en course).	Installed: $total track(s), below and in the game companion (while racing).
+Pas de circuit dans ce(s) fichier(s).	No track in these file(s).
+Chaque circuit en 3D avec ses textures, ses boîtes à objets et la ligne de départ. En course, le compagnon de jeu montre les karts dessus.	Each track in 3D with its textures, item boxes and starting line. While racing, the game companion shows the karts on it.
+Aucun circuit installé.	No track installed.
+Installer / mettre à jour des packs Mario Kart (.zip)	Install / update Mario Kart packs (.zip)
+Micro branché : on attend Pulse (slot B)	Microphone connected: waiting for Pulse (slot B)
+Micro débranché	Microphone disconnected
+Micro du téléphone indisponible (autorisation ? autre appli ?)	Phone microphone unavailable (permission? another app?)
+Pulse répond (slot B)	Pulse is responding (slot B)
+Le jeu allume le micro : ${hz(x[0])} Hz, paquets de ${paquet(x[0])} octets	The game turns the mic on: ${hz(x[0])} Hz, packets of ${paquet(x[0])} bytes
+Le jeu éteint le micro	The game turns the mic off
+Erreur : ${e.message}	Error: ${e.message}
+micro pas branché dans l'appli	mic not connected in the app
+l'appli n'est pas reliée à la console	the app isn't linked to the console
+aucune réponse de la console : jeu pas lancé par Pulse, ou console d'avant le build 875 avec le réglage « Micro du téléphone » sur Non, ou téléphone pas sur le même Wi-Fi	no answer from the console: game not launched by Pulse, or console older than build 875 with the "Phone microphone" setting on No, or phone not on the same Wi-Fi
+le réglage « Micro du téléphone (slot B) » est sur Non dans GC Station : le mettre sur Oui et relancer le jeu	the "Phone microphone (slot B)" setting is No in GC Station: set it to Yes and relaunch the game
+le micro est activé mais le slot B n'est pas devenu le micro (relancer le jeu par Pulse)	the mic is on but slot B didn't become the mic (relaunch the game through Pulse)
+le jeu n'a jamais touché le slot B par Pulse (ses accès ne sont pas aiguillés : à me signaler)	the game never touched slot B through Pulse (its accesses aren't routed: tell me)
+le jeu touche le slot B mais n'a pas encore lu l'identifiant du micro (aller dans un menu ou un mini-jeu à micro)	the game touches slot B but hasn't read the mic's ID yet (go to a menu or a mic mini-game)
+le jeu a allumé le micro $nAllume fois puis l'a éteint sans lire de son (paquets pas arrivés à temps)	the game turned the mic on $nAllume times then off without reading sound (packets didn't arrive in time)
+le jeu a allumé le micro $nAllume fois et lu du son ; il est éteint pour l'instant	the game turned the mic on $nAllume times and read sound; it's off for now
+le jeu a vu le micro mais ne l'a pas allumé (lancer un mini-jeu à micro)	the game saw the mic but didn't turn it on (start a mic mini-game)
+micro allumé par le jeu mais aucun son du téléphone n'arrive à la console	mic turned on by the game but no phone sound reaches the console
+le son arrive trop lentement (beaucoup d'octets sans son) : Wi-Fi lent ?	sound arrives too slowly (many bytes without sound): slow Wi-Fi?
+le jeu reçoit le son du téléphone	the game is receiving the phone's sound
+Micro du téléphone	Phone microphone
+Slot B · jeux à micro · essai	Slot B · mic games · experimental
+Branché	Connected
+Débranché	Disconnected
+Pour les jeux à micro (Mario Party 6 et 7…). Dans les réglages de GC Station : « Micro du téléphone (slot B) » sur Oui, puis lancer le jeu par Pulse. Garde l'appli ouverte pendant la partie.	For mic games (Mario Party 6 and 7…). In GC Station settings: "Phone microphone (slot B)" on Yes, then launch the game through Pulse. Keep the app open during the game.
+Débrancher le micro	Disconnect the mic
+Brancher le micro	Connect the mic
+Sans l'autorisation du micro, l'appli ne peut pas l'utiliser (Réglages Android > Applis > GC Remote > Autorisations).	Without microphone permission, the app can't use it (Android Settings > Apps > GC Remote > Permissions).
+pas de réponse (réglage activé ? jeu lancé par Pulse ?)	no answer (setting on? game launched by Pulse?)
+ · micro du jeu : 	 · game mic: 
+allumé (${MicTel.hz(e.mstat)} Hz)	on (${MicTel.hz(e.mstat)} Hz)
+Octets : inversés	Bytes: swapped
+Détails techniques	Technical details
+Le jeu : ${e.ncmd} commandes · ${e.nirq} paquets annoncés · ${e.nrd / 1024} Ko lus · retard ${e.nlow} octets	The game: ${e.ncmd} commands · ${e.nirq} packets announced · ${e.nrd / 1024} KB read · delay ${e.nlow} bytes
+Rapport du micro	Microphone report
+Le Concile des Fées	The Fairy Council
+La Forêt de Claire-Feuille	Clearleaf Forest
+Les Marais Crapoteux	The Bog of Murfy
+La Lande aux Esprits Frappés	The Land of the Livid Dead
+Le Désert des Knaarens	The Desert of the Knaaren
+Le Grand Raccourci	The Longest Shortcut
+Le Sommet d'Outre-Nuées	The Summit Beyond the Clouds
+Le Quartier Général Hoodlums	The Hoodlum Headquarters
+La Tour du Leptys	The Tower of the Leptys
+Pas de réponse : GC Station à l'écran (hors partie), carte branchée ?	No answer: GC Station on screen (outside a game), card plugged in?
+Ce n'est pas une sauvegarde de Rayman 3 GameCube	This isn't a Rayman 3 GameCube save
+Aucune partie dans cette sauvegarde	No game in this save
+Lu depuis le téléphone	Read from the phone
+Installé : $total niveau(x)	Installed: $total level(s)
+, dans la liste ci-dessus et dans le compagnon de jeu.	, in the list above and in the game companion.
+Pas de carte dans ce(s) fichier(s).	No map in these file(s).
+ $rates fichier(s) sans carte ignoré(s).	 $rates file(s) without a map ignored.
+Lecture de la carte du slot $slot…	Reading the slot $slot card…
+Pas de sauvegarde Rayman 3 sur la carte du slot $slot	No Rayman 3 save on the slot $slot card
+Lu sur la carte du slot $slot	Read from the slot $slot card
+Installer / mettre à jour des packs de cartes (.zip, plusieurs possibles)	Install / update map packs (.zip, several allowed)
+Jeu fini	Game finished
+ · tampon à 	 · stamp at 
+ : le tampon	 : the stamp
+Tout est fait : 60 cages et 9 tampons !	All done: 60 cages and 9 stamps!
+ · mini-jeux débloqués : 	 · mini-games unlocked: 
+Le niveau en 3D	The level in 3D
+Rayman bouge comme dans le jeu (pack des cartes à jour). Un doigt : tourner autour de Rayman · deux doigts : zoom · double toucher : revenir derrière la caméra du jeu.	Rayman moves like in the game (map pack up to date). One finger: orbit around Rayman · two fingers: zoom · double tap: back behind the game camera.
+Plan du niveau ($niv)	Level map ($niv)
+Ton chemin dans ce niveau (il se dessine en avançant), R : Rayman, c : la caméra. Vu de dessus.	Your path in this level (it draws as you go), R: Rayman, c: the camera. Seen from above.
+ Carte du niveau : installe le pack de cartes (Plus > Rayman 3).	 Level map: install the map pack (More > Rayman 3).
+Cages, tampons et scores monde par monde : Plus > Rayman 3 (lus dans ta sauvegarde).	Cages, stamps and scores world by world: More > Rayman 3 (read from your save).
+Cartes installées (	Installed maps (
+Aucune : installe un pack de cartes (.zip) avec le bouton plus bas.	None: install a map pack (.zip) with the button below.
+niveau ${k + 1} sur ${ordre.size} · $n	level ${k + 1} of ${ordre.size} · $n
+GBA branchée : on attend Pulse (port choisi dans GC Station)	GBA connected: waiting for Pulse (port chosen in GC Station)
+GBA allumée sur la cartouche	GBA powered on with the cartridge
+Recommencer demandé	Restart requested
+Réseau indisponible : ${e.message}	Network unavailable: ${e.message}
+Arrêt : ${e.message}	Stopped: ${e.message}
+Nouvelle remise à zéro par le jeu	New reset by the game
+Pulse : en attente du jeu	Pulse: waiting for the game
+Le jeu a lu la clé de session	The game read the session key
+Le jeu envoie son programme (${gl / 1024} Ko)	The game is sending its program (${gl / 1024} KB)
+Programme reçu par Pulse	Program received by Pulse
+Programme lancé : relais	Program started: relay
+État $st	State $st
+Programme lancé dans l'émulateur GBA	Program started in the GBA emulator
+Taille annoncée impossible : $gl	Impossible announced size: $gl
+Programme déchiffré : $programme	Program decrypted: $programme
+Déchiffrement impossible : ${e.message}	Can't decrypt: ${e.message}
+Branchée	Connected
+Débranchée	Disconnected
+GBA du téléphone · port 2 · essai	Phone GBA · port 2 · experimental
+Câble GameCube–GBA par le réseau · essai	GameCube–GBA cable over the network · experimental
+Dans les réglages de GC Station : « GBA du téléphone » sur Port 2, puis lancer Wind Waker par Pulse. 	In GC Station settings: "Phone GBA" on Port 2, then launch Wind Waker through Pulse. 
+Brancher ici la GBA avant d'utiliser le Tingle Tuner dans le jeu.	Connect the GBA here before using the Tingle Tuner in the game.
+Dans les réglages de GC Station : « GBA du téléphone » sur le port voulu (Rayman 3, Pac-Man Vs. : port 2 ; Four Swords seul : port 1), 	In GC Station settings: "Phone GBA" on the port you want (Rayman 3, Pac-Man Vs.: port 2; Four Swords alone: port 1), 
+puis lancer le jeu par Pulse. Brancher ici la GBA, puis choisir dans le jeu le mode avec GBA : son programme tourne ici.	then launch the game through Pulse. Connect the GBA here, then choose the GBA mode in the game: its program runs here.
+Émulateur GBA : mGBA 0.10.5 (Jeffrey Pfau et contributeurs), licence Mozilla Public License 2.0. Code source : github.com/mgba-emu/mgba (fichiers repris tels quels). Aucun BIOS ni jeu fourni.	GBA emulator: mGBA 0.10.5 (Jeffrey Pfau and contributors), Mozilla Public License 2.0. Source code: github.com/mgba-emu/mgba (files used as is). No BIOS or game provided.
+Émulateur mGBA · licence	mGBA emulator · licence
+Débrancher	Disconnect
+Brancher la GBA	Connect the GBA
+⏻ Allumer la GBA (cartouche)	⏻ Power on the GBA (cartridge)
+Pokémon Colosseum / XD : touche ce bouton quand le jeu affiche « turn on the power ». Le jeu de la cartouche écoute le câble pendant l'écran du copyright, juste après l'allumage.	Pokémon Colosseum / XD: tap this button when the game shows "turn on the power". The cartridge game listens to the cable during the copyright screen, right after power-on.
+⏻ Éteindre et rallumer	⏻ Power off and on again
+en attente du jeu	waiting for the game
+clé de session lue par le jeu	session key read by the game
+le jeu envoie son programme	the game is sending its program
+programme reçu	program received
+relais (GBA sur la cartouche)	relay (GBA on the cartridge)
+programme lancé (relais)	program started (relay)
+Programme du jeu : $it	Game program: $it
+Recherche du curseur…	Looking for the cursor…
+Chercher le curseur (écran de la carte)	Find the cursor (map screen)
+Curseur dans le jeu (vue 3D) : %.0f, %.0f	Cursor in the game (3D view): %.0f, %.0f
+Curseur posé sur Link : noter ce repère (${GbaEmu.nReperes})	Cursor placed on Link: record this landmark (${GbaEmu.nReperes})
+Relancer la GBA	Restart the GBA
+Commandes du jeu : état ${e.n00} · lectures ${e.n14} · écritures ${e.n15}	Game commands: state ${e.n00} · reads ${e.n14} · writes ${e.n15}
+ · mots du jeu ${GbaEmu.nRecus} · de la GBA ${GbaEmu.nEnvoyes}	 · game words ${GbaEmu.nRecus} · from the GBA ${GbaEmu.nEnvoyes}
+Touche le sol (ou la mer)	Tap the ground (or the sea)
+Touche un endroit : le curseur de Tingle y va	Tap a spot: Tingle's cursor goes there
+Visite · 1 doigt : regarder · 2 doigts : écarter pour avancer, glisser pour se décaler, monter, descendre · + / − : avancer, reculer	Tour · 1 finger: look · 2 fingers: spread to move forward, slide to strafe, go up, go down · + / −: forward, back
+1 doigt : tourner · 2 doigts : déplacer, zoomer, pivoter · toucher un objet : y aller · double toucher : zoom	1 finger: rotate · 2 fingers: move, zoom, rotate · tap an object: go there · double tap: zoom
+Chargement du lieu…	Loading the place…
+tour préc. 	prev. lap 
+Journal de bug enregistré (Téléchargements/GC Remote)	Bug log saved (Downloads/GC Remote)
+Envoyer le journal de bug	Send the bug log
+Cage $n sur ${meme.size}	Cage $n of ${meme.size}
+P'tit être $n sur ${meme.size}	Teensie $n of ${meme.size}
+Boîte à objets $n sur ${meme.size}	Item box $n of ${meme.size}
+Ligne de départ	Starting line
+Coffre $n sur ${meme.size}	Chest $n of ${meme.size}
+Réceptacle de cœur	Heart Container
+Quart de cœur	Piece of Heart
+ : hélico	 : helicopter
+🎮 Vue du jeu	🎮 Game view
+P'tit être	Teensie
+P'tits êtres	Teensies
+Boîtes à objets	Item boxes
+Départ	Start
+Lande : le jeu range ses p'tits êtres en cage comme les autres fantômes ; ils sont tous montrés.	Moor: the game keeps its caged Teensies like the other ghosts; they're all shown.
+Léger	Light
+Détaillé	Detailed
+Optimisé	Optimised
+Coupé : la vue 3D est en pause et ne demande plus rien à la console.	Off: the 3D view is paused and no longer asks the console for anything.
+Temps pris au jeu : %.1f ms par image (pire %.1f ms	Time taken from the game: %.1f ms per frame (worst %.1f ms
+ ; avec le reste %.1f ms	 ; with the rest %.1f ms
+ · envoi %.1f ms, attente du câble %.1f ms	 · sending %.1f ms, waiting for the cable %.1f ms
+Passer en Léger	Switch to Light
+📶 La connexion va mieux.	📶 The connection is better.
+GC Remote : rapport du direct	GC Remote: live report
+Ce que la console envoie ▲	What the console sends ▲
+Ce que la console envoie ▼	What the console sends ▼
+Mode du direct	Live mode
+ (retenu pour ce jeu)	 (kept for this game)
+Classique : tout est envoyé à chaque image, avec plus d'objets et de plus loin (18 objets, articulations jusqu'à 18 m, équipement de Link articulé). Fluide sur le téléphone, plus lourd pour le jeu.	Classic: everything is sent every frame, with more objects from farther away (18 objects, joints up to 18 m, Link's equipment jointed). Smooth on the phone, heavier for the game.
+Léger : le jeu est le moins dérangé. Une image sur quatre, seulement les 4 objets les plus proches, sans voile, vagues ni équipement. La vue 3D est moins fluide.	Light: the game is disturbed the least. One frame in four, only the 4 nearest objects, no sail, waves or equipment. The 3D view is less smooth.
+Détaillé : la vue 3D avant tout. Jusqu'à 28 objets (40 avec la console 911), articulations jusqu'à 30 m (40 m), équipement de Link, plus d'effets (bombes, projectiles). Pulse reste dans ses limites (le jeu ne plante pas).	Detailed: the 3D view first. Up to 28 objects (40 with console 911), joints up to 30 m (40 m), Link's equipment, more effects (bombs, projectiles). Pulse stays within its limits (the game doesn't crash).
+Optimisé (conseillé) : Link, son équipement, la caméra, le bateau et la voile à chaque image ; les objets une fois sur deux.	Optimised (recommended): Link, his equipment, the camera, the boat and the sail every frame; objects every other frame.
+⚠ Peut ralentir le jeu : il peut saccader un peu.	⚠ May slow the game down: it may stutter a little.
+ Mesure avec le « Rapport du direct ».	 Measure with the "Live report".
+Objets et personnages animés	Animated objects and characters
+Équipement de Link (épée, bouclier, masque…)	Link's equipment (sword, shield, mask…)
+La voile du bateau	The boat's sail
+Le bateau sur les vagues	The boat on the waves
+Objets : un envoi sur deux (moins de temps pris au jeu)	Objects: every other send (less time taken from the game)
+Pilotes des autres karts animés	Other karts' drivers animated
+Le Chomp	The Chomp
+Caméra du jeu (Vue du jeu)	Game camera (Game view)
+Coupé : la vue 3D garde la dernière position reçue (sans mouvement) ; le temps pris au jeu baisse.	Off: the 3D view keeps the last position received (no movement); time taken from the game goes down.
+Île du Vent	Gale Isle
+Île aux Trois Tours	Seven-Star Isles
+Île Geminée	Mother & Child Isles
+Canonnière	Islet of Steel
+Île de Qui-ça	Private Oasis
+Caverne du Dragon — boss	Dragon Roost Cavern — boss
+Bois Défendus — mini-boss	Forbidden Woods — mini-boss
+Bois Défendus — boss	Forbidden Woods — boss
+Tour des Dieux — mini-boss	Tower of the Gods — mini-boss
+Tour des Dieux — boss	Tower of the Gods — boss
+Temple de la Terre — mini-boss	Earth Temple — mini-boss
+Temple de la Terre — boss	Earth Temple — boss
+Temple du Vent — mini-boss	Wind Temple — mini-boss
+Temple du Vent — boss	Wind Temple — boss
+Château de Ganon	Ganon's Castle
+Château de Ganon — A	Ganon's Castle — A
+Château de Ganon — B	Ganon's Castle — B
+Château de Ganon — C	Ganon's Castle — C
+Château de Ganon — D	Ganon's Castle — D
+Château de Ganon — E	Ganon's Castle — E
+Château de Ganon — J	Ganon's Castle — J
+Château de Ganon — K	Ganon's Castle — K
+Château de Ganon — L	Ganon's Castle — L
+Château de Ganon — M	Ganon's Castle — M
+Château de Ganon — N	Ganon's Castle — N
+Retour des boss — 1	Boss rematch — 1
+Retour des boss — 2	Boss rematch — 2
+Retour des boss — 3	Boss rematch — 3
+Retour des boss — 4	Boss rematch — 4
+Château d'Hyrule — intérieur	Hyrule Castle — interior
+Salle de l'Épée	Master Sword chamber
+Maisons et intérieurs	Houses and interiors
+Île aux Forêts — intérieur	Forest Haven — interior
+Vaisseau Fantôme	Ghost Ship
+La Grande Mer (vue d'ensemble)	The Great Sea (overview)
+La Grande Mer — écran titre	The Great Sea — title screen
+La Grande Mer — fin du jeu	The Great Sea — ending
+Autres lieux (nom du jeu)	Other places (game name)
+La Grande Mer	The Great Sea
+Le lieu en 3D : installe le pack Wind Waker (fiche du jeu).	The place in 3D: install the Wind Waker pack (game page).
+Link en 3D (pack Wind Waker) · carrés dorés : coffres.	Link in 3D (Wind Waker pack) · gold squares: chests.
+Installé : $total lieu(x), ci-dessous et dans le compagnon de jeu.	Installed: $total place(s), below and in the game companion.
+Pas de lieu dans ce(s) fichier(s).	No place in these file(s).
+Chaque lieu du jeu en 3D avec ses textures et ses coffres : les îles de la Grande Mer, les donjons, les maisons. En jeu, le compagnon montre Link dessus.	Each place in the game in 3D with its textures and chests: the islands of the Great Sea, the dungeons, the houses. In game, the companion shows Link on it.
+Aucun lieu installé.	No place installed.
+Installer / mettre à jour des packs Wind Waker (.zip)	Install / update Wind Waker packs (.zip)
+Connexion à la console…	Connecting to the console…
+RetroAchievements : partie en cours	RetroAchievements: game in progress
+Sauvegarde instantanée (Switch)	Save state (Switch)
+Emplacement	Slot
+Sauver	Save
+Reprendre	Load
+Reprendre l'emplacement	Load slot
+La partie revient au moment de cette sauvegarde : ce qui s'est passé depuis est perdu.	The game goes back to the moment of this save: anything since then is lost.
+Pas en mode hardcore	Not in hardcore mode
+Le moteur ne répond pas	The engine isn't responding
+Cette sauvegarde est d'un autre jeu	This save is from another game
+La sauvegarde n'a pas pu être écrite	The save couldn't be written
+Pas de réponse du moteur	No answer from the engine
+Reprendre une sauvegarde instantanée	Loading a save state

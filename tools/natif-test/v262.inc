@@ -1,6 +1,15 @@
 /* bouchons du banc : ce que natif.c prend a main.c / tab_phone.c depuis v239 et v262 (carte par jeu, JSON du dernier lancement) */
 #include <ctype.h>
 static int nat_card_game = 0;
+static int nat_xv = 1;                                   /* (v437 : lecture par interruptions ; v461 : reglage remis) */
+static int nat_fx = 0;                                   /* (v512 : patchs de secours, jeux_cfg.c) */
+#define NFX_COMPACT 2
+#define NFX_NOLOG 4
+#define NFX_SELF 8
+#define NFX_SYNC 16
+#define NFX_DIAG 32
+static int nat_jcomplet = 0;                             /* (v467 : journal complet) */
+static int sdx_used = 0, sdx_frq[2], sdx_sfrq[2], sdx_wbad = 0, sdx_wfrq[2], sdx_nc[2], sdx_crcon[2];                     /* (v471 : pilote SD des slots, sd_slot.c) */
 typedef struct { char *b; int n, cap; } sbuf_t;
 static void sb_add(sbuf_t *s, const char *t) {
     int l = (int)strlen(t);
@@ -18,6 +27,7 @@ static int net_ok = 0, nat_padtel = 0;
 static char ip_str[16] = "", mask_str[16] = "", gw_str[16] = "";
 /* v306 : chercheur de codes (main.c) ; v278 : test des touches (selftest_keys.c) */
 static int nat_memtel = 0;
+static int nat_pmode = 0;                                /* (v503 : mode de Pulse) */
 static int nat_gbatel = 0;                               /* (v331 : GBA du telephone) */
 static int nat_gbaport = 2;                              /* (v334 : son port) */
 static int nat_mictel = 0;                               /* (v332 : micro du telephone) */

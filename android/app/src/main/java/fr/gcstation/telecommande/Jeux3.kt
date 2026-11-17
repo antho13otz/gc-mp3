@@ -427,20 +427,64 @@ object JeuKAR : ModuleJeu("Kirby Air Ride", "GKYP01") {
     private const val BASE = 0x80529080L
     private val MODES = arrayOf("Air Ride", "Top Ride", "City Trial")
     private val COUL = longArrayOf(0xFFFF8AC8, 0xFFFFD54A, 0xFF5FD3FF)
+    // appli 574 : la course en direct (notes de code publiques de RetroAchievements ; adresses PAL, americain : + 0xD6C0)
+    private val COURSES = arrayOf("Fantasy Meadows", "Magma Flows", "Sky Sands", "Frozen Hillside", "Beanstalk Park", "Celestial Valley",
+        "Machine Passage", "Checker Knights", "Nebula Belt", "City Trial")
+    private val MACHINES = arrayOf("Warp Star", "Compact Star", "Winged Star", "Shadow Star", "Hydra", "Bulk Star", "Slick Star", "Formula Star",
+        "Dragoon", "Wagon Star", "Rocket Star", "Swerve Star", "Turbo Star", "Jet Star", "Flight Warp Star")
+    private val ETATS = mapOf(0x12 to "En course", 0x13 to "Top Ride : course", 0x0B to "Air Ride : résultats", 0x0C to "Top Ride : résultats",
+        0x0D to "City Trial : résultats", 0x10 to "City Trial : statistiques", 0x11 to "City Trial : stade", 0x02 to "Menu principal", 0x00 to "Écran titre")
+    private val COUL_J = longArrayOf(0xFFFF8AC8, 0xFFFFD54A, 0xFF5FD3FF, 0xFFFF5A3C)
+
+    private fun nomCourse(c: Int): String = when (c) {
+        in 0..9 -> COURSES[c]
+        in 0x0A..0x0D -> "Drag Race " + (c - 9)
+        0x0E -> "Air Glider"; 0x0F -> "Target Flight"; 0x10 -> "High Jump"; 0x11, 0x12 -> "Kirby Melee " + (c - 0x10)
+        in 0x13..0x17 -> "Destruction Derby " + (c - 0x12)
+        in 0x18..0x20 -> "Single Race · " + COURSES[c - 0x18]
+        0x21 -> "Vs. King Dedede"
+        in 0x22..0x2A -> COURSES[c - 0x22] + " · Time Attack"
+        in 0x2B..0x34 -> COURSES[c - 0x2B] + " · Free Run"
+        else -> ""
+    }
 
     override fun lire(l: Lecteur, id: String): Fiche? {
-        val listes = (0 until 3).map { m -> l.plage(BASE + 0x118L * m + 0x7C, 120) ?: return null }
-        if (listes.any { d -> d.any { it !in 0..0xFF } }) return null
-        val coches = listes.map { d -> d.count { it and 1 != 0 } }
+        val dd = if (id == "GKYE01") 0xD6C0L else 0L
+        val listes = (0 until 3).map { m -> l.plage(BASE + dd + 0x118L * m + 0x7C, 120) ?: return null }
+        val masque = 0x07                  // (appli 574 : bits 0 a 2 : fait, rempli, reussi)
+        val coches = listes.map { d -> d.count { it and masque != 0 } }
         val total = coches.sum()
         val blocs = ArrayList<Bloc>()
+        // la course en cours
+        val etat = l.u8(0x80528AEFL + dd) ?: 0
+        if (etat == 0x12 || etat in 0x0B..0x0D) {
+            val c = l.u8(0x80528DAFL + dd) ?: 0xFF
+            val tours = l.u8(0x80528DB2L + dd) ?: 0
+            val sec = l.s32(0x80528B4CL + dd)?.takeIf { it in 0..99999 } ?: 0; val fr = (l.u8(0x80528B4BL + dd) ?: 0).coerceIn(0, 59)
+            val lignes = arrayListOf(Ligne("Circuit", nomCourse(c).ifEmpty { "–" }),
+                Ligne("Chrono", String.format(java.util.Locale.FRANCE, "%d:%02d.%02d", sec / 60, sec % 60, fr * 100 / 60)))
+            for (k in 0 until 4) {
+                if ((l.u8(0x80528467L + dd + k) ?: 3) == 3) continue                        // (ne joue pas)
+                val tour = (l.s32(0x80528B80L + dd + 4L * k) ?: -1) + 1
+                val vit = l.fini(l.f32(0x80528BBCL + dd + 4L * k), 1000f) ?: 0f
+                val mach = MACHINES.getOrElse(l.u8(0x80528DE3L + dd + 0x30L * k) ?: 99) { "–" }
+                val fini = (l.u8(0x80528B6AL + dd + k) ?: 0) == 1
+                lignes.add(Ligne("J" + (k + 1) + " · " + mach, (if (fini) "arrivé" else if (tours > 0) "tour ${tour.coerceIn(0, tours)} / $tours" else "") +
+                    " · vitesse " + String.format(java.util.Locale.FRANCE, "%.1f", vit), -1f, COUL_J[k]))
+            }
+            blocs.add(Bloc(ETATS[etat] ?: "Course", lignes))
+        } else ETATS[etat]?.let { blocs.add(Bloc("En ce moment", listOf(Ligne("Écran", it)))) }
         blocs.add(Bloc("Pour finir à 100 %", lignes = (0 until 3).map { m ->
             Ligne(MODES[m], coches[m].toString() + " / 120", pct(coches[m], 120), COUL[m]) } +
             Ligne("Total", "$total / 360", pct(total, 360), 0xFF3DDC84)))
         for (m in 0 until 3) {
-            val manq = (0 until 120).filter { listes[m][it] and 1 == 0 }
-            blocs.add(Bloc(MODES[m] + " · " + coches[m] + " / 120",
-                pastilles = (0 until 120).map { (it + 1).toString() to (listes[m][it] and 1 != 0) },
+            val manq = (0 until 120).filter { listes[m][it] and masque == 0 }
+            if (manq.isNotEmpty()) {
+                blocs.add(Bloc(MODES[m] + " · défis restants (" + manq.size + ")",
+                    lignes = manq.take(40).map { k -> Ligne("Case " + (k + 1), KirbyDefis.NOMS[m][k].ifEmpty { "–" }) },
+                    texte = if (manq.size > 40) "Les 40 premiers (sur ${manq.size})." else ""))
+            } else blocs.add(Bloc(MODES[m] + " · " + coches[m] + " / 120",
+                pastilles = (0 until 120).map { (it + 1).toString() to (listes[m][it] and masque != 0) },
                 texte = if (manq.isEmpty()) "Liste complète !" else "Cases à cocher : " + manq.size +
                     " (numérotées dans l'ordre de la sauvegarde, ligne par ligne)"))
         }

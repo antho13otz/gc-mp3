@@ -53,6 +53,8 @@ static char tp_done_path[4][NAME_LEN];         /* v23 : fichiers recus (onglet T
 static volatile int tp_done_w = 0;
 static char tp_log[5][128];
 static volatile int tp_nlog = 0;
+static void upd_rel_url(char *url, int cap, int api);   /* (update.c) */
+static volatile int tp_maj_req = 0;                /* v429 : /api/maj/installer : build envoye par le telephone (update.c) */
 static volatile int tp_reboot_req = 0;             /* v420 : /api/redemarrer (update.c : reset_pump) */
 static volatile int tp_rescan = 0;                 /* 1 = musique, 2 = photos, 4 = retro (v224) */
 static volatile u64 tp_up_end = 0;                 /* v224 : fin du dernier envoi (relectures apres la serie de fichiers) */
@@ -416,12 +418,16 @@ static int tp_recv(s32 c, void *b, int n, u32 ms) {
     }
 }
 
+/* v450 : envoi etale : la pile reseau de libogc et le pilote du BBA (priorite maximale, sans DMA) envoyaient une grosse
+   reponse d'un coup et figeaient l'image (mesure de fluidite : arrets de 0,2 a 2,4 s, tout en "processeur pris (reseau)") :
+   blocs de 4 Ko, et 2 ms de pause toutes les 8 Ko envoyes (la boucle de l'ecran repasse entre deux) */
 static int tp_send(s32 c, const void *d, int n) {
     const char *p = (const char *)d;
     u64 t0 = now_ms();
+    int burst = 0;
     while (n > 0) {
-        s32 r = net_send(c, p, n > 8192 ? 8192 : n, 0);
-        if (r > 0) { p += r; n -= r; t0 = now_ms(); continue; }
+        s32 r = net_send(c, p, n > 4096 ? 4096 : n, 0);
+        if (r > 0) { p += r; n -= r; t0 = now_ms(); burst += r; if (burst >= 8192 && n > 0) { burst = 0; usleep(2000); } continue; }
         if (r != -EAGAIN && r != -EWOULDBLOCK) return 0;
         if (now_ms() - t0 > 15000) return 0;
         usleep(3000);
@@ -683,7 +689,8 @@ static void tp_cfg_build(void) {
     sb_add(&s, "{\"m\":[");
     int first = 1;
     for (int i = 0; i < MI_COUNT; i++) {
-        if (i == MI_QUIT || i == MI_ELEMS || i == MI_TABS || i == MI_GAMES || i == MI_TITLES || i == MI_AUTOSTART || i == MI_IP || i == MI_GW) continue;
+        if (i == MI_QUIT || i == MI_ELEMS || i == MI_TABS || i == MI_GAMES || i == MI_TITLES || i == MI_AUTOSTART || i == MI_IP || i == MI_GW
+            || i == MI_NATXV || i == MI_TVBAS || i == MI_NATCARDREG || i == MI_NATCARDGAME) continue;   /* (v503 : plus des reglages : fusionnes ou toujours actifs) */
         menu_value(i, v, sizeof(v));
         if (!first) sb_add(&s, ",");
         first = 0;
@@ -878,7 +885,7 @@ static char x73_df_id[8], x73_df_path[NAME_LEN];
 static int x73_disc_send(s32 c, const char *path, const char *f);
 static volatile int x73_launch_k = -1, x73_launch_m = 0;
 static char x73_launch_id[8] = "";
-static char x73_launch_fx[12] = "";                       /* v250 : patchs de secours (lettres SFTCHWV) */
+static char x73_launch_fx[16] = "";                       /* v250 : patchs de secours (lettres SFTCHWV ; v512 : LKJRID) */
 /* v191 : ton recap (page /recap du telephone ; JSON fait par la boucle : recap.c) */
 static char *x73_rj = NULL;
 static volatile int x73_rj_want = 0, x73_rj_ready = 0;
@@ -1241,9 +1248,11 @@ static void tp_upload(s32 c, const char *q, long len, const unsigned char *pre, 
     int jkk = jk[0] && !jk[1] && strchr("cfhd", jk[0]) ? (int)(strchr("cfhd", jk[0]) - "cfhd") : -1;
     int jaq = !strcmp(dir, "jaquette") && idok && jkk >= 0;
     if (jaq) okdir = 1;
+    int maj = !strcmp(dir, "maj");                          /* v429 : mise a jour de GC Station envoyee par le telephone */
+    if (maj) okdir = 1;
     if (!okdir || !clean[0] || len <= 0 || !sd_ok) { tp_reply(c, 400, "text/plain", "refus", 5); return; }
     { const char *dt = strrchr(clean, '.');                    /* v224 : un programme va toujours dans SD:/apps (liste Applis) */
-      if (dt && !strcasecmp(dt, ".dol")) snprintf(dir, sizeof(dir), "apps"); }
+      if (dt && !strcasecmp(dt, ".dol") && !maj) snprintf(dir, sizeof(dir), "apps"); }
     const char *gpre = (!strcmp(dir, "radio") || !strcmp(dir, "podcasts")) ? "gc-mp3/" : "";   /* (v22 : rangees dans gc-mp3) */
     mkdir(GCD, 0777);
     int regtel = !strcmp(dir, "regtel");
@@ -1252,6 +1261,11 @@ static void tp_upload(s32 c, const char *q, long len, const unsigned char *pre, 
         mkdir(GCD "/jaquettes", 0777);
         snprintf(path, sizeof(path), GCD "/jaquettes/%s", jsub[jkk]); mkdir(path, 0777);
         snprintf(path, sizeof(path), GCD "/jaquettes/%s/%s%s.png", jsub[jkk], nid, jkk == 2 ? "-hd" : "");
+        if (!(chunk && off > 0)) remove(path);
+    }
+    else if (maj) {                                         /* (v429 : toujours le meme fichier, remplace) */
+        mkdir(GCD "/maj", 0777);
+        snprintf(path, sizeof(path), GCD "/maj/nouveau.dol");
         if (!(chunk && off > 0)) remove(path);
     }
     else if (notice) {                                      /* (v297 : la page remplace l'ancienne) */
@@ -1266,7 +1280,7 @@ static void tp_upload(s32 c, const char *q, long len, const unsigned char *pre, 
     }
     struct stat st;
     if (chunk && off > 0) snprintf(path, sizeof(path), "%s", tpk.path);   /* (nom choisi au 1er morceau) */
-    else for (int k = 2; !regtel && !notice && !jaq && k < 100 && stat(path, &st) == 0; k++) {     /* deja la : "nom (2).mp3" */
+    else for (int k = 2; !regtel && !notice && !jaq && !maj && k < 100 && stat(path, &st) == 0; k++) {     /* deja la : "nom (2).mp3" */
         char base[200], ext[16] = "";
         snprintf(base, sizeof(base), "%s", clean);
         char *dot = strrchr(base, '.');
@@ -1473,7 +1487,7 @@ static void tp_handle(s32 c) {
             sb_add(&s, line); n++;
         }
         if (d) closedir(d);
-        if (!n) sb_add(&s, "<p>Aucune analyse pour l'instant : fiche d'un jeu, touche R.</p>");
+        if (!n) sb_add(&s, "<p>Aucune analyse.</p>");
         sb_add(&s, "</body></html>");
         tp_reply(c, 200, "text/html; charset=utf-8", s.b ? s.b : "", s.b ? (int)strlen(s.b) : 0);
         free(s.b);
@@ -1616,6 +1630,20 @@ static void tp_handle(s32 c) {
         if (t) { tp_reply(c, 200, "application/json", t, (int)strlen(t)); free(t); }
         else tp_reply(c, 503, "application/json", "{}", 2);
     }
+    else if (!strcmp(target, "/api/maj")) {                 /* v429 : build installe et adresse des versions (le telephone telecharge) */
+        char rel[URL_MAX], js[URL_MAX + 160];
+        upd_rel_url(rel, sizeof(rel), 0);
+        int n = snprintf(js, sizeof(js), "{\"build\":%d,\"etat\":%d,\"rel\":\"%s\"}", GCMP3_BUILD, tp_maj_req ? 1 : 0, rel);
+        tp_reply(c, 200, "application/json", js, n);
+    }
+    else if (!strcmp(target, "/api/maj/installer")) {       /* v429 : installer SD:/gc-mp3/maj/nouveau.dol (build b) */
+        char bs[16]; tp_param(q ? q : "", "b", bs, sizeof(bs));
+        int b = atoi(bs);
+        struct stat st;
+        if (b <= 0 || stat(GCD "/maj/nouveau.dol", &st) != 0) { tp_reply(c, 400, "application/json", "{\"ok\":0}", 8); return; }
+        tp_maj_req = b;
+        tp_reply(c, 200, "application/json", "{\"ok\":1}", 8);
+    }
     else if (!strcmp(target, "/api/redemarrer")) {           /* v420 : redemarrer GC Station depuis le telephone (comme le bouton Reset) */
         tp_reboot_req = 1;
         tp_reply(c, 200, "application/json", "{\"ok\":1}", 8);
@@ -1627,9 +1655,9 @@ static void tp_handle(s32 c) {
         int ok = is[0] && atoi(is) >= 0;
         { char id[16]; tp_param(q ? q : "", "id", id, sizeof(id)); snprintf(x73_launch_id, sizeof(x73_launch_id), "%.6s", id); }
         {   /* v250 : &fx=ST... : patchs de secours pour ce lancement (seulement les lettres connues) */
-            char fx[16]; int n = 0;
+            char fx[24]; int n = 0;
             tp_param(q ? q : "", "fx", fx, sizeof(fx));
-            for (int k = 0; fx[k] && n < (int)sizeof(x73_launch_fx) - 1; k++) if (strchr("SFTCHWV", fx[k])) x73_launch_fx[n++] = fx[k];
+            for (int k = 0; fx[k] && n < (int)sizeof(x73_launch_fx) - 1; k++) if (strchr("SFTCHWVLKJRID", fx[k])) x73_launch_fx[n++] = fx[k];
             x73_launch_fx[n] = 0;
         }   /* v242 : (l'ID suit le jeu si la liste a change d'ordre) */
         if (ok) { x73_launch_m = atoi(ms) == 1; x73_launch_k = atoi(is); }
@@ -1790,6 +1818,32 @@ static void tp_handle(s32 c) {
         int n = snprintf(t, sizeof(t), "{\"a\":%d,\"d\":%ld,\"t\":%ld,\"ms\":%u,\"n\":\"%s\"}", tp_up_active, tp_up_done, tp_up_total,
                          (unsigned)(tp_up_active ? now_ms() - tp_up_t0 : tp_up_end - tp_up_t0), nm);
         tp_reply(c, 200, "application/json", t, n);
+    }
+    else if (!strcmp(target, "/api/journaux") || !strncmp(target, "/api/journaux/", 14)) {   /* v453 : journaux de la console pour l'appli
+                                                                (liste, puis un fichier de la liste ; rien d'autre de la carte) */
+        static const char *const jl[][2] = {
+            { "rapport.txt", GCD "/natif/rapport.txt" },   /* (build 1052 : un seul fichier a envoyer) */
+            { "dernier-lancement.txt", GCD "/natif/dernier-lancement.txt" }, { "journal-jeu.txt", GCD "/natif/journal-jeu.txt" },
+            { "fluidite.txt", GCD_LOG "/fluidite.txt" }, { "demarrage.txt", GCD_LOG "/demarrage.txt" },
+            { "gc-mp3-crash.txt", GCD_LOG "/gc-mp3-crash.txt" }, { "reparation.txt", GCD_LOG "/reparation.txt" }, { NULL, NULL } };
+        if (target[13] == 0) {
+            char t[900]; int n = snprintf(t, sizeof(t), "[");
+            for (int i = 0; jl[i][0] && sd_ok; i++) {
+                struct stat st;
+                if (stat(jl[i][1], &st) != 0) continue;
+                n += snprintf(t + n, sizeof(t) - n, "%s{\"n\":\"%s\",\"s\":%ld,\"t\":%ld}", n > 1 ? "," : "", jl[i][0], (long)st.st_size, (long)st.st_mtime);
+            }
+            n += snprintf(t + n, sizeof(t) - n, "]");
+            tp_reply(c, 200, "application/json", t, n);
+        } else {
+            const char *nm = target + 14, *path = NULL;
+            for (int i = 0; jl[i][0]; i++) if (!strcmp(nm, jl[i][0])) path = jl[i][1];
+            long sz = 0;
+            u8 *b = path && sd_ok ? read_file(path, 512 * 1024, &sz) : NULL;
+            if (b) tp_reply(c, 200, "text/plain; charset=utf-8", b, (int)sz);
+            else tp_reply(c, 404, "text/plain; charset=utf-8", "Aucun journal", 13);
+            free(b);
+        }
     }
     else if (!strcmp(target, "/api/pulse.txt")) {            /* v262 : le journal complet de ce lancement */
         long sz = 0;
@@ -2079,7 +2133,8 @@ static void phone_enter(void) { tp_wanted = 1; }
    - aux abonnes : "GCSN1\t<numero>" quand l'etat change (titre, pause, volume, paroles, position sautee...) : l'appli
      relit /api/state tout de suite au lieu de demander chaque seconde ;
      "GCSG1\t<id>\t<nom>\t<minutes restantes, -1 sans limite>\t<profil>\t<ports>\t<memoire>\t<empreinte RA>\t<cheats 0/1>" (v395) juste avant de lancer un jeu (la console ne
-     repond plus pendant le jeu : l'appli affiche la partie en cours) ; "GCSE1" si le lancement a echoue. */
+     repond plus pendant le jeu : l'appli affiche la partie en cours) ; "GCSE1" si le lancement a echoue ;
+     "GCSP1\t<0/1/2>" (v453) apres GCSG1 : sans Pulse / Pulse complet / Pulse leger (telephone pas ecoute pendant le jeu). */
 #define TPL_PORT 51236
 #define TPL_MAX 6
 static s32 tpl_fd = -1;
@@ -2199,6 +2254,13 @@ static void tpl_game(const char *id, const char *name) {
     for (int k = 0; k < 2; k++) { tpl_send_all(m); usleep(20000); }   /* (deux fois : UDP, et le jeu coupe le reseau juste apres) */
 }
 static void tpl_game_fail(void) { if (app_envoi) tpl_send_all("GCSE1\n"); }
+/* v453 : quel Pulse pour ce jeu (apres GCSG1, une fois le choix fait) : "GCSP1\t<0 : sans Pulse, 1 : complet, 2 : leger>".
+   Avec le Pulse leger, le telephone n'est pas ecoute pendant la partie : l'appli le dit au lieu de chercher la console */
+static void tpl_pulse(int kind) {
+    if (tpl_fd < 0 || !app_envoi || !tpl_live()) return;
+    char m[24]; snprintf(m, sizeof(m), "GCSP1\t%d\n", kind);
+    for (int k = 0; k < 2; k++) { tpl_send_all(m); usleep(20000); }
+}
 
 static void transport_step(int d);
 

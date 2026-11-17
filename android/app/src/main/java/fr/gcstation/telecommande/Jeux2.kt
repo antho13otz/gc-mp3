@@ -65,7 +65,8 @@ abstract class ModuleJeu(val nom: String, vararg val ids: String) {
 }
 
 object ModulesJeux {
-    val tous: List<ModuleJeu> = listOf(JeuTP, JeuPikmin1, JeuPikmin2, JeuMelee, JeuMSB, JeuTTYD, JeuOoT, JeuMP5, JeuSFA, JeuKAR, JeuRayman3, JeuDK2)
+    val tous: List<ModuleJeu> = listOf(JeuTP, JeuPikmin1, JeuPikmin2, JeuMelee, JeuMSB, JeuTTYD, JeuOoT, JeuMP5, JeuSFA, JeuKAR, JeuRayman3, JeuDK2, JeuSA2B, JeuSADX, JeuShrek) +   // (appli 576 : Sonic, Shrek aussi dans l'appli publique)
+        (if (Prive.ACTIF) listOf(JeuSimpsons, JeuMP1, JeuMP2, JeuSMB) else emptyList())   // (appli 583 : Super Monkey Ball, en essai)   // (appli 572 : Metroid Prime 1 et 2, Sonic, Shrek, en essai)   // (build 567 : Simpsons Hit & Run, en essai : appli privee)
     fun pour(id: String): ModuleJeu? = tous.firstOrNull { id in it.ids }
     fun noms(): Map<String, String> = tous.flatMap { m -> m.ids.map { it to m.nom } }.toMap()
 }
@@ -146,7 +147,12 @@ object JeuTP : ModuleJeu("Twilight Princess", "GZ2P01", "GZ2E01") {
             Ligne("Ombres fusionnées", Integer.bitCount(ombres and 7).toString() + " / 3", pct(Integer.bitCount(ombres and 7), 3)),
             Ligne("Éclats du Miroir des Ombres", Integer.bitCount(miroir and 15).toString() + " / 4", pct(Integer.bitCount(miroir and 15), 4)),
             Ligne("Larmes de lumière", larmes.joinToString(" · ") { it.coerceAtMost(16).toString() }),
-            Ligne("Poissons pêchés", poissons.toString()))))
+            Ligne("Poissons pêchés", poissons.toString())) +
+            // appli 572 : techniques secretes (notes de code publiques de RetroAchievements : bits 0-3 de base + 0x819, bits 5-7 de + 0x81A)
+            (if (Prive.ACTIF) listOfNotNull(run {
+                val a = l.u8(g + 0x819); val b = l.u8(g + 0x81A)
+                if (a != null && b != null) { val n = Integer.bitCount(a and 0x0F) + Integer.bitCount(b and 0xE0); Ligne("Techniques secrètes", "$n / 7", pct(n, 7), 0xFFFFD23F) } else null
+            }) else emptyList())))
         val inv = objets.filter { it != 0xFF && it != 0 }.map { OBJETS[it] ?: ("Objet " + Integer.toHexString(it)) }.distinct()
         if (inv.isNotEmpty()) blocs.add(Bloc("Inventaire", pastilles = inv.map { it to true }))
         // build 192 : ce qui manque pour finir a 100 % (d'apres la sauvegarde en cours)
@@ -179,7 +185,7 @@ object JeuTP : ModuleJeu("Twilight Princess", "GZ2P01", "GZ2E01") {
             if (objets.isNotEmpty() && (manque.isNotEmpty() || m.isNotEmpty() || manqueEq.isNotEmpty())) {
                 blocs.add(Bloc("Pour finir à 100 %", m, pastilles = (manque + if (toutGot) emptyList() else manqueEq).map { it to false },
                     texte = (if (manque.isNotEmpty() || manqueEq.isNotEmpty()) "En gris : les objets et l'équipement pas encore trouvés. " else "") +
-                        "Pas encore lus : techniques secrètes, poissons à attraper."))
+                        if (Prive.ACTIF) "Pas encore lus : poissons à attraper." else "Pas encore lus : techniques secrètes, poissons à attraper."))
                 if (!toutGot && nIns < 24) blocs.add(Bloc("Insectes dorés", pastilles = insectes))
             }
         }
@@ -193,6 +199,7 @@ object JeuTP : ModuleJeu("Twilight Princess", "GZ2P01", "GZ2E01") {
             Ligne("Salle", if (salle >= 0) salle.toString() else "–"),
             Ligne("Vitesse", if (vitesse >= 0) vitesse.toInt().toString() else "–"),
             Ligne("Altitude", if (!alt.isNaN()) alt.toInt().toString() else "–"))))
+        l.ptr(play + 0x4E7C)?.let { p -> Traces.bloc("tp:$scene:$salle", "Plan (" + lieu + ")", l.fini(l.f32(p + 0x4D0), 1e6f), l.fini(l.f32(p + 0x4D8), 1e6f), "L", 0xFF3DDC84, saut = 20000f) }?.let { blocs.add(it) }   // (appli 573)
         return Fiche(id, lieu, if (loup) "Link (loup)" else "Link", 0xFF3E6B22, 0xFF0F1D08,
             grands = listOf("cœurs" to (vie / 4).toString(), "rubis" to rubis.toString(), "âmes" to ames.toString()), blocs = blocs)
     }
@@ -402,12 +409,84 @@ object JeuMSB : ModuleJeu("Mario Superstar Baseball", "GYQE01") {
     }
 }
 
+// ---------------------------------------------------------------- Super Monkey Ball (USA) : appli 583, en essai (appli privee)
+// Adresses : notes de code du jeu sur RetroAchievements (adresse RA + 0x80000000), version USA (GMBE8P).
+object JeuSMB : ModuleJeu("Super Monkey Ball", "GMBE8P") {
+    private val MODES = arrayOf("Partie normale", "Compétition", "Entraînement", "Monkey Course", "Monkey Combat", "Monkey Cible",
+        "Monkey Billard", "Monkey Bowling", "Monkey Golf")
+    private val DIFF = arrayOf("Débutant", "Avancé", "Expert")
+    /** nom du niveau d'apres l'identifiant mondial du jeu (notes RetroAchievements) */
+    fun niveau(n: Int): String {
+        return when (n) {
+            in 0x01..0x04 -> "Débutant $n"; in 0x05..0x09 -> "Débutant " + (n + 1)
+            in 0x0B..0x0E -> "Avancé " + (n - 0x0A); in 0x0F..0x12 -> "Avancé " + (n - 0x09); in 0x15..0x1D, in 0x1F..0x28 -> "Avancé " + (n - 0x0A)
+            in 0x29..0x2C -> "Expert " + (n - 0x28); in 0x2D..0x30 -> "Expert " + (n - 0x27)
+            in 0x33..0x3B, in 0x3D..0x45, in 0x47..0x4F, in 0x51..0x5A -> "Expert " + (n - 0x28)
+            in 0x5B..0x5F -> "Étage bonus " + (n - 0x5A)
+            0x65 -> "Extra 1"; 0x66 -> "Débutant Extra 2"; 0x67 -> "Extra (Débutant 3, Avancé 4, Expert 8)"
+            0x68 -> "Extra (Avancé 2, Expert 3)"; 0x69 -> "Avancé Extra 3"; 0x6A -> "Avancé Extra 5"; 0x6B -> "Expert Extra 2"
+            in 0x6C..0x6F -> "Expert Extra " + (n - 0x6C + 4); 0x70 -> "Expert Extra 9"; 0x71 -> "Expert Extra 10"
+            in 0x79..0x82 -> "Master " + (n - 0x78)
+            0x83 -> "Monkey Course : tunnel"; 0x85 -> "Monkey Course : jungle"; 0x86 -> "Monkey Course : autoroute gelée"
+            0x87 -> "Monkey Course : centre-ville"; 0x88 -> "Monkey Course : tout-terrain aquatique"; 0x8A -> "Monkey Course : désert"
+            in 0x8F..0x91 -> "Monkey Combat : arène " + (n - 0x8E)
+            in 0x97..0x99 -> "Monkey Cible : manche " + (n - 0x96)
+            0xA1 -> "Monkey Golf : trou 18"; 0xA7 -> "Monkey Golf : trou 1"
+            0xB3 -> "Monkey Bowling"; 0xB4 -> "Monkey Billard"; 0xC5 -> "Générique"; 0xC7 -> "Inscription du nom"
+            else -> ""
+        }
+    }
+    override fun lire(l: Lecteur, id: String): Fiche? {
+        val mode = l.u8(0x801EEC4B) ?: return null
+        val diff = l.u8(0x801EEC27) ?: 0
+        val vies = l.u8(0x80205E62) ?: 0
+        val bananes = l.u32(0x80205ED8) ?: 0L
+        val score = l.u32(0x80205EDC) ?: 0L
+        val temps = l.u16(0x801F3A5C) ?: 0
+        val drap = l.u8(0x801F3A5B) ?: 0
+        val reste = l.u32(0x801F3A7C) ?: 0L
+        val conti = l.u8(0x801F3A83) ?: 0
+        val niv = (l.u32(0x802F0998) ?: 0L).toInt()
+        val total = l.u32(0x802F1F80) ?: 0L
+        val points = l.u32(0x802F1FBC) ?: 0L
+        val pause = ((l.u8(0x802F1EE3) ?: 0) and 8) != 0
+        val deb = l.u8(0x802F1C0D) ?: 0
+        if (mode > 8 || bananes > 99999 || score > 99999999L) return null
+        val nom = niveau(niv)
+        val partie = mode <= 2
+        val etat = when {
+            drap and 1 != 0 -> "But !"; drap and 2 != 0 -> "Temps écoulé"; drap and 4 != 0 -> "Tombé"
+            pause -> "Pause"; else -> ""
+        }
+        val sec = temps / 60.0
+        val blocs = ArrayList<Bloc>()
+        blocs.add(Bloc("Partie", listOfNotNull(
+            Ligne("Mode", MODES.getOrElse(mode) { "?" }),
+            if (partie) Ligne("Difficulté", DIFF.getOrElse(diff) { "?" }) else null,
+            if (nom.isNotEmpty()) Ligne("Niveau", nom) else null,
+            if (partie) Ligne("Temps restant", String.format(java.util.Locale.FRANCE, "%.2f s", sec), (temps / 3600f).coerceIn(0f, 1f), if (sec < 10) 0xFFFF3B3B else 0xFF3DDC84) else null,
+            if (partie && reste in 1..999) Ligne("Bananes encore sur le niveau", reste.toString()) else null,
+            if (etat.isNotEmpty()) Ligne("État", etat) else null,
+            if (mode == 0) Ligne("Continues utilisés", conti.toString()) else null,
+            if (mode == 0 && total > 0) Ligne("Score jusqu'au dernier étage", total.toString()) else null,
+            Ligne("Points de jeu", points.toString()))))
+        blocs.add(Bloc("Débloqué avec les points de jeu", pastilles = listOf(
+            "Monkey Billard" to (deb and 1 != 0), "Monkey Bowling" to (deb and 2 != 0), "Monkey Golf" to (deb and 4 != 0), "Continues illimités" to (deb and 8 != 0))))
+        return Fiche(id, if (nom.isNotEmpty()) nom else "Super Monkey Ball", MODES.getOrElse(mode) { "" } + if (partie) " · " + DIFF.getOrElse(diff) { "" } else "",
+            0xFFFFB300, 0xFF3A2400,
+            grands = if (partie) listOf("vies" to vies.toString(), "bananes" to bananes.toString(), "score" to score.toString(), "temps" to String.format(java.util.Locale.FRANCE, "%.0f", sec))
+                     else listOf("points de jeu" to points.toString()),
+            blocs = blocs, message = "Une vie de plus toutes les 100 bananes.")
+    }
+}
+
 // ---------------------------------------------------------------- Ocarina of Time (Collector's Edition, Multi Pack)
 // Le jeu N64 tourne dans l'emulateur du disque : sa memoire est quelque part dans celle de la GameCube. Une recherche
 // unique (jeu en pause, toute la memoire lue comme la photo du chercheur de codes) trouve la sauvegarde en cours
 // (SaveContext : "ZELDAZ" en 0x1C, zeldaret/oot save.h) ; les endroits vraisemblables sont gardes sur le telephone.
 object JeuOoT : ModuleJeu("Ocarina of Time (émulé)", "PZLP01", "D43P01", "PZLE01", "D43E01", "PZLJ01", "D43J01") {
     @Volatile var progres = -1f
+    @Volatile var entree = -1                                    // (build 580 : entree de la sauvegarde en cours : le lieu en 3D, appli privee)
     @Volatile private var candidats: LongArray? = null
     @Volatile private var choisi = -1
     private var dernierTemps = IntArray(0)
@@ -491,6 +570,7 @@ object JeuOoT : ModuleJeu("Ocarina of Time (émulé)", "PZLP01", "D43P01", "PZLE
         if (dernierTemps.size == temps.size) { for (k in temps.indices) if (temps[k] != dernierTemps[k]) { choisi = k; break } }
         dernierTemps = temps
         val a = ok[if (choisi in ok.indices) choisi else 0]
+        entree = l.s32(a) ?: -1
         fun s16(o: Int) = l.s16(a + o) ?: 0
         val cap = s16(0x2E); val vie = s16(0x30); val rubis = s16(0x34)
         val magieNiv = l.u8(a + 0x32)?.toByte()?.toInt() ?: 0; val magie = l.u8(a + 0x33) ?: 0

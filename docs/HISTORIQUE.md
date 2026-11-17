@@ -7,6 +7,256 @@ la **musique de jeux rétro**, des **podcasts**, tes **photos et vidéos**, un *
 la **météo / actualités / réveil**, et une **télécommande sur téléphone** (Broadband Adapter),
 dans une interface GX style Indigo. Lancer `gc-mp3player.dol` comme un autre homebrew.
 
+## Console v534 (build 1063) — carte mémoire virtuelle : plus aucune attente de la carte SD pendant le jeu
+
+- Essai d'Antho sur la build 1062 (Kirby Air Ride) : « carte virtuelle » 0,20 ms en moyenne (0,27 avant) mais toujours 8,9 ms au pire ; « lecture en fond » montée à 7,2 ms au pire (elle attendait la fin d'enregistrement de la carte SD à la place de la carte mémoire). Antho veut la solution complète d'un coup.
+- Écritures en attente : jusqu'à 4 secteurs de la carte mémoire mis de côté dans le tampon de la musique du disque (libre quand elle ne joue pas) quand le jeu passe d'un secteur à l'autre, puis écrits un par image quand la carte SD est libre (`vc_idle`, aussi pendant un chargement, entre deux suites). Un secteur en attente relu par le jeu vient de là (`wq_find`). Tout est écrit avant le retour à GC Station (`vc_flush_all`), et avant que la musique du disque reprenne le tampon ; musique en cours : écritures directes comme avant (les plus anciennes en attente d'abord).
+- Lecture en fond : si la carte SD n'a pas fini d'enregistrer, elle réessaie plus tard au lieu d'attendre (`sd_free` : un octet lu, sans attendre).
+- Place : CRC des blocs avec une table de 16 valeurs au lieu de 256 (même résultat, vérifié ; 480 octets) ; pile des plantages / trame réseau 1600 octets (pile du plantage : moins de 600 octets mesurés).
+
+## Console v533 (build 1062) — écritures de la carte mémoire : le jeu repart pendant que la carte SD enregistre
+
+- Essai d'Antho sur la build 1061 (Kirby Air Ride) : grésillements plus courts ; « carte virtuelle » 9,2 ms au pire au lieu de 17,4 (0,27 ms en moyenne au lieu de 0,40). Ce qui reste : les écritures (224 secteurs en 31 s dans les menus) ; après chaque secteur écrit, Pulse attendait que la carte SD ait fini de l'enregistrer (1 à 10 ms selon la carte).
+- Pulse (`nr_write_sd1`, `sd_cmd`) : plus d'attente à la fin de l'écriture ; la carte finit d'enregistrer pendant que le jeu repart, et l'attente (s'il en reste) se fait juste avant la commande suivante à la carte SD. Une carte mémoire écrit presque toujours dans un bloc qu'elle vient d'effacer : le secteur suivant n'a pas besoin d'être lu sur la carte SD (déjà en FF dans Pulse), l'attente disparaît le plus souvent.
+- Banc d'essai : la carte SD simulée reste occupée après chaque écriture (même relâchée) et perd les commandes envoyées pendant ce temps : la 1062 passe ; une version qui oublierait d'attendre échoue (6 essais).
+- Place : pile des plantages 1984 octets.
+
+## Console v532 (build 1061) — carte mémoire virtuelle : plus de longues attentes dans le crochet du lecteur
+
+- Essai d'Antho sur la build 1060 : Super Monkey Ball sans grésillement (son de Pulse 2,9 ms au pire au lieu de 16,6 ; trous de plus de 12 ms : 9 en 52 s au lieu de 100 en 139 s). Kirby Air Ride grésille encore, surtout pendant les lectures / écritures de la carte mémoire (impression d'Antho, confirmée par le journal : « carte virtuelle » jusqu'à 17,4 ms dans le crochet du lecteur, 208 secteurs écrits).
+- Même cause que la musique du disque : la carte mémoire virtuelle lit et écrit la carte SD dans le crochet du lecteur et attendait la fin du morceau de lecture en fond en cours (jusqu'à 32 Ko).
+- Pulse : morceaux de 4 Ko aussi pendant les accès du jeu à la carte mémoire et 5 s après (`xv_max`).
+- Place (FULL3 au plus juste) : pile des plantages / trame réseau 2016 octets au lieu de 2048 (une trame reçue fait au plus 1536 octets).
+
+## Console v531 (build 1060) — musique du disque : plus de longues attentes dans l'interruption du son
+
+- Journal d'Antho (build 1059, Super Monkey Ball USA, SD2SP2, 2 min 19 s) : Pulse passait jusqu'à 16,6 ms d'un coup dans l'interruption du son (16,5 ms dans celle du DSP), et 100 trous de plus de 12 ms entre deux interruptions du DSP : petits grésillements / saccades (aussi sur le GC2SD de Platter ; piste aussi pour le grésillement des menus de Kirby).
+- Cause trouvée : la musique du disque (DTK) lit la carte dans l'interruption du son (2 Ko toutes les 37 ms) ; si une lecture en fond par interruptions était en cours, elle attendait la fin de son morceau, jusqu'à 64 secteurs (32 Ko, ~16 ms à 1,8 Mo/s), interruptions coupées.
+- Pulse : quand la musique du disque joue, les lectures en fond partent par morceaux de 8 secteurs (4 Ko, ~2 ms) au lieu de 64 ; ils s'enchaînent toujours sans nouvelle commande dans l'interruption (build 1056), le débit ne change presque pas. Sans musique du disque : comme avant.
+- À vérifier dans le journal : « son (AI) … au pire » et les écarts du DSP doivent baisser.
+
+## Console v530 (build 1059) — slot B (GC2SD) : Pulse lit lui aussi carte non choisie
+
+- Journal de Platter (build 1058, Super Monkey Ball, GC2SD en slot B) : chargements à ~1,2 Mo/s (7 Mo en 5,9 s, 430 ms pour 512 Ko), moitié d'un vrai lecteur. Pulse lisait sa carte sans DMA et à 16 MHz : ses essais au lancement (DMA, puis 32 MHz) échouaient. Le pilote de GC Station lit la même carte à 32 MHz depuis la build 1051, carte non choisie pendant les lectures ; Pulse, lui, gardait la carte choisie.
+- Pulse (`ex_sel`, `ex_put`, `ex_get`) : même façon pour une carte de slot que GC Station a validée au démarrage (bit 0x20 de la vitesse donnée à Pulse, `na_sd_freq`) : carte choisie seulement pour envoyer (commandes, arrêt CMD12, données écrites), tout ce qui se lit (réponse, jeton, blocs, CRC, attente) horloge seule. Le démarrage de la carte reste à l'ancienne ; puis essais DMA et 32 MHz comme avant (chaque bloc à 32 MHz vérifié par CRC, 16 MHz sinon). Lecture par interruptions et DMA : déjà carte non choisie après le jeton. Port série 2 (SD2SP2) : inchangé.
+- dernier-lancement.txt : « lectures carte non choisie » dans la ligne de l'adaptateur quand Pulse le fait.
+- Banc d'essai : carte de slot simulée qui lit faux carte choisie à 32 MHz (EMU_NOCS) : la build 1058 restait à 16 MHz, la 1059 passe à 32 MHz avec DMA.
+
+## Console v529 (build 1058) — Zelda Ocarina of Time + Master Quest : la dernière lecture du menu
+
+- Build 1057 : écran noir après le choix du jeu. Après avoir chargé le lanceur /execD.img, le menu lit encore la liste des fichiers du jeu choisi et attend sa fin ; Pulse, déjà en mode « changement de programme », ne lui donnait plus la fin de commande. Maintenant le changement de programme commence après cette lecture.
+
+## Console v528 (build 1057) — disque Zelda Ocarina of Time + Master Quest : lancement des jeux du menu
+
+- Ce disque démarre sur un menu, qui lance le jeu choisi (fichier .tgc) par son lanceur /execD.img, lu en 0x81300000 puis exécuté sans le système du jeu, avec sa propre copie du pilote du lecteur. Pulse ne le reconnaissait pas : son pilote parlait au vrai lecteur, et le jeu se figeait juste après le choix (vu dans le journal complet). GC Station le signale maintenant à Pulse comme code de redémarrage : branché à sa lecture, puis tout ce qu'il charge.
+
+## Console v527 (build 1056) — chargements enchaînés sans arrêt
+
+- Lecture de la carte SD pendant le jeu : à la fin de chaque suite de 32 Ko, la suivante part tout de suite dans l'interruption de la carte quand la lecture continue au même endroit, comme le fait Swiss (avant : un aller-retour par une interruption du lecteur et le crochet de Pulse entre chaque suite). Pour tous les Pulse et tous les adaptateurs (SD2SP2, GC2SD).
+- Journal du Pulse léger : chargements du jeu mesurés (nombre, Ko, durée, débit moyen en Ko/s, le plus long), à comparer à un vrai lecteur (2 à 3 Mo/s).
+- Place : le Pulse léger et le Pulse sans journaux commencent 256 octets plus bas ; les étapes des suites de lecture ne sont plus notées dans le journal.
+
+## Appli privée 583 — compagnon de Super Monkey Ball (USA)
+
+- Compagnon (en essai, appli privée) : Super Monkey Ball USA (GMBE8P) : vies, bananes, score, temps restant, niveau (nom d'après l'identifiant du jeu), mode et difficulté, bananes encore sur le niveau, but / temps écoulé / tombé / pause, continues, score jusqu'au dernier étage, points de jeu et ce qu'ils débloquent. Adresses : notes de code du jeu sur RetroAchievements (envoyées par Antho).
+
+## Appli 582 (privée) — sauvegardes instantanées de GC Station Switch
+
+- « Partie en cours » (appli privée), seulement quand la console est GC Station Switch (`"plat":"switch"`) : choix de l'emplacement (1 à 9, les mêmes que − + L / R sur la Switch), Sauver, Reprendre (avec confirmation). Le moteur répond tout de suite, sauve ou reprend entre deux images, et donne le résultat à la fin de sa réponse « GCMA » (64 octets) : réussi, échec (emplacement vide), autre jeu.
+- Reprendre est refusé pendant une partie RetroAchievements en hardcore. Rien ne change avec la console GameCube (Pulse ne connaît pas ces commandes : les boutons n'y apparaissent pas).
+
+## Appli 581 (publique et privée) — compagnon : micro et Game Boy seulement pour les jeux qui s'en servent ; Ocarina of Time en 3D dans le compagnon (privée)
+
+- Compagnon : le micro du téléphone (Mario Party 6 et 7) et la GBA du téléphone (jeux GBA) ne s'affichent plus quand le jeu est inconnu (Pulse léger, partie pas encore lue) : seulement dans les jeux qui s'en servent, ou s'ils sont déjà allumés (pour les éteindre).
+- Appli privée : Ocarina of Time, onglet « En jeu » du compagnon : le lieu où tu es en 3D, et le bouton « Installer / mettre à jour les packs de ce jeu » comme Wind Waker, Mario Kart et Rayman 3 (avant : seulement dans la fiche du jeu, qui garde sa section).
+
+## Appli privée 580 — Ocarina of Time : les lieux en 3D
+
+- Fiche du jeu (disque Zelda Ocarina of Time / Master Quest, D43 / PZL) : packs `zeldaoot_*.zip` (fabriqués à part depuis les fichiers du jeu, jamais dans l'appli) : chaque lieu en 3D (toutes les salles d'une scène), textures agrandies ; donjons de Master Quest au choix. Pendant la partie, le lieu où tu es s'affiche (entrée de la sauvegarde en cours, trouvée par le compagnon). Export du pack installé comme les autres jeux.
+
+## Appli 579 (publique et privée) — notifications en anglais
+
+- La notification RetroAchievements en arrière-plan et les noms des catégories de notifications (réglages Android de l'appli) suivent maintenant la langue choisie ; les catégories sont renommées dès qu'on change de langue.
+
+## Appli privée 578 — installer des jeux Switch depuis le téléphone
+
+- Espace Switch (appli privée seulement) : « Installer des jeux depuis le téléphone ». Le téléphone partage un dossier en HTTP sur le Wi-Fi (port 8080), l'installeur de la Switch (DBI, Tinfoil) installe directement les .nsp, .nsz, .xci, .xcz : plus de limite de 4 Go du FAT32, sans PC. Demandes par morceaux (Range) acceptées ; écran allumé pendant le partage.
+
+## Console v526 (build 1055) — diagnostic : détail du temps du lecteur (Kirby, menus)
+
+- Kirby Air Ride grésille encore légèrement, seulement dans les menus (chargements, carte mémoire) : le crochet du lecteur de Pulse bloque jusqu'à 19 ms d'un coup (build 1053). Le journal du Pulse léger détaille maintenant ce temps : lecture en fond, carte mémoire virtuelle, relance du vrai lecteur (qui peut attendre un lecteur occupé), avec le pire passage de chacun. Rien d'autre ne change.
+
+## Console v525 (build 1054), appli 577 — anglais plus complet
+
+- Console en anglais : 506 textes de plus traduits (menus, réglages, Mes jeux, globe des radios, jeu de cartes, catalogue, GC Loader, FTP/SMB, test de la console, mises à jour…). Table de traduction agrandie (8192 cases). Les journaux restent en français.
+- Appli publique en anglais : 1 374 textes de plus (écrans principaux, succès, RetroAchievements, vraies cartes, micro et GBA du téléphone, vue 3D, compagnons de jeu avec les noms officiels anglais des lieux et objets).
+- Nouvel outil `tools/trad_audit.py [console|appli]` : liste les textes affichés qui n'ont pas encore de traduction.
+
+## Console v524 (build 1053) — lectures sans lecteur (réveil provoqué) plus courtes
+
+- Réveil provoqué (console sans lecteur, Platter ; ou lecteur qui ne répond pas, Kirby Air Ride chez Antho, build 1052) : la lecture en fond se fait dans les interruptions du son et de l'image du jeu ; le jeu saccadait à chaque chargement (48 attentes du son de plus de 12 ms par minute). Budget par interruption : 1 ms au lieu de 3 ms (elle y revient plus souvent).
+- Une lecture du jeu pas alignée sur un secteur n'est plus lue entière par morceaux de 2 Ko (tout bloqué) : dès qu'elle est alignée, la suite par interruptions prend le relais (Kirby : 6 788 morceaux contre 717 suites en 1 min). Vaut aussi avec le vrai lecteur.
+- Journaux : plus de mention d'un autre chargeur dans les textes écrits par la console.
+
+## Console v523 (build 1052) — moins de relances du lecteur pendant les lectures, rapport.txt
+
+- Pulse, avec le vrai lecteur : pendant une suite de lecture de la carte par interruptions, le lecteur n'est plus relancé à chaque réveil (environ 3 500 relances par seconde dans les menus de Kirby Air Ride, chacune une interruption de plus pour le jeu). La fin de la suite relance le lecteur tout de suite (xv_adv, comme avec le réveil provoqué) ; di_tick le relance au plus toutes les 5 ms pendant la suite, pour surveiller une fin perdue ou une suite bloquée.
+- rapport.txt (gc-mp3/natif) : un seul fichier à envoyer, écrit à chaque traduction du journal : journal-jeu.txt (qui contient dernier-lancement.txt) et journal-complet.txt s'il a été demandé pour ce lancement. Aussi dans la liste des journaux de l'appli.
+
+## Console v522 (build 1051) — slot B (GC2SD) : lectures carte non choisie, comme Swiss, écritures à 32 MHz
+
+- Pilote SD de libogc2 (celui de Swiss) relu, principe réécrit ici : pour une carte dans le slot B, la carte n'est choisie (CS) que pour envoyer (commande, données écrites) ; réponse, jeton, données, CRC, réponse aux données écrites et attente pendant l'écriture se lisent horloge seule. Tout à 32 MHz, contrôle d'erreurs de la carte actif (CMD59). Chez nous, ces lectures se faisaient carte choisie : à 32 MHz, les écritures du GC2SD de Platter rataient (vitesse sûre 16 MHz).
+- sd_slot.c : slot B, essai au démarrage (secteur 0 relu 4 fois juste, CRC vérifié à 32 MHz), gardé seulement si au moins aussi rapide qu'avant ; CMD59 (gardé s'il relit encore juste) ; CRC7 juste sur toutes les commandes, vrai CRC16 sur les données écrites ; écritures essayées à la vitesse des lectures (sdx_wfrq), toujours relues, plus lentes si fausses. Pulse : lit déjà à 32 MHz en slot (essai au lancement, CRC), inchangé. dernier-lancement.txt : vitesses de lecture, d'écriture et de Pulse, et la façon de lire.
+
+## Console v521 (build 1050) — téléchargements : fenêtre réseau adaptée au Broadband Adapter, reprise après 4 s
+
+- Build 1049 chez Antho : « reprise 1 : rien reçu 20 s, 62 Ko » : le flux s'arrête, le serveur ne ferme pas. Le Broadband Adapter n'a que 3,75 Ko pour recevoir (15 pages de 256 octets, bba.c de libogc) : 2 paquets pleins. Avec la fenêtre TCP de 16 paquets (« réseau rapide »), le serveur en envoyait 23 Ko d'un coup, plus vite que la console ne vide l'adaptateur : paquets perdus, puis attente des renvois de plus en plus espacés.
+- Fenêtre TCP : 2 paquets (tout ce qui est en route tient dans l'adaptateur ; accusé de réception à chaque 2e paquet). Mise à jour : flux bloqué 4 s (au lieu de 20 s) = reprise, sans rien perdre.
+
+## Console v520 (build 1049) — build d'essai du téléchargement
+
+- Même code que la 1048 : à télécharger depuis la 1048 pour voir la raison des coupures (« reprise N : raison, Ko »).
+
+## Console v520 (build 1048) — raison des coupures de téléchargement affichée
+
+- Téléchargements des mises à jour très lents chez Antho : « (reprise) » sans arrêt (le réseau rapide, fenêtre TCP de 16 paquets, est bien actif). Chaque coupure coûte l'attente puis une nouvelle connexion sécurisée.
+- Diagnostic : à côté de « reprise », le numéro de la reprise, la raison (rien reçu 20 s, serveur a fermé, erreur de lecture avec son code, pas de réponse, coupé pendant la réponse, connexion sécurisée ratée, connexion ratée) et les Ko reçus avant la coupure. Aussi dans les traces (crumb).
+
+## Console v519 (build 1047) — le jeu ne touche plus au canal de la carte SD (port série 2)
+
+- Cause des lectures bloquées de Kirby Air Ride trouvée dans le journal complet (build 1046) : environ toutes les secondes, le pilote EXI du jeu écrit le CSR du canal 2 (= 0 puis 1), le canal du SD2SP2 réservé à Pulse (v488 supposait que le jeu n'y touche jamais). Pendant une lecture par interruptions de Pulse, ça effaçait le masque de fin de transfert et la sélection de la carte : fin jamais signalée (83 lectures bloquées en 3 min 30 en build 1046), et le secours de 10 ms figeait tout le temps de finir la suite (16 ms) : grésillements des menus.
+- Maintenant, avec la carte SD dans le port série 2, les écritures du jeu dans les registres du canal 2 ne vont plus au vrai matériel (ses lectures restent permises). Compteur dans le secteur de mesure (Pulse léger). Pulse sans journaux : étapes de lecture plus notées (place).
+
+## Console v518 (build 1046) — lecture par interruptions gardée pour les jeux qui perdent une fin de temps en temps
+
+- Kirby Air Ride (build 1045) : passe le menu, mais 16 suites bloquées en 49 s ; au 16e blocage, la lecture par interruptions était coupée pour le jeu : lectures d'un coup, 18 % du temps dans Pulse, son du jeu en attente jusqu'à 0,57 s.
+- Maintenant : coupée seulement après 16 blocages sans une seule vraie interruption de la carte entre deux (jeu qui ne laisse jamais passer la fin). Délai avant de finir une suite bloquée : 10 ms (20 ms en 1045).
+
+## Console v517 (build 1045) — lectures de la carte bloquées débloquées en 20 ms
+
+- Kirby Air Ride (build 1044, avec et sans réveil provoqué) : erreur du jeu au chargement des sons du menu (main.ssm / menu.ssm). Une suite de lecture par interruptions démarrait et sa fin n'était jamais signalée. Le secours existant (rd_pump : rien depuis le dernier réveil = finie à l'ancienne) ne se déclenchait jamais : xv_words compte toutes les interruptions externes (image, son, adaptateur réseau), pas seulement les fins de la carte. Jusqu'à la 1042, la réécriture du journal toutes les 2-3 s finissait la suite au passage (sd_cmd → xv_drain) ; supprimée en 1043-1044, plus rien ne la débloquait.
+- Maintenant : 20 ms sans vrai progrès de la suite (xv_adv) = finie par Pulse ; les suites par interruptions restent permises (coupées pour le jeu au bout de 16 blocages). Compteurs (blocages, fins perdues reprises) dans le secteur de mesure (Pulse léger), traduits dans journal-jeu.txt.
+
+## Console v516 (build 1044) — carte virtuelle sans lecteur, 2e réécriture du journal
+
+- Régression de la 1042 (Platter, console sans lecteur, réveil provoqué) : le jeu se figeait dès qu'il lisait la carte mémoire virtuelle. La fin d'un transfert de la carte (x_kick) attendait que le vrai lecteur soit libre ; sans lecteur, DICR reste occupé. Jusqu'à la 1041, le passage aux interruptions du jeu au bout de 2 s couvrait ce cas ; la 1042 l'a coupé avec le réveil provoqué (cause du redémarrage de Shrek). Maintenant, avec le réveil provoqué, x_kick ne regarde plus le vrai lecteur. La correction de Shrek reste.
+- Le journal était encore réécrit toutes les 2 s à chaque commande du jeu au lecteur (nr_log), en plus d'alive_tick supprimé en 1043 : Kirby lit sans arrêt. Désormais seulement avant la 1re image (et toujours pour les 40 premières commandes, les erreurs et OSExec).
+
+## Console v515 (build 1043) — plus de réécriture du journal pendant le jeu
+
+- Kirby Air Ride (build 1042, Pulse léger, mesure de la 1041) : 3,9 % du temps dans Pulse en moyenne, mais des passages de 18 à 20 ms d'interruptions coupées (son, lecteur) ; le son du jeu a attendu plus de 12 ms 50 fois en 66 s (34 ms au pire) : grésillements. Principal suspect : la réécriture du journal sur la carte SD pendant le jeu (toutes les 3 s la 1re minute, puis toutes les 20 s ; 2 secteurs depuis la 1041).
+- Le journal n'est plus réécrit pendant le jeu une fois la 1re image affichée ; toujours avant la 1re image (jeux figés au démarrage) et à la fin (A+Z+START, plantage, redémarrage demandé par le jeu). Le secteur de mesure (GCSI) n'est écrit qu'à la fin. Contre-partie : un jeu qui se fige net en pleine partie laisse un journal arrêté au démarrage (relancer en journal complet).
+
+## Console v514 (build 1042) — Shrek sur une console sans lecteur, réparation automatique coupée
+
+- Shrek Extra Large chez le testeur (console sans lecteur, GC2SD, builds 1030 à 1041) : après la cinématique d'ouverture, le jeu demande au SDK de charger la suite (OSResetSystem, code 2 → __OSReboot). Le SDK coupe toutes les interruptions sauf le lecteur, lit 32 octets à 0x2440 et attend leur fin ; elle n'arrivait jamais, et au délai du SDK il faisait un redémarrage complet (menu de la console). Cause : sans lecteur, DICR reste « occupé » (l'inquiry de GC Station ne finit jamais) ; 2 s après le début du jeu, Pulse en concluait que le vrai lecteur était bloqué et passait aux fins données aux interruptions du jeu (1 seul réveil provoqué de tout le lancement dans les journaux). Avec le réveil provoqué, le vrai lecteur n'est plus regardé, et Pulse ne quitte plus ce mode (ni pour le lecteur occupé, ni après 3 secours).
+- Réparation automatique coupée (demande d'Antho) : plus de fenêtre « Réparation automatique » avec les essais après un lancement raté ou un A+Z+START, plus aucun essai appliqué tout seul au lancement suivant ; les essais en cours sont oubliés. Les patchs de secours choisis sur le téléphone et les réglages déjà gardés restent.
+
+## Console v513 (build 1041) — mesure du temps passé dans Pulse, numéro de build et vitesses SD dans les fichiers du lancement
+
+- Kirby Air Ride : le son grésille pendant les vidéos même en Pulse léger avec réveil provoqué (ni téléphone, ni vrai lecteur, ni carte virtuelle en cause). Le Pulse léger mesure maintenant, par type d'interruption (image, son, DSP, lecteur, suites de la carte SD, dessin), le nombre de passages, le temps passé dans Pulse (sans les fonctions du jeu) et le pire passage, ainsi que les écarts entre deux interruptions du DSP (plus de 6 ms, plus de 12 ms). Le tout dans un 8e secteur du journal (« GCSI », journal-jeu.bin passe à 4096 octets), traduit en clair dans journal-jeu.txt. Pas dans le Pulse normal ni le compact : pas la place. Aucun changement de comportement.
+- dernier-lancement.txt : la version et le numéro de build de GC Station en tête (avant : « v511 » écrit en dur, on ne savait pas de quelle build venaient les fichiers d'un testeur).
+- Pilote SD des slots (GC2SD) : vitesse de lecture, vitesse d'écriture sûre et nombre d'écritures relues fausses dans dernier-lancement.txt.
+- Banc d'essai : faux disque avec un journal de 8 secteurs ; le journal pris par son en-tête (GCSN), plus le dernier secteur écrit.
+
+## Appli 576 (publique et privée) — Sonic, Shrek, Kirby et les plans dans l'appli publique
+
+- Compagnons Sonic Adventure 2 Battle, Sonic Adventure DX et Shrek Extra Large, Kirby Air Ride complet (course en direct, défis restants avec leur texte, cases faites / remplies / réussies), et les plans vus de dessus (Twilight Princess, Sunshine, Sonic, Shrek) : maintenant aussi dans l'appli publique, à la demande du propriétaire. Metroid Prime, les Simpsons et les nouveaux patchs de secours restent dans l'appli privée.
+
+## Appli 575 (privée) — nouveaux patchs de secours (en essai)
+
+- Dans « Patchs de secours… », appli privée seulement : Réveil provoqué (R), Pulse léger (L), Pulse compact (K), Sans journaux (J), Lectures immédiates (I), Journal complet (D). Les patchs qui s'excluent se décochent l'un l'autre (lecteur lent / rapide, compact / léger / sans journaux / journal complet, réveil provoqué / Pulse universel). « Pulse universel » dit qu'il est ignoré pour Sonic Adventure 2, les Simpsons et Shrek. L'appli publique ne change pas.
+
+## Console v512 (build 1040) — carte virtuelle sans blocage, pilote SD des slots, nouveaux patchs de secours
+
+- Carte mémoire virtuelle (Pulse) : écritures différées. Avant, chaque page de 128 octets réécrivait tout de suite un secteur entier de la carte SD (4 fois par secteur), et chaque effacement 16 secteurs, interruptions coupées : pendant ce temps, plus de lecture du jeu. Kirby Air Ride : 1840 secteurs écrits en 44 s pendant l'intro, son haché dans la vidéo et les menus (propre avec une vraie carte). Maintenant le secteur modifié reste en mémoire et part quand le jeu passe à un autre secteur, ou à une image sans lecture en cours ; un bloc effacé n'est écrit en FF que s'il n'est pas réécrit. Tout est écrit avant le retour à GC Station.
+- Place : quelques fonctions rares de Pulse compilées au plus petit (fin de commande SD, tables de la carte, journal EXI, copies, cache, registres du lecteur lus par le jeu) ; Pulse normal et sans journaux restent sous 0x817FFF00.
+- Pilote SD des slots de carte mémoire (GC2SD) : depuis la build 1033, les écritures partaient à 16 MHz sans vérification ; un GC2SD qui ne suit pas voyait ses écritures acceptées mais perdues (fichiers du lancement jamais mis à jour, carte virtuelle « non formatée » en jeu, testeur, builds 1033-1039). Maintenant : vitesse sûre (16, 8, 4 ou 1 MHz, relit le secteur 0 à l'identique) pour les écritures et pour Pulse ; chaque écriture est relue, et la vitesse baisse si elle ne se relit pas.
+- Patchs de secours envoyés par le téléphone : nouvelles lettres L (Pulse léger), K (Pulse compact), J (sans journaux), R (réveil provoqué), I (lectures immédiates), D (journal complet), pour ce lancement seulement.
+
+## Appli 574 (privée) — Kirby Air Ride : la course en direct et les défis restants
+
+- Notes de code publiques de RetroAchievements (adresses PAL ; américain : + 0xD6C0). Écran en cours, circuit (ou stade, Time Attack, Free Run), chrono, et pour chaque joueur : machine, tour, arrivée, vitesse.
+- Listes de défis : une case compte si elle est faite, remplie ou réussie (bits 0 à 2 ; avant : bit 0 seul) ; les défis restants sont listés avec leur texte (`KirbyDefis.kt`, généré depuis les notes). Appli privée seulement (l'appli publique garde l'ancien comptage).
+- Pas de plan : les notes ne donnent pas la position des joueurs.
+
+## Console v511 (build 1039) — diagnostic : écritures du lancement
+
+- Testeur avec un GC2SD en slot B : depuis la build 1031, dernier-lancement.txt et journal-jeu.bin ne sont plus écrits au lancement (alors que les réglages, eux, restent après redémarrage). Chaque écriture du lancement est maintenant vérifiée (ouverture, écriture, fermeture, relecture de la taille) ; la 1re qui rate est notée dans dernier-lancement.txt (« Écritures du lancement ») et affichée à l'écran avant le saut (A : le jeu part quand même, 2 minutes au plus).
+
+## Appli 573 (privée) — plans vus de dessus dans les compagnons
+
+- `Traces` (Jeux4.kt) : un plan qui se dessine en jouant (chemin parcouru et position), un par niveau ou salle ; aucune carte du jeu (rien d'extrait du disque). Le chemin recommence après un saut (téléportation, niveau sans numéro lisible).
+- Metroid Prime (objet du joueur, transformation : x + 0x40, y + 0x50 ; position pas dans les notes, à vérifier), Metroid Prime 2 (objet physique : + 0x54, + 0x58), Sonic Adventure 2 Battle, Sonic Adventure DX, Shrek Extra Large, Twilight Princess, Super Mario Sunshine. Appli privée seulement.
+
+## Appli 572 (privée) — compagnons : Metroid Prime 1 et 2, Sonic Adventure 2 Battle, Sonic Adventure DX, Shrek Extra Large ; Wind Waker, Twilight Princess, Paper Mario, Sunshine améliorés
+
+- Adresses tirées des notes de code publiques de RetroAchievements envoyées par le propriétaire (seulement des adresses). Tout est réservé à l'appli privée (`Prive.ACTIF`), en essai.
+- Nouveaux (`Jeux4.kt`) : Metroid Prime (GM8P01, GM8E01 rév. 0 et 2 : énergie et réservoirs, missiles, bombes de puissance, rayon, viseur, combinaison, 12 artefacts, équipement, scans, région, salle, temps de jeu, vie du boss, compte à rebours d'évacuation) ; Metroid Prime 2 (G2MP01, G2ME01 : énergie, munitions, clés du Temple céleste et des donjons, équipement, % d'objets, scans, région et monde des ténèbres, boss) ; Sonic Adventure 2 Battle (GSNE8P : anneaux, vies, score, temps, mission, avancée des 3 histoires, emblèmes, rangs des 5 missions de 29 niveaux, améliorations, vie du rival et du robot) ; Sonic Adventure DX (GXSE8P : anneaux, vies, score, temps, personnage, lieu, emblèmes et missions du fichier, personnages débloqués, boss) ; Shrek Extra Large (GS9E6S : vie, pets, piment, argent, œufs dorés, missions de chaque niveau, codes débloqués).
+- Wind Waker : figurines de la Galerie Nintendo (/134) et statues de Tingle (/5) dans « Pour finir à 100 % ». Twilight Princess : techniques secrètes (/7). Paper Mario (européen) : soleils et éclats d'étoile trouvés (même dépensés), ennemis analysés, étage le plus profond du Puits, Piantas, nuits à l'auberge. Sunshine : nombre de sauvegardes, Piantas secourus, ballons.
+
+## Console v510 (build 1038) — Rebel Strike : décompression du programme avec moins de mémoire
+
+- Build 1037 (Star Wars Rogue Squadron III, GLRF64) : « décompression impossible (mémoire ou flux) », donc Pulse universel (ralentissements, pas de compagnon). Sur PC, avec le vrai main.dol : décompression OK (2 152 886 → 6 307 168 octets) et recompression par deflate.c OK (2 147 594 octets pour 2 152 886 de place). Cause : la mémoire de GC Station (2,1 + 6,3 Mo d'un coup, puis ~19 Mo au plus fort pendant la correction).
+- Un seul bloc `[ main.dol | programme décompressé ]` (`na_zbuf`) : le programme compressé est lu dans la 1re partie (libre pendant la décompression), et la correction se fait dans ce bloc (avant : deux copies de plus). Au plus fort : ~9,2 Mo + le tampon du lancement + 2,1 Mo.
+- `na_big_alloc` : si un gros bloc manque, GC Station vide d'abord ce qui se recharge tout seul (comme pour le tampon du lancement depuis v457 : `na_mem_flush`).
+- Messages précis dans dernier-lancement.txt : quelle étape manque de mémoire (et combien de Ko libres), lecture ratée, flux illisible.
+- Journal complet : le titre donne la vraie version (il disait toujours v508).
+
+## Console v509 (build 1037) — Pulse sans journaux (réglage), Sonic avec le compagnon en Pulse normal
+
+- Nouveau Pulse normal « sans journaux » (`NATRES_NOLOG`, un par adaptateur réseau : `natres_nl*_bin`) : sans les comptes rendus de plantage et de blocage (registres, pile, fils du jeu, photo de la mémoire, canal EXI, état de la carte virtuelle). Il garde le compagnon, les succès, le téléphone, la carte virtuelle, A+Z+START, et l'en-tête du journal (résumé, temps de jeu). 5 Ko plus petit, lié 5 Ko plus haut (`NATRES_AT_NOLOG` 0x817EF400, `tools/natres_nolog.ld`) : la place va au jeu.
+- Réglage Pulse > Dépannage : « Journaux de Pulse : Oui / Non » (`pulse_journaux`, oui par défaut).
+- Sonic Adventure 2 Battle (1036 : manque 10 583 octets) : si le compagnon ne tient pas, GC Station prend tout seul le Pulse sans journaux (+5 120 octets), puis réduit la réserve du direct d'autant qu'il faut (6 Ko au plus ; à 0, le direct envoie sans garder d'images). Sinon : Pulse compact, comme avant.
+- dernier-lancement.txt : « Pulse normal, sans journaux : réglage / choisi tout seul » ; la ligne « Liste des fichiers » donne aussi la réserve du direct. journal-jeu.txt le signale (drapeau `NRF_NOLOG`).
+- Banc : Pulse sans journaux essayé dans l'émulateur (lecteur, succès, manettes, chercheur de codes).
+
+## Console v508 (build 1036) — Sonic : calcul de place juste, réserve du compagnon réduite, tailles dans le journal
+
+- Build 1035 : Sonic était reparti en Pulse compact (« manque 4408 octets »). Erreur : le calcul était fait avec le compact déjà choisi (na_opt sans le chercheur de codes : Pulse léger), et avant les succès et le téléphone (na_ach_w, na_pad_w pas encore préparés). Maintenant : FST allégée choisie d'abord, puis les succès et le téléphone, puis le calcul avec les vraies tailles ; si ça ne tient pas, Pulse compact (et le téléphone refait sans rien).
+- Mémoire du compagnon (oubliée dans le budget de la 1035) : liste du direct (2 Ko) + réserve des images (16 Ko). Disposition changée : la liste puis la réserve, en dernier dans la structure ; Pulse déduit la taille de la réserve (p->len × 4 − p->msr) au lieu de NATRES_MSR_BYTES. Pour la FST allégée : réserve de 6 Ko (image de référence de Sonic 3,9 Ko + un petit journal : moins d'images perdues renvoyées). Banc : emu_mem.py suit la nouvelle disposition.
+- dernier-lancement.txt, ligne « Liste des fichiers » : aiguillages, succès, téléphone, FST (entrées, dossiers), et la marge ou ce qui manque.
+
+## Console v507 (build 1035) — Sonic Adventure 2 Battle avec le Pulse normal (compagnon, succès) : liste des fichiers allégée
+
+- Le jeu efface le haut de la mémoire jusqu'à 0x817DFE60 (v506). Au-dessus, 128 Ko : pas la place pour Pulse normal (74 Ko) + la FST entière (74 Ko : 2 821 entrées de 12 octets, 34 Ko, et 40 Ko de noms).
+- FST allégée (`na_fsth`) : seules les entrées vont en mémoire. À la place des noms, un bloc FSTH : en-tête (« FSTH », décalage r13 de currentDirectory, dossiers, entrées, base FNV), puis (dossier, état FNV après « chemin/ »), puis les entrées triées ((FNV-1a du chemin en minuscules >> 12) << 12 | numéro). Base essayée jusqu'à ce que les clés de 20 bits soient toutes différentes.
+- `DVDConvertPathToEntrynum` du SDK (trouvée par son message « DVDConvertEntrynumToPath(possibly », 1er `lwz rX,d(r13)` = currentDirectory) saute dans une routine de 852 octets posée dans la place des aiguillages : chemin absolu ou relatif au dossier courant, « . », « .. », majuscules/minuscules (Sonic fait DVDChangeDir("EVENT") puis ".."). Source : tools/fsth/fsth.c (compilée -O2 -mcpu=750, sans appel ni donnée globale) ; essai : tools/fsth/test_fsth.py (faux disque de 2 821 entrées dans l'émulateur PowerPC du banc : 8 460 chemins justes, relatifs, « .. », inexistants).
+- Pour la FST allégée : pas de place de 16 Ko pour des aiguillages en jeu, pas de bandeau des succès sur la télé (succès sur le téléphone), manettes branchées seulement s'il reste de la place. Si ça ne tient pas (calcul au lancement) : Pulse compact comme la 1034 (dernier-lancement.txt dit pourquoi).
+
+## Console v506 (build 1034) — Sonic Adventure 2 Battle : Pulse compact
+
+- Photo de la mémoire (build 1033, plantage habituel) : tout est à zéro de 0x817C0000 à 0x817DFE60 exactement ; la FST (0x817D8300-0x817EA4DB avec le Pulse léger) a perdu son début (racine et table des entrées), sa fin (les noms, au-dessus de 0x817DFE60) est intacte. Le jeu efface et utilise le haut de la mémoire jusqu'à 0x817DFE60 (tampons fixes 0x817D7E60 et 0x817DBE60 de 16 Ko : la sauvegarde). Sur une vraie console, la FST est au-dessus (~0x817EDE20).
+- Place au-dessus de 0x817DFE60 : 128 Ko. Pulse léger (55 Ko) + FST (72 Ko) + aiguillages (~12 Ko) + tables : ~140 Ko, trop. Avec le Pulse compact (0x817FA800, ~20 Ko, pas de place de 16 Ko pour des aiguillages en jeu), FST et bi2 passent vers 0x817E3000-0x817F7000 : ~14 Ko de marge.
+- `na_pm_need_compact` (GSN) : Pulse compact d'office (si la carte SD n'est pas dans un slot de carte mémoire, comme avant pour le compact). Ce que ça coûte : la vraie carte mémoire au lieu de la carte virtuelle, lectures toujours immédiates, 16 MHz sans DMA, pas de photo ni de messages du jeu. Fiche : « Pulse : compact (choisi pour ce jeu : toute sa mémoire) ».
+
+## Console v505 (build 1033) — carte en slot à 32 MHz dans GC Station ; photo de la mémoire d'un seul morceau ; Sonic
+
+- `sd_slot.c` (pilote de GC Station pour une carte en slot que libogc refuse, ex. GC2SD) : 32 MHz essayé d'abord, comme Swiss (wiki de Swiss : GC2SD donné pour 32 MHz) ; gardé si 4 lectures du secteur 0 sont identiques à celle à 1 MHz et au bon CRC16. À 32 MHz, chaque secteur lu est vérifié (CRC16 de la norme SD) ; un CRC faux : retour définitif à 16 MHz et nouvelle lecture. Écritures jamais à 32 MHz (rien ne les vérifie). Pulse part de 16 MHz et fait son propre essai à 32 (v504).
+- `nat_snap_prep` : `memoire-jeu.bin` en plusieurs morceaux sur la carte (photo vide, SA2B builds 1027 et 1030) : le fichier est gardé sous un autre nom (ses morceaux bouchent les trous), un nouveau est écrit, au plus 6 fois ; les bouche-trous sont ensuite effacés.
+- SA2B : zone « arène » de la photo en 0x817C0000 (avant 0x80FF8000) : le haut de la mémoire, pour voir jusqu'où le jeu écrit (tampons fixes 0x817CFE60, 0x817D7E60, 0x817DBE60) et l'état de la FST (0x817D8300) au plantage.
+
+## Console v504 (build 1032) — carte SD en slot : essai à 32 MHz, comme Swiss
+
+- `na_sd_freq` : plus de bit 0x10 pour une carte dans un slot (A, B) : Pulse fait au lancement le même essai à 32 MHz que pour le port série 2 (3 essais de 4 blocs, chacun comparé et vérifié par CRC ; 16 MHz sinon). Swiss essaie aussi 32 MHz en slot et ne redescend que si la carte ne suit pas (lu, rien repris). L'interdiction venait de la build 999 (testeur GC2SD : lectures ratées), avant les corrections du DMA (v493 0xFF, v494 2e façon) ; depuis, 0 bloc faux en slot B à 16 MHz.
+- But : vidéos de Shrek encore un peu saccadées chez le testeur (GC2SD, slot B) avec la 1029.
+- Shrek en Pulse normal (chercheur de codes, build 1031) : marche chez Antho (2 OSExec, succès RetroAchievements reliés à 100 %). Le Pulse léger forcé pour Shrek (v503) n'est donc peut-être pas nécessaire : à revoir avec le journal du testeur.
+
+## Console v503 (build 1031) — Mode de Pulse ; réglages de Pulse simplifiés
+
+- Nouveau réglage « Mode de Pulse » (général, et par jeu avec Y) : Automatique / Léger / Avec le téléphone. Automatique : Pulse léger sauf si le téléphone sert pendant le jeu (manettes, GBA, micro, chercheur de codes) ; les jeux qui ont besoin du léger le prennent d'office (`na_pm_need_lite` : Shrek Extra Large). Léger : téléphone coupé pour ce lancement (`na_nophone` : NRO_PHONE / NRO_MEM retirés, `na_mem_on` faux). Avec le téléphone : jamais forcé en léger. Clé `pulse_mode` (gc-mp3.txt), `mode_pulse` (réglages du jeu).
+- Shrek chez le testeur (GC2SD slot B, build 1030) : Pulse normal à cause du chercheur de codes (opt 0x48100000), pas d'OSExec vu, console redémarrée à 52 s. La surveillance du redémarrage n'existe que dans le Pulse léger : en Automatique, Shrek le prend maintenant.
+- Fiche du jeu : ligne « Pulse : léger / normal (raison) » ; dernier-lancement.txt : la même raison.
+- Réglages de Pulse : « Une carte mémoire » (pour tous les jeux / par jeu / par région) remplace « Une carte par région » et « Une carte par jeu » ; « Succès sur la télé » : Non / Bandeau en haut / Bandeau en bas (remplace « Place du bandeau ») ; « Lecture SD par interruptions » retirée (toujours active ; l'ancienne clé est ignorée). Groupes « Téléphone pendant la partie » (manettes, GBA, micro, chercheur de codes, son des notifications : « passe Pulse en mode normal ») et « Dépannage » (journal complet). Les réglages retirés ne sont plus envoyés à l'appli.
+- Sonic Adventure 2 Battle (build 1030) : la cause est trouvée, pas encore corrigée. Le jeu se sert d'adresses fixes en haut de la mémoire (0x817CFE60, 0x817D7E60 : 16 Ko effacés, 0x817DBE60), libres sur une vraie console jusqu'à la FST (~0x817EDE20). Sous Pulse, la FST est en 0x817D8300 : effacée au chargement du niveau, l'ouverture suivante échoue (0x80119D64 rend 0), 0x80072458 rend -1 sans remplir sa structure, et l'appelant lit 0x801CC186 (reste de la pile) comme nombre d'éléments : 0x801CC186 × 12 + 8 = 0x01591250, le memset de 22 Mo.
+
+## Appli 571 (privée) — téléchargement des fichiers de la console sans le gestionnaire d'Android
+
+Dans « Fichiers », toucher un fichier qui n'est pas du texte (`memoire-jeu.bin`, `.gci`, cartes…) passait par le gestionnaire de
+téléchargements d'Android, qui chez Antho n'arrivait pas à joindre la console sur le réseau local : rien n'arrivait. L'appli privée
+lit maintenant le fichier elle-même (même connexion que pour les `.txt`) et l'écrit dans Téléchargements, avec une notification
+de progression pour les fichiers de plus de 1 Mo et un message à la fin (ou la raison de l'échec). Appli publique : inchangée.
+
 ## Où sont les fichiers sur la carte SD
 - Tes fichiers : `SD:/mp3` (musique), `SD:/retro`, `SD:/photos`, `SD:/videos`, `SD:/ecran`, `SD:/downloads`.
 - Tout ce que GC Station crée est dans **`SD:/gc-mp3`**, rangé (v182) :
@@ -23,6 +273,567 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` comme un autre hom
 **L / R** passent à l'onglet précédent / suivant (v386 ; avant : **Z**) : MUSIQUE, RADIO, WEB, RÉTRO, PODCASTS, PHOTOS, FICHIERS, INFOS,
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
+
+## Console v502 (build 1030) — Sonic Adventure 2 Battle : messages du jeu (OSReport)
+
+- SA2B plante en entrant dans le niveau (après l'animation Héros / Dark, passée ou non), pas à l'écran titre. Aucune lecture du disque juste avant ; appelants différents (0x800875F0, 0x800B5E58) ; nombre d'éléments différent à chaque fois (0x1CC186, 0xBDCDE0). Piste : l'ouverture d'un fichier échoue (0x80072458 rend -1 sans remplir la structure, l'appelant ne vérifie pas).
+- `na_oshook` aussi pour GSN : OSReport / OSPanic notés dans le journal (Pulse léger). Photo de la mémoire vide au dernier essai (`memoire-jeu.bin` probablement en plusieurs morceaux sur la carte).
+
+## Console v501 (build 1029) — essai : DMA enchaîné par les interruptions (comme Swiss)
+
+- Avant : avec le DMA validé, la lecture par interruptions (v437) était coupée (`xv_ok` : `x_dma`) ; les lectures en fond n'avançaient qu'aux interruptions du jeu, par morceaux de 2 Ko (vidéos lentes en slot à 16 MHz, testeur). Swiss lit chaque bloc en DMA et lance le suivant depuis l'interruption de fin de transfert (lu, rien repris).
+- Suite par interruptions : après le jeton 0xFE, le bloc de 512 octets part en un seul DMA (`xv_dmab` : 0xFF envoyé, carte pas choisie pendant le bloc en 2e façon, cache retiré avant et après) ; une interruption à sa fin, puis le CRC (vérifié en DMA). Destination non alignée sur 32 : mots de 4 octets comme avant. `xv_ok` n'exclut plus le DMA.
+- Place : `xv_adv`, `di_hook`, `di_real_kick` en -Os.
+- Le banc ne simule pas la lecture par interruptions : essai sur console. Secours : réglage « Lecture SD par interruptions (Pulse) » sur Non.
+
+## Console v500 (build 1028) — Shrek en Pulse normal
+
+- Build 1026 : Shrek Extra Large se joue (5 min 49 s, menus, aucune erreur de lecture). Le Pulse minimum (v492, sans crochet son / DSP / jeton de dessin) ne sert plus : le plantage venait du redémarrage. Avec lui, les lectures en fond (réveil provoqué) n'avançaient qu'à l'image et aux manettes : vidéos lentes chez le testeur (GC2SD en slot B, 16 MHz). `na_min` n'est plus mis pour GS9E (le mécanisme reste).
+
+## Console v499 (build 1027) — Sonic Adventure 2 Battle : photo de la mémoire au plantage
+
+- SA2B (build 1025, journal complet) : plantage à Press Start inchangé depuis la 1011 (memset de 22 Mo). Lecture de `pressstart.prs` entière et juste (vers 0x811FEE60) ; le jeu (0x80072458) l'ouvre, la lit, la décompresse en 0x80FFFE60 (0x800D2684), puis y lit un nombre d'éléments (0x80118FC0) : 0x1CC186, faux. La correction de la 1013 n'était donc pas la cause. Pas le DMA (plantait déjà avant).
+- Diagnostic : pour GSN, la zone « arène » de la photo de la mémoire (memoire-jeu.bin, sans le journal complet) commence en 0x80FF8000 (256 Ko : le fichier décompressé). La pile (zone 2) contient la structure remplie par le jeu.
+
+## Console v498 (build 1026) — Shrek : mémoire simulée du bi2 au redémarrage
+
+- Build 1025 : Shrek ne redémarre plus la console ; le code de redémarrage (0x81300000) charge l'apploader (0x2460 vers 0x81200000), qui lit 0x420 puis le bi2 (0x440), puis s'arrête. Dans l'apploader : mémoire simulée du bi2 (0x01800000) comparée à la taille mémoire en 0x80000028, baissée par `nx_memtop` (sous Pulse) : plus grande, message d'erreur et arrêt.
+- `nx_read_done` : pendant le redémarrage, une lecture qui couvre 0x444 (mémoire simulée du bi2) est ramenée à la taille en 0x80000028 si elle la dépasse.
+- Place : `vi_snap`, `st_cmd`, `st_status` en -Os (Pulse W6100 pile à 0x817FFF00).
+- Build 1025 confirmée : Simpsons, plus de grésillements (DICFG direct).
+
+## Console v497 (build 1025) — Shrek : fin de la lecture du redémarrage ; DICFG lu directement
+
+- Shrek (journal complet, build 1024) : la lecture du code de redémarrage (104 Ko vers 0x81300000), faite d'un coup depuis la v495, passait Pulse en mode redémarrage (`exec_on`) avant la fin de la commande : « PAS DE RÉVEIL », le jeu attendait 9,9 s (délai du lecteur du SDK) puis redémarrait la console. `di_exec` : le réveil est envoyé aussi quand c'est cette commande qui a lancé le redémarrage (`ex0`).
+- Simpsons (journal complet, carte virtuelle coupée) : des milliers de lectures de DICFG (0xCC006024) par image, chacune par le détour de Pulse (~3 µs). C'est `__OSGetDIConfig`, appelé par la bibliothèque EXI après chaque transfert immédiat (carte mémoire, horloge). Les lectures de DICFG ne sont plus branchées (natif.c, et `nx_patch` pour les programmes suivants) : lues directement sur la console ; Pulse renvoyait déjà la vraie valeur. Pistes écartées : DMA, carte mémoire virtuelle.
+
+## Console v496 (build 1024) — réglage « Journal complet de Pulse »
+
+- Menu START > Pulse : « Journal complet de Pulse » (oui / non), le réglage `pulse_journal_complet` de gc-mp3.txt (v467), qui n'avait pas de ligne dans le menu. L'appli l'affiche avec les autres réglages de la console : changeable en direct depuis le téléphone.
+- Build 1023, Shrek : figé pendant une vidéo de logo (dice_black.hvqm, lecture de 512 Ko jamais finie pour le jeu), maintenant en DMA (2e façon) ; avant, sans DMA, il passait les logos. Journal complet demandé pour voir si la lecture bloque ou si la fin se perd.
+
+## Console v495 (build 1023) — Shrek : lecture d'un coup pendant le redémarrage du jeu
+
+- Journal Shrek (build 1021, Pulse léger) : à 34 s le jeu redémarre (OSResetSystem du SDK, code de redémarrage lu à 0x2440 puis 104 Ko vers 0x81300000). Il coupe toutes les interruptions sauf le lecteur ; avec le réveil provoqué, la lecture en fond n'avance qu'avec les interruptions de l'image, du son, des manettes : arrêtée après 7,5 Ko, le jeu croit le disque en panne et demande le redémarrage complet (surveillance v491 : endroit n. 2, appelé par le code de redémarrage).
+- `di_exec` : réveil provoqué et masques du SDK = tout coupé sauf le lecteur (et l'erreur PI) → lecture d'un coup, pas en fond.
+- Build 1022 confirmée sur Mario Kart (SD2SP2) : DMA 2e façon, 0 bloc au CRC faux.
+- Contient aussi le changement de Pulse de l'Appli 570 (jetons de dessin dans GCMT).
+- Place : Pulse W6100/W6300 (PULSE_NET=3) dépassait de 0x20 avec les deux changements : `nr_sample` et `sw_tick` en -Os (MEM_OS).
+## Appli 570 (privée) — images par seconde du jeu en direct
+
+Pendant une partie, la carte du jeu affiche les images par seconde du jeu (vert à pleine vitesse, orange puis rouge quand il
+ralentit) et une courbe de la dernière minute. L'appli compte les images que le jeu dessine (jetons de dessin vus par Pulse)
+par rapport aux images de l'écran, une fois par seconde. Il faut la console v495 ou plus (sinon : « pas encore mesurées »).
+Avec le Pulse minimum de Shrek, pas de mesure (pas de crochet de dessin).
+
+## Console v494 (build 1022) — DMA : 2e façon (carte pas choisie pendant le bloc, comme Swiss)
+
+- Build 1021 : DMA toujours refusé au test, mais plus loin (« dès la position 18 » au lieu de 8) : le 0xFF aidait. Swiss, dans sa version DMA, sélectionne le canal sans le CS de la carte pendant le bloc (`exi_selectsd`, masque 0x070 ; lu, rien repris).
+- `nr_speed` : si le DMA normal rate au test, 2e essai avec `x_dnocs` (CS relâché pendant le DMA du bloc, repris pour le CRC) ; gardé s'il donne les mêmes données. Journal : « DMA : 2e façon ». Le simulateur de carte du banc ne répond pas sans CS : la 1re façon reste celle du banc.
+- Place : `nr_block` sans copie en ligne, `pd_find` en -Os.
+- Shrek (build 1021, journal) : Pulse minimum actif, plantage au même endroit : ni le son, ni le DSP, ni le jeton de dessin. La surveillance du redémarrage n'existe qu'en Pulse léger (chercheur de codes allumé : Pulse normal).
+
+## Console v493 (build 1021) — DMA : 0xFF envoyé à la carte pendant le bloc
+
+- `nr_block`, en DMA : `exi[4] = 0xFFFFFFFF` avant le départ. Pendant qu'une carte SD (SPI) envoie un bloc, elle doit recevoir des 1 ; le registre de données gardait le dernier octet reçu (le jeton FE). Journaux : DMA refusé au test, « données différentes dès la position 8 », sur le port série 2 (Antho) comme en slot B (testeur, GC2SD). Swiss met ce registre à ~0 avant chaque transfert (lu dans cube/patches/sdgecko/sd_isr.S, rien repris). Le test du lancement reste le filet.
+
+## Console v492 (build 1020) — Shrek : Pulse minimum
+
+- `NRO_MIN` (0x80000000), Shrek Extra Large : pas de crochet sur le son (5), le DSP (7) ni le jeton de dessin (18) ; restent l'image, les manettes, le lecteur, la carte virtuelle (Swiss ne s'accroche qu'aux fins de transfert de la carte SD). Le jeu meurt au changement de scène qui suit la vidéo d'intro, pendant qu'il attend le processeur graphique ; comme LEGO Star Wars II en v244 (crochet sur la fin de dessin retiré). Le diagnostic du redémarrage (v491) reste.
+
+## Console v491 (build 1019) — Shrek : diagnostic du redémarrage de la console
+
+- Shrek Extra Large (Pulse léger, avec les branchements OSReport/OSPanic) : les écritures du jeu dans le registre de redémarrage de la console (0xCC003024 : `stw rS,0x3024(rA)` après `lis rA,0xCC00`, ou `stw rS,0x24(rA)` après `lis` + `ori/addi 0x3000`) passent d'abord par Pulse (`na_os_tramp`, n = 2 + endroit). Dans Shrek : 8002CAC8/8002CACC (boucle de redémarrage, rien ne l'appelle directement) et 80041C90/80041C94 (`__OSDoHotReset` du kit Nintendo).
+- Pulse (`os_hook`, une seule fois) : crash_dump code 0xFB (SRR1 = endroit, DAR/DSISR = DIMAR/DILENGTH de la dernière lecture), registres, appels, fils du jeu, puis laisse redémarrer. Traduction : « Le jeu a demandé un redémarrage de la console ». dernier-lancement.txt : les endroits branchés.
+- But : savoir enfin ce qui se passe au plantage de Shrek après la vidéo d'intro (les journaux s'arrêtaient avant).
+
+## Console v490 (build 1018) — journal complet plus forcé pour Shrek
+
+- Shrek Extra Large : le journal complet (v467, journal écrit à chaque image) n'est plus imposé ; seulement par le réglage. Testeur (carte en slot B, sans DMA) : vidéos des logos au ralenti. On sait déjà où le jeu plante (changement de scène après la vidéo d'intro).
+
+## Console v489 (build 1017) — carte SD en slot A aussi ; partage du canal avec le jeu
+
+- `sd_yield` : quand le jeu touche au canal de la carte SD (carte mémoire virtuelle du slot, horloge et réglages sur le canal 0), Pulse finit d'abord sa lecture par interruptions (`xv_drain`) et ferme la lecture en continu (`st_close`), puis laisse passer le jeu. Comme le verrou du canal que prend Swiss (lu dans cube/patches/sdgecko, rien repris). Corrige aussi un risque de la 1016 : une écriture du jeu dans le canal du slot B pendant une lecture de Pulse pouvait désélectionner la carte SD.
+- `SD_OWN_CH` : slot A aussi (carte virtuelle imposée sur ce slot) : lecture par interruptions et lecture en continu.
+
+## Console v488 (build 1016) — carte SD en slot B : lecture par interruptions
+
+- Testeur (GC2SD en slot B, Sonic Adventure DX, build 1012) : DMA refusé au test du lancement (bloc au CRC faux en DMA : `xfer` 0x408), lecture lente, à-coups à chaque chargement. En slot, les lectures en fond se faisaient interruptions coupées.
+- `SD_OWN_CH` : le canal de la carte SD est à Pulse seul sur le port série 2, et maintenant aussi en slot B quand sa carte mémoire virtuelle est imposée (le jeu n'y touche jamais). Lecture par interruptions (`xv_ok`) et lecture en continu laissée ouverte (`st_close`) aussi dans ce cas. Slot A non (canal 0 : horloge et réglages de la console).
+
+## Appli 569 (privée) — compagnon des Simpsons : « Tous les niveaux » plus lisible
+
+- Une ligne courte par niveau (« Niveau 1 · Homer », jauge et pourcentage), le détail (missions, cartes, guêpes) en dessous. Avant : la valeur trop longue écrasait le nom du niveau (lettres en colonne).
+- Compilée sur GitLab (tâche « appli », APK privé), envoyée dans la conversation.
+
+## Console v487 (build 1015) — liaison du chercheur de codes après le changement d'image du jeu
+
+- Pulse normal, chercheur de codes / succès / compagnon sans manettes du téléphone (`NRO_MEM` sans `NRO_PHONE`) : `pd_poll` et `pn_link_check` passent après la fonction d'image du jeu (avant : avant elle). L'envoi des morceaux de mémoire au téléphone retardait le changement d'image : image déchirée (deux images décalées un instant) et grésillements (Simpsons US, Sonic Adventure DX, build 1013). Avec les manettes du téléphone, rien ne change (leurs touches doivent arriver avant la lecture des manettes du jeu).
+
+## Appli 568 (privée) — compagnon : seulement les accessoires que le jeu peut utiliser
+
+- Page du compagnon : la GBA du téléphone n'apparaît que pour les jeux qui se servent du câble GBA (`JEUX_GBA` : Four Swords Adventures, Final Fantasy Crystal Chronicles, Rayman 3, Pac-Man Vs., Metroid Prime, Animal Crossing, Pokémon Colosseum, XD et Box, Sonic Adventure 2 Battle et DX, Mario Golf Toadstool Tour ; Wind Waker garde sa carte), hors partie, ou si elle est allumée. Le micro : Mario Party 6 et 7 (inchangé). Sans l'un ni l'autre, plus de titre « Accessoires du téléphone ».
+- Compilée sur GitLab (tâche « appli », APK privé), envoyée dans la conversation.
+
+## Console v486 (build 1014) — lancement : attente de l'enregistrement des réglages ; jamais Pulse universel en réveil provoqué
+
+- Écran rouge de GC Station au lancement (Simpsons US, build 1013) : un réglage changé depuis le téléphone juste avant ; son enregistrement en fond (fil `cfgw`, gc-mp3.txt) tournait encore quand le lancement a démonté la carte SD (chaîne : ouverture d'un fichier → pilote de la carte déjà démonté). `bg_quiesce` attend maintenant aussi `cfgw_wait()`.
+- Jeux en réveil provoqué (`na_selfirq_id` : Simpsons, Shrek Extra Large, Sonic Adventure 2 Battle) : jamais Pulse universel. La réparation automatique ne le propose plus (« vrai lecteur + Pulse universel » devient « vrai lecteur »), et un réglage gardé est ignoré. Simpsons Europe en build 1013 : essai 3/3 « Pulse universel » (après les lancements ratés), son qui craque et à-coups.
+
+## Appli 567 (privée) — compagnon The Simpsons: Hit & Run
+
+- Compagnon (`JeuSimpsons.kt`, appli privée seulement : en essai) pour GHQE7D et GHQP7D : pièces, cartes et missions en grand ; état du jeu, compteur de délit de fuite, voiture, mission en cours ; niveau en cours (missions par leur nom, courses de rue, mission bonus, course à pari, cartes, guêpes, gags, tenues, voitures) ; tous les niveaux. Adresses : notes publiques RetroAchievements du jeu GameCube (version US). Version européenne : la feuille de progression (mémoire réservée par le jeu, pas une adresse fixe) est cherchée une fois, d'abord à +0x660 (fin du programme européen), puis à ±64 Ko, reconnue à sa forme (temps des paris FFFFFFFF ou en secondes, missions 0/1, cartes 0..7).
+- Compilée sur GitLab (tâche « appli », APK privé, jamais publié), envoyée dans la conversation.
+
+## Console v485 (build 1013) — réveil provoqué dans Pulse normal (Simpsons avec le téléphone) ; Sonic Adventure 2 Battle
+
+- Réveil provoqué (v476) aussi dans Pulse normal : les Simpsons Hit & Run (US et Europe) gardent la liaison avec le téléphone quand elle sert (succès, compagnon, manettes) ; sans rien du téléphone, toujours Pulse léger. Pulse normal reste à la même adresse (l'appli lit son en-tête en 0x817EE000) : la place vient du test de vitesse de la carte, qui emprunte maintenant le cache du secteur et le tampon du DMA au lieu de ses deux tampons à lui (1 Ko).
+- Sonic Adventure 2 Battle (GSN) : réveil provoqué. Journal build 1011 : à « Press Start », le chargement d'un fichier .PRS n'avait rien rempli (ouverture ou lecture ratée, réveils par le vrai lecteur) ; le jeu, qui ne vérifie pas, a pris une valeur restée en mémoire pour un nombre d'éléments (0x801CC186 × 12 octets : 22 Mo demandés), l'allocation a échoué, plantage dans memset. Ce n'était pas un manque de mémoire.
+
+## Console v484 (build 1012) — DMA rendu aux cartes SD des slots (GC2SD), avec filet
+
+- Carte SD d'un slot (testeur, GC2SD) : le DMA revient en jeu quand le test du lancement le valide (coupé depuis la v472 : une grosse lecture de 150 Ko en DMA ratait 3 fois, écran d'erreur du disque). Sans DMA, la lecture est bien plus lente (Sonic lent chez lui).
+- Filet : en DMA, chaque bloc est vérifié (CRC), aussi à 16 MHz ; au premier raté (erreur ou CRC faux), Pulse coupe le DMA jusqu'à la fin de la partie et relit sans DMA. Avant, les 3 nouveaux essais restaient en DMA et rataient tous. Journal : « DMA coupé en cours de partie (v484) » avec le code de l'erreur.
+- Port série 2 (SD2SP2) : rien ne change (le test du DMA y échoue toujours).
+
+## Console v483 (build 1011) — réveil provoqué : lecture en fond sans boucle ; Shrek aussi
+
+- Simpsons Hit & Run US (build 1010 : en jeu, petites saccades) : 6,4 millions de réveils en 1 min 27 s (74 000 par seconde). Avec le réveil provoqué, chaque morceau de lecture en fond relançait aussitôt une interruption, et la suivante le morceau suivant : la lecture tournait en boucle dans les interruptions. Maintenant, la lecture en fond avance au rythme des interruptions du jeu (di_tick : image, son, DSP…) et à la fin de chaque suite de la lecture par interruptions ; seule sa fin est annoncée par une interruption provoquée.
+- Shrek Extra Large : réveil provoqué aussi (build 1010 : figé pendant la vidéo d'intro, vrai lecteur qui répondait ; build 1008 : vidéo passée, lecteur muet). Le vrai lecteur n'entre plus en jeu ; la liaison avec le téléphone est coupée pendant la partie (Pulse léger).
+
+## Appli 566 (publique et privée) — nouveautés des applis privées 550 à 565 dans l'appli publique
+
+- Choix du propriétaire : rien de ce qui est encore en test. Passent dans l'appli publique : listes RetroAchievements plus longues et stables (550–553, Sunshine), succès repliables, **historique des succès**, **classements de la partie**, filtre « 🏆 Succès » et progression sur les jaquettes (553, 555), **page Journaux** (565), ouverture et reconnexion plus rapides, message « téléphone coupé » (565), **mise à jour de la console par le téléphone** (563, 564), **Redémarrer GC Station** (554), correction du plantage du service des succès (564), page du compagnon (558), guide des testeurs (559).
+- Restent dans l'appli privée : rapport de test de fin de partie, mode hardcore, touches de la manette en direct, cartouche dans la GBA du téléphone, extraction d'un fichier du jeu.
+- Code : historique des succès, redémarrage et mise à jour de la console sortis de `src/prive/.../ExtrasRA.kt` vers `src/main/.../ExtrasCommun.kt` (les deux `ExtrasRA` y renvoient) ; portes `Prive.ACTIF` retirées pour le filtre et la progression des succès, les classements et la page Journaux.
+
+## Console v482 (build 1010) — Simpsons US comme la version européenne ; Shrek : redémarrage OSExec
+
+- The Simpsons Hit & Run US : même réglage que la version européenne, qui passe la vidéo d'intro et arrive aux menus (build 1009) : Pulse léger, réveil provoqué par Pulse, lectures normales (plus de Pulse compact ni de lectures toujours immédiates).
+- Shrek Extra Large (et OSExec en général) : l'apploader du disque range bi2 et la FST d'après la taille de la mémoire (0x80000028) ; avec 24 Mo, en plein dans Pulse (lecture de bi2 vers 817FDBC0 refusée : erreur, retour au menu de la console après l'introduction ; journal complet de la build 1008). Au début de l'OSExec, Pulse met la taille de la mémoire sous ce que GC Station a réservé (0x800000EC).
+
+## Console v481 (build 1009) — jeux PAL : vidéo laissée allumée au lancement
+
+- Cause trouvée grâce aux messages de la build 1008 : The Simpsons Hit & Run Europe s'arrêtait volontairement (OSPanic, vi.c ligne 1884, « VIConfigure(): Tried to change mode »). Depuis la v456 (build 984), GC Station éteignait la vidéo avant le saut ; le VIInit de ce SDK, trouvant la vidéo éteinte, la rallume en NTSC et met 0x800000CC à 0 (lu dans le main.dol européen : __VIInit(NTSC) si VI DCR bit 0 = 0). Le jeu PAL demande ensuite le PAL et le SDK refuse.
+- Les jeux PAL gardent maintenant la vidéo allumée, déjà réglée en PAL (576i ou PAL 60 Hz) comme le menu de la console. Les jeux NTSC gardent la remise à zéro de la v456 (couleurs inversées).
+
+## Console v480 (build 1008) — messages d'erreur des jeux, réveil provoqué sans lecteur
+
+- Vrai lecteur qui ne répond pas : Pulse léger réveille le jeu par l'interruption qu'il provoque (comme les Simpsons), plus en donnant les fins pendant les interruptions du jeu (Shrek Extra Large, build 1007 : figé dans sa fonction d'image après 22 s, lecteur muet ce jour-là).
+- Simpsons Hit & Run (US et Europe) et Shrek Extra Large : GC Station branche OSReport (messages du jeu pour ses développeurs) et OSPanic (arrêt d'urgence du kit Nintendo) sur Pulse, trouvés par le texte de OSPanic. Les 8 derniers messages vont dans le 5e secteur du journal (« GCSR », avant la 1re image) ; un arrêt d'urgence est noté comme un plantage (fichier, ligne, message, registres, appels, fils du jeu). Pulse léger seulement.
+- La version européenne des Simpsons revient au Pulse léger (la mémoire n'était pas la cause, build 1007 : même blocage avec 100 Ko de plus).
+- Pulse léger descendu de 1 Ko (0x817F2000) pour la place.
+
+## Console v479 (build 1007) — Simpsons Hit & Run Europe : Pulse compact
+
+- The Simpsons Hit & Run Europe (GHQP7D) : toujours figé juste après l'inquiry du démarrage avec le réveil provoqué (build 1006 : le réveil n'était pas la cause). Piste : la mémoire. Juste après, le jeu crée ses réserves de mémoire de tailles fixes (« No Heap Available » dans le jeu), et une image PAL demande plus de place qu'en NTSC. Il prend maintenant le Pulse compact comme la version US (~100 Ko de plus pour le jeu ; la vraie carte mémoire à la place de la carte virtuelle).
+
+## Console v478 (build 1006) — Simpsons Hit & Run Europe : réveil provoqué par Pulse
+
+- The Simpsons Hit & Run Europe (GHQP7D) : se figeait juste après l'inquiry du démarrage (1 seule commande, réponse bien reçue, aucune image ensuite), réveillé par le vrai lecteur. Il prend maintenant le même réveil que la version US (NRO_SELFIRQ : interruption provoquée par Pulse, fin de commande à l'interruption ; le vrai lecteur n'est pas touché pendant le jeu). Rien d'autre ne change pour lui (ni Pulse compact, ni lectures toujours immédiates).
+- Ce réveil n'existe que dans le Pulse léger : pour les Simpsons, la liaison avec le téléphone (manettes, lecture de la mémoire par l'appli) est coupée pendant la partie.
+
+## Console v477 (build 1005) — fin de commande avec l'interruption (comme Dolphin et Swiss)
+
+- Avec le reveil provoque (NRO_SELFIRQ, Simpsons US) : la commande reste "occupee" (DICR bit 0, ni TCINT ni DEINT) jusqu'a son interruption, et c'est l'interruption qui la termine, comme un vrai lecteur, Dolphin et Swiss. Avant : terminee des l'envoi, interruption apres. Un jeu qui attend en relisant les registres sans interruptions voit la fin au bout de ~300 us. Build 1004 sur la console : 934 commandes finies par les interruptions provoquees, aucune au vrai lecteur (le vrai lecteur n'est pas la cause du figeage).
+- Reveil provoque et fin differee : Pulse leger et compact seulement (place) ; Pulse leger 512 octets plus bas (0x817F2400).
+
+## Console v476 (build 1004) — reveil du jeu par une interruption provoquee (comme Swiss)
+
+- Nouvelle option de Pulse NRO_SELFIRQ : pour dire au jeu qu'une commande est finie, Pulse provoque lui-meme une vraie interruption (une lecture voulue a une adresse sans rien, 0xC4000000 : le processeur d'E/S leve son interruption "erreur", demasquee ; err_hook, numero 23 de la table du SDK, l'efface et fait comme une fin du lecteur). Plus aucune commande au vrai lecteur. Idee prise dans Swiss (il ne touche jamais au lecteur et cree ses interruptions ainsi), codee ici.
+- Mise pour The Simpsons Hit & Run US (avec le Pulse compact). La build 1003 (sans le lecteur, fins donnees depuis les autres interruptions du jeu) bloquait le jeu des sa 1re commande (infos du lecteur) : retiree.
+- Banc : l'emulateur sait l'adresse 0xC4000000 (erreurs voulues comptees) ; faux jeu avec le compact et le reveil provoque : lectures justes, 0 commande au vrai lecteur, retour par A+Z+START.
+
+## Console v475 (build 1003) — Simpsons US : sans le vrai lecteur
+
+- The Simpsons Hit & Run US : Pulse ne touche plus du tout au vrai lecteur pendant le jeu (fins de commande donnees depuis les interruptions du jeu, comme sur une console sans lecteur ; Swiss non plus n'y touche pas). Build 1002 (Pulse compact, ~100 Ko de memoire en plus) : fige toujours au meme moment de la video, comme avec tous les essais d'avant (lectures en fond ou immediates, 16 ou 32 MHz, carte virtuelle ou vraie, travail de Pulse apres l'image ou pas) : ni la memoire, ni la vitesse. Reste le vrai lecteur, que Pulse reveillait par des commandes « inquiry » (990 a 26 000 par partie).
+
+## Console v474 (build 1002) — Pulse compact (The Simpsons Hit & Run US)
+
+- Nouveau Pulse compact (-DNATRES_COMPACT, tools/natres_compact.ld, 0x817FA800-0x817FF680 : ~20 Ko au lieu de 55 Ko pour Pulse leger et 73 Ko pour Pulse normal) : le faux lecteur, la carte SD, les succes, A+Z+START, rien d'autre. Retires : lectures en fond (toujours immediates), lecture par interruptions, musique du disque, carte memoire virtuelle (la vraie carte memoire), OSExec, mode trap, ISO par le reseau, journal complet, details des plantages, cheats, essai DMA / 32 MHz (16 MHz sans DMA), manettes branchees. GC Station ne reserve plus non plus les 16 Ko de place pour des aiguillages poses pendant le jeu, ni le bandeau des succes.
+- Pris d'office pour The Simpsons Hit & Run US (GHQE), si la carte SD n'est pas dans un slot de carte memoire : il figeait toujours pendant la video d'intro, lectures justes, quels que soient les reglages ; avec GC Station il avait ~130 Ko de memoire de moins qu'une vraie console (Pulse et ses tables en haut). Banc, vrai main.dol US : haut de l'arene 817E9BA0 au lieu de 817D93A0 (Pulse normal), 83 acces au lecteur branches sur 83 ; le faux jeu du banc lit, revient a GC Station par A+Z+START ; succes verifies par le compact (essai ACH1).
+- Plus de journal complet automatique pour les Simpsons (le compact n'en a pas) ; Shrek Extra Large US le garde.
+
+## Console v473 (build 1001) — The Simpsons Hit & Run US : lectures immediates
+
+- The Simpsons Hit & Run (US, GHQE) : Pulse finit toujours les lectures tout de suite, jamais en fond (nouvelle option de Pulse NRO_SYNC, mise d'office pour ce jeu). Le jeu figeait toujours au meme endroit de la video d'intro avec les lectures en fond, alors que les donnees etaient justes (build 997-999), que Pulse ne faisait rien apres l'image (999) et que la vitesse « vrai lecteur » ne changeait rien ; dans Dolphin aussi, ce jeu se bloque sans la vitesse de disque rapide.
+- Essai de la build 999 retire : en journal complet, Pulse refait son travail apres l'image (A+Z+START revient).
+
+## Console v472 (build 1000) — carte SD des slots en jeu sans DMA
+
+- Carte SD d'un slot lue par le pilote de GC Station : Pulse la lit en jeu sans DMA (comme Swiss : DMA seulement si le pilote du demarrage l'a valide ; le notre lit sans DMA). Testeur (GC2SD, Super Monkey Ball, build 999 : 16 MHz, carte virtuelle sur le slot B active) : les premieres petites lectures passaient, la grosse lecture suivante (150 Ko, en DMA) ratait 3 fois, ecran d'erreur du disque.
+- dernier-lancement.txt : la carte memoire virtuelle du slot B imposee (carte SD dans ce slot) etait affichee « non (reglage) ».
+
+## Console v471 (build 999) — carte SD des slots en jeu ; essai Simpsons US
+
+- Carte SD d'un slot (A, B), comme Swiss : en jeu, Pulse garde la vitesse trouvee au demarrage (16 MHz, ou moins si notre pilote n'a trouve que moins) et n'essaie jamais 32 MHz. Avant : essai a 32 MHz puis 16 (testeur, adaptateur GC2SD, Super Monkey Ball : 6 lectures ratees, ecran d'erreur du disque). Vitesse notee dans dernier-lancement.txt ; Infos console montre aussi la ligne du slot quand notre pilote lit la carte.
+- Journal complet (Simpsons US, Shrek US) : Pulse ne fait plus rien apres la fonction d'image du jeu (ni cheats / corrections, ni succes, ni A+Z+START) : pour savoir si c'est ce travail qui fige les Simpsons US juste apres une image.
+- Pulse leger 512 octets plus bas (0x817F2600) : il etait plein a l'octet pres.
+- Carte SD dans un slot : carte memoire virtuelle toujours activee sur ce slot (comme Swiss) : le jeu qui cherche ses cartes memoire au demarrage n'envoie plus ses commandes a l'adaptateur SD (la lecture d'une carte memoire, commande 52, est aussi une commande de lecture de la carte SD).
+- Preparation d'un jeu (carte des secteurs) : lisait la carte d'un slot avec le pilote de libogc meme quand c'est notre pilote qui la lit.
+
+## Console v470 (build 998) — carte SD des slots : attente corrigée ; journal complet écrit plus souvent
+
+- Carte SD dans un slot (A, B) : la console attend 300 ms après avoir vu un appareil ; notre pilote abandonnait au bout de 100 ms (« probe 0 » chez un testeur, pris à tort pour « rien de branché »). Maintenant : jusqu'à 1,5 s, puis essai quand même ; seul -1 veut dire « rien ».
+- Journal complet de Pulse : le secteur en cours est aussi écrit à la fin des interruptions (son, DSP, manettes, image, lecteur), au plus toutes les 4 ms, et à chaque fois pendant OSExec. Avant : seulement à chaque image, donc un figeage perdait la fin du journal (Simpsons US entre deux images ; Shrek Extra Large pendant son redémarrage, écran éteint). Build 997 : les lectures des deux jeux étaient toutes correctes.
+- En-tête de journal-complet.txt : affichait encore v467.
+
+## Console v469 (build 997) — lectures vérifiées contre l'ISO, carte SD des slots A / B
+
+- Pulse (journal complet) : une empreinte des données livrées pour chaque lecture ; GC Station la compare à l'ISO dans journal-complet.txt (« CORRECT » ou « DONNEES DIFFERENTES », total à la fin). Pour savoir si Pulse donne de mauvaises données aux Simpsons (US) avant le figeage.
+- journal-complet.txt limité aux 1792 derniers événements (56 secteurs) : il passe sous la limite de 200 Ko de l'appli.
+- Style Aurore par défaut pour une nouvelle installation (le style choisi reste gardé dans gc-mp3.txt).
+- Carte SD dans un slot de carte mémoire (A, B) : si le pilote de libogc la refuse (il exige l'identifiant FFFFFFFF et démarre à 16 MHz), notre propre pilote, écrit d'après la norme SD : démarrage à 1 MHz, puis la plus haute vitesse qui relit le secteur 0 à l'identique. Rien envoyé à une carte mémoire.
+- Sans carte SD : Infos console disait « SD2SP2 (port série 2) : 5 Mo libres sur 6 » (c'était la SD virtuelle en mémoire) ; maintenant « aucune », avec ce que chaque slot a répondu. Le message de démarrage « carte en lecture seule » devient « Aucune carte SD trouvée : détails dans Outils > Infos console ».
+
+## Console v468 (build 996) — journal complet sans interruptions ouvertes
+
+Premier journal complet (v467, Simpsons US) : il marche (482 événements, dans l'ordre), et il montre que l'écran noir
+venait de la v467 elle-même : jeu bloqué dès sa 1re image (« Entrées : image 1, sorties 0 »), dernier événement « IMAGE :
+début ». Les interruptions laissées ouvertes pendant la fonction d'image du jeu (pour voir où elle tourne) laissaient
+entrer une interruption avant que le jeu ait gardé son état : elle l'écrasait. Retiré ; tout le reste du journal complet
+reste.
+
+## Console v467 (build 995) — journal complet de Pulse (diagnostic)
+
+Demande du propriétaire : au lieu d'ajouter au journal ce qui sert une piste, tout noter. Pulse léger (seule version
+avec de la place : ~1,8 Ko) note chaque événement, dans l'ordre et avec l'heure, dans gc-mp3/natif/journal-complet.bin
+(4 Mo d'un seul morceau sur la carte, sinon 2 ou 1 Mo ; en boucle ; le secteur en cours réécrit à chaque image) :
+chaque interruption (image, lecteur, son, DSP, dessin, manettes) avec l'endroit où était le jeu, et la fin de la fonction
+du jeu ; chaque commande du jeu au lecteur ; chaque lecture et écriture des registres du lecteur par le jeu ; chaque
+lecture de l'ISO sur la carte ; les lectures en fond (suite, fin donnée au jeu) ; chaque réveil par le vrai lecteur ;
+chaque fonction du lecteur appelée par Pulse (secours compris) ; les accès du jeu au bus EXI (carte mémoire) ; les
+lectures de programmes (OSExec). Si une image arrive pendant la fonction d'image du jeu (interruptions laissées
+ouvertes pendant celle-ci, journal complet seulement), l'endroit où elle tourne est noté et écrit tout de suite.
+Au démarrage suivant, GC Station traduit les 20 480 derniers événements dans gc-mp3/natif/journal-complet.txt.
+
+Actif pour les Simpsons US (GHQE) et Shrek Extra Large US (GS9E), ou pour tous les jeux avec
+`pulse_journal_complet = oui` dans gc-mp3.txt. Le jeu est un peu ralenti et lancé sans le téléphone (Pulse léger) ;
+pas de photo de la mémoire au plantage (mêmes champs de l'en-tête). Le Pulse habituel ne change pas (le diagnostic
+de la fonction d'image des v462-v464 n'est plus que dans le Pulse léger : place).
+
+Retiré : l'essai de la v466 (vidéo laissée allumée pour les Simpsons US : même blocage, et la télé refusait l'image).
+
+## Console v466 (build 994) — Simpsons US : essai, vidéo laissée allumée au lancement
+
+Journal v464 des Simpsons US : « REPERE v464 : 2 » : le journal est écrit en entier, puis le jeu reste bloqué dans sa
+fonction d'image (gestionnaire d'image du SDK : il réveille les tâches qui attendent l'image et applique les changements
+d'affichage, interruptions coupées). Le lanceur de secours (Swiss) fait passer les vidéos d'intro : c'est donc Pulse /
+le lancement de GC Station. Différence repérée : GC Station met bien l'écran en NTSC 480i avant le saut (v89, comme
+Swiss), mais depuis la v456 remet ensuite la vidéo à zéro et l'éteint (contre les couleurs inversées sur la prise
+numérique) ; Swiss la laisse allumée. Essai : pour les Simpsons US seulement, la vidéo reste allumée (na_vi_off sauté).
+L'interruption de trop envisagée (768 acquittements pour 767 commandes) n'en est pas une : c'est l'écriture
+d'initialisation du jeu.
+
+## Console v465 (build 993) — Shrek Extra Large : le code de redémarrage reçoit ses fins de commande
+
+Journal v463 de Shrek (13/11, 15 h 50) : le reset du vrai lecteur est bien gardé et le code de redémarrage va plus loin
+(106 commandes au lieu de 93), puis s'arrête sur une lecture de l'en-tête de l'apploader (0x2440, 32 octets) marquée
+« PAS DE REVEIL ». Depuis la v95, pendant un OSExec, Pulse ne donnait pas d'interruption de fin de commande (« personne
+n'en attend » : un ancien code de redémarrage attend en lisant les registres). Celui de Shrek installe sa propre fonction
+d'interruption du lecteur (0x81308984, v460) et attend la fin de chaque commande : il restait bloqué. Maintenant, si la
+fonction retenue par Pulse (di_orig) est dans la zone du code de redémarrage, la fin de commande est donnée comme
+pendant le jeu.
+
+## Console v464 (build 992) — Simpsons US : bloqué dans la fonction d'image, repère pour savoir qui bloque
+
+Journal v462 des Simpsons US (13/11, 15 h 38) : « Entrées : image (VI) 843, sorties 842 » : le blocage a lieu pendant la
+fonction d'image appelée par Pulse (cette fois dans la 2e vidéo, radlogo.rmv). D'après le main.dol, c'est le gestionnaire
+d'image standard du SDK (80315454) ; la seule fonction du jeu qu'il appelle (8027674C, installée par
+VISetPreRetraceCallback) lit l'heure ; rien qui puisse boucler. Reste un doute : juste avant d'appeler le jeu, Pulse
+écrit le journal sur la carte (journal détaillé) ; « 843 » a pu être écrit puis la fin de l'écriture bloquer.
+
+Diagnostic : en journal détaillé, l'écriture se fait deux fois, avec un repère dans l'anneau du journal (1 puis 2). Le
+journal traduit dit « REPERE v464 : 1 » (bloqué dans l'écriture de la carte, Pulse) ou « 2 » (journal écrit en entier :
+bloqué ensuite, dans la fonction d'image du jeu).
+
+Place dans Pulse : nr_read_sd et card_load compilées au plus petit (elles attendent surtout la carte).
+
+## Console v463 (build 991) — Shrek Extra Large : le vrai lecteur reste en reset après OSExec
+
+Le main.dol de Shrek (journal du 13/11, 15 h 21) : avant le blocage, l'ancien jeu est dans la boucle d'attente de son
+système (80044460, la même que les Simpsons US) : il attend, puis passe la main au code de redémarrage. Ce code (la
+partie de l'apploader du disque en 0x39B4, 106 368 octets, chargée en 0x81300000) est un petit programme complet ; juste
+avant de lancer le jeu rechargé, il relâche le reset du vrai lecteur (PI 0xCC003024 = 7, en 0x813005B8). Pulse garde ce
+lecteur en reset pendant tout le jeu (le faux lecteur répond à sa place) : relâché, il redémarre et se mêle des commandes
+du jeu rechargé. Pulse change maintenant ce 7 en 3 (le bit 2, reset du lecteur, reste à 0) quand il branche le code de
+redémarrage (nx_pireset : lis/addi 0x3000/li 7/stw 0x24, une seule occurrence chez Shrek). Le journal le dit
+(« reset du vrai lecteur gardé »).
+
+Diagnostic : pendant un OSExec, le journal est réécrit à chaque commande du code de redémarrage (on voit jusqu'où il va) ;
+journal détaillé de la v462 (à chaque image) aussi pour Shrek Extra Large US (GS9E).
+
+## Console v462 (build 990) — diagnostic des Simpsons US : journal à chaque image
+
+Simpsons Hit & Run US se fige toujours vers 11-14 s dans le logo Gracie (gracie.rmv), même sans la lecture SD par
+interruptions, ISO vérifiée (MD5 conforme). Le main.dol montre qu'avant le blocage le jeu était dans la boucle d'attente
+de son système (toutes ses tâches attendent) : rien d'anormal ; puis tout s'arrête (image, son, A+Z+START, journal). Le
+journal n'étant réécrit que toutes les 3 s, le moment du blocage n'était jamais vu. Piste : Pulse appelle la fonction
+d'image du jeu avant de compter l'image et d'écrire le journal ; un jeu bloqué dedans, interruptions coupées, fige tout.
+
+Diagnostic (option NRO_LOGALL, mise par GC Station pour les Simpsons US seulement) : au début de chaque image, avant la
+fonction du jeu, Pulse note où était le jeu et réécrit le journal. Après un blocage, « Entrées : image (VI) N+1,
+sorties N » dira que le jeu est resté bloqué dans sa fonction d'image, et « dernier code » où il en était.
+
+Place dans Pulse : six fonctions rares compilées au plus petit (hook1, nx_dol_sections, nx_sync, fx_apply, gk_sync,
+exc_c) : environ 256 octets de libres (le Pulse W6100 / W6300 du banc était pile à la limite).
+
+## Console v461 (build 989) — réglage « Lecture SD par interruptions » remis, journal OSExec lisible
+
+Simpsons Hit & Run US (vidéo d'intro) et Shrek Extra Large (après la lecture du code de redémarrage) se figent tous les
+deux d'un coup : plus d'image, plus de son, A+Z+START sans effet, et le journal n'est plus réécrit (il est écrit par les
+interruptions de l'image : ce qu'il montre date d'avant le blocage). Dans les deux journaux, la lecture SD par
+interruptions était utilisée et sa dernière étape était une suite finie. Pour savoir si elle est en cause, le réglage
+retiré en v445 revient : START > Jeux, rubrique Pulse > « Lecture SD par interruptions (Pulse) », Oui par défaut (dans gc-mp3.txt :
+`pulse_lecture_interruptions`, nouveau nom pour que les anciens fichiers, qui avaient « non », ne la coupent pas).
+Le journal dit maintenant « Lecture par interruptions : non (réglage) » quand elle est coupée.
+
+Journal : l'entrée « code de redémarrage lu » d'OSExec (même code EE que « jeu sans image ») était traduite « JEU SANS
+IMAGE » ; elle est maintenant traduite comme telle, et « le nouveau programme a pris la main » (EF) aussi.
+
+## Console v460 (build 988) — Shrek Extra Large : le jeu rechargé reste branché au faux lecteur
+
+Suite de la v459 (journal du 13/11) : le code de redémarrage de Shrek installe son propre gestionnaire d'interruption du
+lecteur (0x81308984, dans sa propre zone). Pulse le prenait pour « le nouveau programme a pris la main » et arrêtait de
+brancher ce qui se chargeait ensuite : le Shrek rechargé parlait au vrai lecteur (tenu en reset), écran noir. Un
+gestionnaire installé dans la zone du code de redémarrage (0x81300000 + sa taille) ne compte plus, et seul le relais vers
+l'ancien jeu (fonctions sous 0x81300000) est coupé : celui vers le code de redémarrage reste en place.
+
+## Console v459 (build 987) — Shrek Extra Large : le changement de scène (OSExec) ne fige plus
+
+Quand un jeu se relance lui-même (OSExec avec l'ancien apploader : code de redémarrage en 0x81300000), Pulse
+coupait le relais vers les fonctions d'interruption du jeu dès la fin de la lecture du code de redémarrage. Or
+l'ancien jeu attendait justement l'interruption de fin de cette lecture : il bouclait pour toujours sur
+DVDGetCommandBlockStatus (Shrek Extra Large, figé au changement de scène). Le relais est maintenant coupé à la
+1re commande du code de redémarrage, quand l'ancien jeu est vraiment parti.
+
+Place dans Pulse : la table de la carte mémoire virtuelle du slot B passe à 56 morceaux (au lieu de 64).
+
+## Console v458 (build 986) — plus de touches perdues avec Pulse, Shrek Extra Large
+
+Manettes avec Pulse : des lectures de la manette étaient perdues (touches qui ne passent pas, stick qui saute :
+Tony Hawk's Pro Skater 4). Deux causes, corrigées :
+- A+Z+START : Pulse lisait lui-même la manette (~950 fois par seconde), ce qui efface le drapeau « données
+  neuves » de la console ; des données arrivées entre deux lectures étaient perdues pour le jeu. Pulse regarde
+  maintenant ce que le jeu lit lui-même (et relit la manette seulement si le jeu ne lit plus rien : jeu figé).
+- Manettes du téléphone : sans téléphone, le port restait « branché » et ses transferts partaient vers la vraie
+  manette du port 1, environ 14 fois par seconde. Le port du téléphone n'existe plus qu'à partir du 1er paquet.
+
+Shrek Extra Large (et les jeux qui ont d'autres programmes sur le disque) : 32 Ko au lieu de 16 pour brancher
+en jeu le code de redémarrage (sa propre copie du pilote du lecteur, ~84 accès) puis le programme rechargé (90).
+
+## Console v457 (build 985) — musiques d'un jeu sans gel, Shrek Extra Large, mémoire vidée au lancement
+
+Musiques d'un jeu (fiche > bas) : la recherche dans l'image (jusqu'à 2 500 lectures sur la carte) se fait dans
+un fil à part, avec la progression affichée ; avant, l'écran restait figé jusqu'à 25 s. La liste trouvée est
+gardée sur la carte (gc-mp3/jeux/musiques-ID.txt) : la fois suivante, elle s'ouvre tout de suite.
+
+Pulse : 16 Ko (au lieu de 9) pour brancher les accès au lecteur d'un 2e programme du disque (OSExec), et ces
+branchements sont serrés. Shrek Extra Large se figeait au passage à son 2e programme : 12 accès non branchés.
+
+Lancement d'un jeu : si la mémoire de GC Station est trop morcelée pour le tampon du lancement (environ 4 Mo
+d'un seul bloc), elle est d'abord vidée de ce qui se recharge tout seul (musique en cours, jaquettes,
+vignettes, images du web, carte du globe, banque de sons MIDI, historique radio), puis le lancement
+réessaie. Avant : « Pas assez de mémoire libre dans GC Station » et il fallait redémarrer la console.
+
+## Console v456 (build 984) — couleurs inversées et retour A+Z+START figé en 480p
+
+La vidéo est remise à zéro et éteinte juste avant de lancer un jeu, et juste avant de revenir à GC Station par
+A+Z+START. Le SDK des jeux (comme libogc) ne refait l'initialisation complète de la vidéo que s'il la trouve
+éteinte : sinon il gardait l'état laissé par le programme d'avant (576p PAL de GC Station pour le jeu, 480p du
+jeu pour GC Station). Résultat sur la prise numérique (adaptateur HDMI) : rouge et bleu inversés (Paper Mario,
+Tony Hawk's Pro Skater 4) et écran brouillé ou figé au retour par A+Z+START.
+
+## Console v455 (build 983) — tous les adaptateurs réseau de la GameCube, dans GC Station et dans Pulse
+| Adaptateur | Puce | Ports | GC Station (menus, téléphone, Internet) | Pulse (pendant les jeux) |
+|---|---|---|---|---|
+| Broadband Adapter officiel | — | port série 1 | oui | oui |
+| ETH2SP1, ETH2GC Sidecar… | W5500 | port série 1, **port série 2 (nouveau)**, ports de carte A et B | oui | oui (port série 2 nouveau) |
+| ETH2SP1 récents | W6100 / W6300 | les mêmes | oui (v454, port série 2 nouveau) | **oui (nouveau)** |
+| ETH2GC Lite | ENC28J60 | les mêmes | **oui (nouveau)** | **oui (nouveau)** |
+- **GC Station** : les trois pilotes de libogc2 (W5500, W6x00, ENC28J60 ; licence zlib) sont produits par `tools/netif/adapte.py` à partir des fichiers de libogc2, avec `tools/netif/gcs_compat.h` pour ce que la libogc de devkitPro n'a pas (EXI_GetIDEx, EXI_DmaEx, IRQ_Request à 3 arguments, attentes limitées dans le temps de l'ENC28J60 par `gcs_wait_flag`). Le port série 2 (interruption de débogage du PI, présente dans libogc 3.2.1) est de nouveau essayé, sauf si la carte SD y est (`gcmp3_net_skip_exi2`, réglé par main.c). Ordre : BBA, W6x00, W5500, ENC28J60 (comme libogc2) ; chaque pilote facultatif est retiré proprement s'il ne se compile pas. Console info : l'adaptateur trouvé et son port (`net_adapter`, nom de l'interface lu par `gcmp3_netif_name`).
+- **Pulse** : deux nouveaux Pulse, compilés depuis le même natres.c : **W6100 / W6300** (`PULSE_NET=3`, `natres_w6_bin` : le code du W5500 avec les registres du W6x00, verrous CHPLCKR / NETLCKR, trame de 4 octets du W6300) et **ENC28J60** (`PULSE_NET=4`, `natres_enc_bin` : pilote écrit pour Pulse, sans interruption : banques, MAC / MII, anneau de réception de 4 Ko, envoi à 0x1000 ; adresse Ethernet calculée comme la pile de GC Station, à partir du numéro de la console). Tous les Pulse réseau essaient maintenant les 4 ports (port série 1, port série 2 sauf la carte SD de Pulse, ports B et A). Fins : BBA 817FFE40, W5500 817FFD80, W6x00 817FFE20, ENC28J60 817FFDC0 (max 817FFF00). Pas de Pulse -Os (mode trap) pour W6x00 / ENC28J60 : celui du BBA, sans réseau.
+- **Choix du Pulse** (`na_nic`, natif.c) : d'après l'interface que la pile réseau a trouvée (sinon l'identifiant EXI, comme avant) ; avant le saut vers le jeu, les interruptions de l'adaptateur sont coupées à son port (`na_eth_quiet` pour W6x00 et ENC28J60, W5500 sur les 4 ports).
+- **Compilation ici** : devkitPPC et libogc 3.2.1 récupérés de l'image Docker officielle (registre Docker), GC Station compilé en entier comme sur CircleCI. Banc de Pulse : `emu_w5500.py` sait aussi être un W6100 ou un W6300 (`W_CHIP`), nouveau `emu_enc28j60.py` (ENC28J60 simulé) : W5500 sur le port série 2, W6100 et W6300 sur 4 ports, ENC28J60 sur 4 ports, canal pris par le jeu, carte SD : **76 OK** (19 de plus), plus l'échec connu. Aucun de ces adaptateurs non officiels n'a encore été essayé sur une vraie console.
+
+## Console v454 (build 982) — cartes à plusieurs partitions, adaptateurs W6100 / W6300
+Retours d'un testeur RetroAchievements (photo de Console info : « SD2SP2 : 5 Mo libres sur 6 Mo », « pas de réseau » avec un adaptateur Ethernet dans le port série 1 que Swiss voit) :
+- **Carte à plusieurs partitions** (`sd_pick_part`, main.c) : libfat et FatFs prennent la 1re partition FAT de la table ; sur une carte avec une petite partition devant, GC Station montait la petite (6 Mo) et ne voyait aucun jeu. Maintenant, dès qu'il y a 2 partitions FAT / exFAT ou plus (table MBR ou GPT), ou une table GPT, GC Station monte **la plus grande** (FAT32 par libfat avec son 1er secteur, exFAT par FatFs décalé de `exf_off`). `sd_part` est utilisé aussi par tout ce qui lit la carte en direct : position des jeux et des cartes virtuelles pour Pulse (`nat_map`, `exf_extents`), place libre (`sd_space_fast`), onglet Fichiers (`fm_geo`). Console info : « partition k sur n (la plus grande) » ; journal de démarrage : « carte SD (… MHz, plus grande partition) » et la ligne du journal de plantage. Les cartes à une seule partition ne changent pas. Essayé sur PC avec des images (MBR petite FAT + grande exFAT, une seule partition, GPT à deux partitions) ; banc exFAT : tout OK.
+- **Adaptateurs W6100 / W6300** (`tools/netif/w6x00if.c`, pilote de libogc2, licence zlib, adapté comme le W5500 en v326 : sans le port EXI 2) : ils ont le même identifiant EXI que le W5500 mais pas le même numéro de version de puce, donc notre pilote W5500 les refusait. Ils sont essayés après le Broadband Adapter et avant le W5500, comme dans libogc2. Facultatif dans `tools/fast_net.py` : s'il ne se compile pas, la pile réseau est faite comme avant (W5500 seul) et le journal de compilation le dit. Pendant les jeux, Pulse n'a que les pilotes BBA et W5500 : avec un W6100, pas de téléphone pendant la partie.
+- **Console info : « Allumée depuis »** compte depuis le démarrage de GC Station (`up_t0`) ; avant, depuis le zéro de l'horloge de la console (235507 h chez le testeur).
+
+## Console v453 (build 981) et appli privée 565 — lancement préparé, journaux depuis l'appli, appli plus rapide
+- **Console : lancement plus rapide** (`nat_pre_step`, natif.c ; appelé par main.c) : quand la fiche d'un jeu reste ouverte 1,2 s sans qu'on touche à rien, GC Station fait à l'avance l'analyse du jeu (lecture et parcours du main.dol) puis sa position sur la carte (chaîne des clusters), une étape par image. Au lancement, `na_pre_analyse` et `na_pre_map` reprennent ce résultat si le fichier n'a pas changé (taille, date, 1er cluster) et si c'est récent (5 min). Pas pour le vrai lecteur, le GC Loader, le jeu par le réseau ni les jeux à programme compressé (Rogue Squadron III). Journal de lancement : « Prepare pendant la fiche (v453) ».
+- **Console : message `GCSP1`** (`tpl_pulse`, tab_phone.c) envoyé après `GCSG1` : 0 sans Pulse, 1 Pulse complet, 2 Pulse léger.
+- **Console : `/api/journaux`** : la liste (nom, taille, date) et `/api/journaux/<nom>` pour 6 fichiers seulement (dernier lancement, journal de la partie, fluidité, démarrage, plantage, réparation) ; rien d'autre de la carte (essayé dans le simulateur : un autre nom donne 404).
+- **Appli privée 565 : téléphone coupé** : avec le Pulse léger, l'écran « Partie en cours » le dit (manette, chercheur de codes et compagnon ne marchent pas pendant la partie), avec le réglage à activer ; même message dans le compagnon et le chercheur de codes.
+- **Appli privée 565 : page Journaux** (onglet Console, `Journaux.kt`) : liste des journaux de la console ; les lire, les partager, ou les garder dans Téléchargements/GC Station.
+- **Appli privée 565 : ouverture plus rapide** : plus d'écran « Connexion… » devant tout. L'appli s'ouvre sur ce qu'elle a gardé (liste des jeux, jaquettes) pendant qu'elle essaie la console connue (en-tête : « Connexion à la console… ») ; l'écran de recherche ne vient que si elle ne répond pas. Les jaquettes de la console déjà gardées sur le téléphone ne font plus la queue derrière celles demandées à la console.
+- **Appli privée 565 : reconnexion après une partie** : la console est essayée toutes les 1,5 s pendant la partie (avant : 3 s) ; au retour, le direct et les listes sont repris tout de suite ; après plus d'une minute de jeu, la console est aussi cherchée sur le Wi-Fi toutes les ~30 s (au cas où son adresse aurait changé).
+- Essais : banc de Pulse (57 OK, échec connu) ; simulateur PC (tout bon, sauf l'essai du Salon par Internet, qui passe par le proxy de l'environnement : bon avec `no_proxy=127.0.0.2`).
+
+## Console v452 (build 980) — plus de mémoire pour les jeux
+- Mesure (Mario Kart, téléphone et chercheur de codes actifs) : Pulse prend ~134 Ko au jeu : programme ~73 Ko, aiguillages ~26 Ko, direct ~18 Ko, bandeau ~13 Ko, manettes du téléphone ~1 Ko, table d'emplacement ~2 Ko.
+- **Pulse léger** (`NATRES_LITE`, `tools/natres_lite.ld`, `build/natres_lite_bin.h`) : sans téléphone ni réseau (manettes du téléphone, direct et chercheur de codes, GBA, micro, jeu par le réseau, pilotes BBA et W5500). 53 Ko au lieu de 73, lié en 0x817F2800 (`NATRES_AT_LITE`) au lieu de 0x817EE000 : **18 Ko de plus pour le jeu**. GC Station le prend tout seul quand rien du téléphone ne sert (`na_lite` : ni NRO_PHONE, ni NRO_MEM, ni Pulse universel, ni Pulse LAN, ni jeu par le réseau). Il garde tout le reste : succès, cheats, cartes virtuelles, musique du disque, lecture par interruptions, retour au menu. Journal de lancement : « Pulse léger ». Dans GC Station, l'adresse et la taille de Pulse sont devenues `na_at()` et `na_size()`.
+- **Aiguillages à la place exacte** (`na_tr_need`) : chacun est construit à blanc avant de réserver (avant : 80 octets par accès, au jugé). Mario Kart : ~2,5 Ko de moins.
+- **Police du bandeau à la taille utile** (`na_ban_subset`) : sans le téléphone, seules les lettres des étiquettes et des titres des succès sont gardées (renumérotées ; 0-6 : fin et icônes). Avec le téléphone : toute la police (ses textes arrivent déjà codés). Jusqu'à ~4 Ko de moins.
+- Le direct (18 Ko) n'est pas touché : il n'est réservé que si le chercheur de codes et l'envoi vers l'appli sont actifs, et le Compagnon en a besoin.
+- Banc d'essai : les scripts lisent `NATRES_AT_FULL` ; le Pulse léger est compilé et passe les essais de base (`EMU_AT=0x817F2800`).
+
+## Console v451 (build 979) — petites optimisations
+- **32 MHz plus souvent** : Pulse essayait le 32 MHz une seule fois au début du jeu (4 lectures identiques). Wind Waker et Paper Mario restaient à 16 MHz alors que Mario Kart passait, avec la même carte : test un peu juste. Il a maintenant 3 essais (`nr_speed`).
+- **Le 32 MHz reste sûr** : la lecture par interruptions (`xv_adv`) vérifie maintenant le CRC de chaque bloc lu à 32 MHz, comme la lecture à l'ancienne. Bloc faux : la suite est relue à l'ancienne et Pulse repasse à 16 MHz (`x_fast_off`).
+- **Moins d'écritures au début d'un jeu** : `xv_mark` n'écrit plus le journal sur la carte à chaque étape (jusqu'à 24 écritures au démarrage depuis la v439). Les étapes restent notées et partent avec le journal habituel.
+- **Mes jeux préparé en fond** : la liste est préparée une fois, quand la console est inactive après le démarrage (10 s, 3 s sans toucher aux manettes), si elle est déjà gardée sur la carte. Avant : à la 1re ouverture.
+- **Ménage** : `gm_hub_bar`, `gm_hub_input`, `gm_hub_go`, `gm_hub_cur` (barre Jeux / Applis / Cartes et passage au stick C, coupés en v449) retirés avec leurs appels. La vue des jeux affiche toujours son titre. L'écran des applis reste (le test de la console s'en sert).
+
+## Console v450 (build 978) — fluidité : réseau étalé
+- `fluidite.txt` (v448) : dans tous les moments lents (fiche de Mes jeux, globe, décodage de la radio), le temps « dont réseau » égale presque tout l'arrêt (243 ms dont 239, 891 dont 878, jusqu'à 2,4 s). Ce n'est pas l'étape qui est lente : la pile réseau de libogc (fil en priorité maximale, 220 ramené à 127) et le pilote du BBA (paquets envoyés mot par mot, sans DMA) prennent tout le processeur pendant ce temps. En réception, la fenêtre TCP d'un paquet (`TCP_WND = TCP_MSS`) limite déjà le débit. En envoi, rien.
+- Serveur du téléphone (`tp_send`) : blocs de 4 Ko (avant 8 Ko enchaînés) et 2 ms de pause toutes les 8 Ko envoyés : une grosse réponse (jaquettes, fichiers, capture d'écran pour l'appli) ne fige plus l'image d'un coup.
+- Téléchargements (`hf_pump`) : au plus 64 Ko lus par image par défaut (avant 256 Ko), 48 Ko vers la carte SD (avant 96 Ko). Les mises à jour de la console gardent 256 Ko (`up_hf.frame_cap`).
+
+## Console v449 (build 977) — plus d'ancien menu Jeux / Applis / Cartes
+- La carte « Cartes mémoire » de l'accueil ouvre l'écran des cartes mémoire (le seul qui existe), mais il gardait en haut la barre « Jeux / Applis / Cartes » et le passage au stick C d'une vue à l'autre, qui menaient aux anciens écrans (applis, cartes).
+- Barre retirée (`gm_hub_bar` ne dessine plus rien) et passage au stick C coupé (`gm_hub_input`), sur tous les écrans qui les avaient (vitrine, applis, cartes, carte virtuelle). B ramène à l'accueil des jeux.
+
+## Console v448 (build 976) — mesure de fluidité : les étapes lentes de la radio, du globe et de « Mes jeux »
+- `fluidite.txt` (v447) : arrêts jusqu'à 1,8 s sur le globe de la radio (« radio » ≈ « processeur pris (réseau) », station Gold FM - 93.2 Backup), et de 0,5 à 0,9 s à l'ouverture de « Mes jeux » / JEUX / APPS (« dessin »). Les connexions de la radio sont déjà en tâche de fond (v193-v195) : la cause précise manquait.
+- Pendant la mesure de fluidité, une étape de plus de 60 ms est notée (macro `SLOW`, `slow_note`) : son nom, sa durée et le temps pris par le réseau pendant ce temps. Elle apparaît comme « dernière action » des moments les plus lents.
+- Étapes mesurées : radio (contextes TLS, connexion, réception, fermeture, décodage, reconnexion), globe (chargement en fond, stations lues, déplacement, dessin), Mes jeux (lecture de la carte, tour de la carte, liste, vitrine, fiche) et l'accueil des jeux.
+
+## Console v447 (build 975) — carte « Applis » de l'accueil : la vitrine, plus l'ancien écran
+- La carte « Applis » de l'accueil de JEUX ouvrait l'ancien écran des applis (`ap_open`, tools.c), avec ses onglets Jeux / Applis / Cartes, qui menait aussi à l'ancien écran des cartes mémoire.
+- Elle ouvre maintenant la vitrine des jeux (`gclib_open`) sur le filtre « Applis » (`GSF_APPS`), comme quand on y arrive par les filtres.
+
+## Console v446 (build 974) — retour par A+Z+START : réglages de GC Station de nouveau lus
+- Après A+Z+START, GC Station redémarrait avec ses réglages par défaut. Après extinction, les bons réglages revenaient : le fichier n'était pas abîmé.
+- Cause : depuis la v434, la lecture en continu de la carte reste ouverte entre deux lectures. `ret_to_gcstation` relisait le .dol de GC Station puis le lançait sans l'arrêter : la carte envoyait encore ses secteurs, GC Station ne la montait pas (`sd_ok` à 0) et `load_settings` s'arrêtait tout de suite.
+- Avant de lancer GC Station, Pulse finit une éventuelle suite par interruptions, arrête la lecture en continu (CMD12) et relâche la carte.
+
+## Console v445 (build 973) — lecture par interruptions toujours active, réglage retiré
+- Essais concluants sur Mario Kart, Wind Waker et Rayman 3 : la lecture de la carte SD2SP2 par interruptions est maintenant toujours active (`nat_xv = 1`).
+- Le réglage « Lecture SD par interruptions (Pulse, essai) » est retiré du menu (entrée `MI_NATXV`, son libellé, son affichage, son action et son aide), ainsi que la clé `resident_lecture_interruptions` du fichier de réglages (ignorée si elle y est encore).
+- Pulse revient de lui-même à la lecture classique quand un jeu ne s'y prête pas : 3 suites ratées, ou 16 reprises de suite sans vraie interruption. Pas avec Pulse universel, ni avec une carte dans un port de carte mémoire, ni par le réseau.
+
+## Console v444 (build 972) — lecture par interruptions : sécurité pour les jeux qui les bloquent
+- v443 essayée sur Mario Kart (vidéo « très fluide », 1750 suites, 0 erreur), Wind Waker (2443 suites, 0 erreur) et Rayman 3 (1060 suites, 0 erreur, carte mémoire virtuelle écrite pendant les suites) : aucune fin perdue, réveil du lecteur à 0,2 ms en moyenne.
+- Sécurité : un jeu qui ne laisserait passer aucune interruption serait lu un transfert par réveil du lecteur (v443 : reprise à chaque réveil). Après 16 reprises de suite sans vraie interruption (`xv_row`, remis à 0 par `xv_c`), la suite est finie à l'ancienne et plus de suites pour ce jeu.
+- `exi_busy` ne compte plus la suite de Pulse comme une occupation du bus par le jeu (Wind Waker : 50 473 « lectures remises à plus tard », dues à notre propre transfert).
+
+## Console v443 (build 971) — lecture par interruptions : les fins de transfert « volées »
+- v442 : Mario Kart passe (58 s, vidéo jouée, plus d'écran d'erreur), mais après 3 suites ratées les interruptions étaient coupées pour le jeu : la vidéo était lue à l'ancienne.
+- Détail noté : « suite pas finie, en attente du début de bloc, registre de transfert 00 » : le transfert était fini, mais ni l'interruption ni `xv_drain` ne voyaient sa fin. Cause : le système du jeu réécrit les masques des canaux EXI quand il ouvre ou ferme ses interruptions, et effaçait celui de Pulse (TCINTMASK du canal 2).
+- `xv_drain` regarde maintenant le transfert lui-même (arrêté = fini), plus le masque. À chaque réveil du lecteur, une suite bloquée sur un transfert fini est reprise (`xv_adv`) et l'interruption reposée. Journal : « fins perdues reprises ».
+- Place : `trap_guard`, `di_real_inq`, `gk_w8/16/32` en -Os (Pulse BBA : fin à 817FFD00, W5500 : 817FFCE0).
+
+## Console v442 (build 970) — lecture par interruptions : plus d'erreur donnée au jeu
+- v441 : même erreur de disque de Mario Kart. ~100 000 interruptions : presque tout GCKart.baa (725 secteurs) passait, puis une suite ratait vers la fin, et encore une fois quand le jeu redemandait la lecture.
+- Une suite ratée n'est plus une erreur pour le jeu : ce morceau est relu à l'ancienne (lectures normales), la lecture en fond continue. Après 3 suites ratées, plus de suites pour ce jeu.
+- Le détail de la dernière suite ratée est noté (case `trap_state`, jamais utilisée avec ce réglage) : raison (début de bloc FE jamais venu, ou suite qui ne finit pas), étape, dernier octet ou registre de transfert, secteur. Journal : ligne « Dernière suite ratée ».
+
+## Console v441 (build 969) — lecture par interruptions : erreur de disque de Mario Kart
+- v440 : plus d'écran noir. Mario Kart démarrait, la lecture par interruptions marchait (14 suites, ~100 000 interruptions), mais deux suites finissaient en erreur : le jeu affichait « Une erreur est survenue ».
+- Cause 1 : les lectures normales de la carte laissent le drapeau « fin de transfert » (TCINT) levé. `xv_start` ouvrait l'interruption sans l'effacer : interruption tout de suite, mot pas encore arrivé, transfert relancé par-dessus celui en cours, suite décalée. Le drapeau est maintenant effacé au départ, et `xv_c` (et `xv_drain`) ignorent une fin si le transfert tourne encore.
+- Cause 2 : si le jeu envoyait une nouvelle commande pendant une suite, la fin de cette suite était comptée dans la lecture suivante. `di_exec` finit maintenant la suite en cours et l'oublie.
+
+## Console v440 (build 968) — lecture par interruptions : la cause de l'écran noir de Mario Kart
+- Journal de la v439 : dernière étape « suite va partir », plus rien ensuite. Le blocage arrivait à la 1re interruption de fin de transfert.
+- Cause : au retour de `xv_c`, `xv_vec` relisait l'état du processeur sauvegardé (`trap_regs`) à son adresse physique alors que la traduction des données était encore active. Cette adresse n'est pas traduite (exception DSI dans le vecteur d'interruption) : la console se figeait. Le banc d'essai (unicorn) ne traduit pas les adresses : il ne pouvait pas le voir.
+- Correction : relecture à l'adresse normale, traduction coupée, puis seulement l'adresse physique pour le reste. Les étapes de la v439 restent dans le journal.
+
+## Console v439 (build 967) — lecture par interruptions : Pulse note ses étapes dans le journal
+- v438 : toujours l'écran noir de Mario Kart avec le réglage sur Oui. Le journal semblait dire « 0 suites lancées », mais il est écrit sur la carte au départ de la lecture en fond, puis toutes les 3 s : rien n'a été écrit après le blocage, il ne montrait donc que l'état d'avant.
+- Pulse note maintenant chaque étape (lecture en fond appelée, suite qui va partir, partie, finie, finie à l'ancienne, erreur, départ refusé, réveil du vrai lecteur) dans les cases du mode Pulse universel (jamais utilisé avec ce réglage : `trap_n`, `trap_pc`, `trap_bad`). Les 24 premières étapes importantes écrivent aussitôt le journal sur la carte, jamais pendant une suite. Après un blocage, le journal dit jusqu'où Pulse est allé : ligne « Étapes (v439) ».
+- Place : `sd_cmd` compilée en -Os (Pulse BBA : fin à 817FFE00, W5500 : 817FFDC0, max 817FFF00).
+
+## Console v438 (build 966) — lecture par interruptions : écran noir de Mario Kart (essai 1)
+- v437, réglage sur Oui : Mario Kart restait sur un écran noir dès la 1re lecture en fond (2 images, plus aucune interruption de l'image). v436, réglage sur Non : normal.
+- Cause probable : `xv_start` ouvrait les interruptions du bus EXI dans le masque du processeur (PI 0xCC003004). Le jeu recevait alors aussi celles des autres périphériques qu'il avait fermées et ne s'en sortait plus. Le masque n'est plus touché : si le jeu a fermé ces interruptions, les nôtres n'arrivent pas, la suite est finie à l'ancienne et le mode coupé pour ce jeu.
+- Le vecteur 0x500 n'est plus posé dès la 1re lecture en fond, seulement au 1er transfert par interruptions.
+- Essai du vecteur dans l'émulateur PowerPC du banc (traduction BAT réglée comme sur la console) : un mot reçu est rangé, acquitté, le transfert suivant lancé, et tous les registres du jeu sont rendus intacts.
+- Journal : nombre de suites lancées, et « coupée pour ce jeu » si les interruptions ne sont pas arrivées.
+
+## Console v437 (build 965) — lecture de la carte par interruptions (essai, désactivée par défaut)
+- Nouveau réglage START > Jeux : « Lecture SD par interruptions (Pulse, essai) » (`resident_lecture_interruptions`, Non par défaut). Pulse : option `NRO_XV`.
+- Principe (écrit pour Pulse, après lecture du pilote SD de Swiss pour comprendre l'idée, sans rien en reprendre) : pendant une lecture en fond, Pulse lance chaque transfert de 4 octets de la carte puis rend la main au jeu. La fin du transfert (interruption « TC » du canal du port série 2) arrive par le vecteur des interruptions externes (0x500), avant le système du jeu : `xv_vec` garde les registres (dans `trap_regs`), active la traduction des données (registres du bus sans cache), appelle `xv_c` sur le haut de `exc_stack`, et revient au jeu. Ce qui n'est pas pour nous repart dans le vecteur du SDK (sa 1re instruction, puis 0x504).
+- `xv_c` : attente du jeton du bloc (FE), 128 mots rangés directement à destination, 2 octets de CRC (pas vérifiés dans ce mode), bloc suivant ; à la fin d'une suite, la lecture de la carte reste ouverte (`st_next`). `rd_pump` (au réveil du lecteur) lance des suites de 64 secteurs au plus (morceaux alignés), et compte la progression.
+- Sécurité : si aucun mot n'est arrivé entre deux réveils (le jeu masque ces interruptions), la suite est finie à l'ancienne (`xv_drain`) et le mode est coupé pour ce jeu. Toute autre commande à la carte (journal, carte mémoire virtuelle, retour A+Z+START) finit d'abord la suite. Pas avec Pulse universel (registres à une 2e adresse) ni avec une carte dans un port de carte mémoire.
+- Journal : « Lecture par interruptions (v437) : utilisée / pas utilisée ; suites finies à l'ancienne ».
+- Place : `rd_pump`, `di_exec`, `nr_read` compilés pour la taille ; pas de lecture par interruptions dans les Pulse du mode universel (`-DNATRES_NO_XV`). Banc d'essai : vérifie aussi la taille du Pulse avec ce mode.
+
+## Console v436 (build 964) — 3 ms de lecture par réveil (essai)
+- Journal v435 : mêmes chiffres qu'en v434 (~1,9 morceau de 2 Ko par réveil du lecteur) : la limite est le temps que Pulse s'accorde à chaque réveil (1,5 ms, pour ne pas faire attendre le son du jeu), ~4 Ko par réveil.
+- `RD_BUDGET` passe à 3 ms : deux fois plus lu par réveil. À surveiller : son qui craque, jeu qui rame. Retour à 1,5 ms si c'est le cas. Étape suivante (en préparation) : lecture de la carte par interruptions, comme Swiss.
+
+## Console v435 (build 963) — lecture de la carte sans DMA plus rapide
+- Journal v434 (Mario Kart) : 99 Mo en 77 s, ~1,3 Mo/s ; la vidéo demande 1,6 Mo/s (« ça bug beaucoup moins, mais pas fluide, ~20 images/s »). Il reste le coût de la lecture elle-même : ~3 µs par mot de 4 octets alors que le transfert sur le bus dure ~1 µs à 32 MHz.
+- Boucle de lecture d'un bloc (sans DMA, tampon aligné) réécrite : registres du canal en direct (plus d'appel de fonction par mot), mot rangé d'un coup (au lieu de 4 octets), et une courte attente sur l'horloge du processeur avant de regarder si le transfert est fini (chaque lecture d'un registre du bus coûte cher : on n'en fait plus 3 ou 4 par mot pour rien). Attente bornée en tours (horloge arrêtée dans le banc d'essai).
+- Étape suivante si ça ne suffit pas : lecture par interruptions (le jeu tourne pendant les transferts), comme Swiss.
+
+## Console v434 (build 962) — lecture en continu de la carte (vidéos des jeux)
+- Le DMA est refusé sur la console du propriétaire (journal v432 : « données différentes dès la position 8 » : les 8 premiers octets bons, la suite fausse) : carte dans le port série 2, canal du bus qui ne permet probablement pas le DMA. Le test continue de protéger les jeux.
+- Sans DMA, chaque morceau de 2 Ko de la lecture en fond payait une commande, l'attente du 1er bloc et l'arrêt (CMD12) : presque autant que la lecture elle-même. Pulse laisse maintenant la lecture de la carte ouverte entre deux morceaux qui se suivent (`st_open`, `st_next`) : la carte continue d'envoyer ses blocs sans nouvelle commande. Toute autre commande (`sd_cmd` : journal, secteur isolé, écriture, redémarrage de la carte) ferme d'abord la lecture ; une erreur aussi. Seulement sur le port série 2 (SD2SP2) : dans un port de carte (SD Gecko), le jeu partage le canal, la lecture est fermée aussitôt comme avant.
+- Morceaux de la lecture en fond alignés sur les secteurs (le 1er est raccourci jusqu'au secteur suivant), pour que les suivants continuent la même lecture (les images des vidéos THP ne commencent pas sur un secteur).
+- Banc d'essai : 133 morceaux attendus au lieu de 132 (lecture non alignée de 8 Ko : 1er morceau raccourci).
+
+## Console v433 (build 961) et appli privée 564 — gel de Mario Kart corrigé, mise à jour compressée, plantage du service des succès
+- Console : retour de la lecture en fond par morceaux de 2 Ko (comme avant la v430). Mario Kart se figeait sur l'animation d'avant le menu : une 1re mesure trop courte (secteur déjà en mémoire) faisait lire jusqu'à 32 Ko d'un coup, interruptions coupées. La raison du DMA refusé (v432) reste notée dans le journal.
+- Appli : « Mettre à jour la console par le téléphone » télécharge la version compressée du build (`gc-station-compresse-bN.bin`, 2,3 Mo au lieu de 6,3 Mo, un .dol qui se décompresse lui-même, installé pareil par la console) ; le .dol classique seulement si elle n'est pas publiée.
+- Appli : plantage `ForegroundServiceDidNotStartInTimeException` (RetroService) : un démarrage du service suivi aussitôt d'un arrêt arrivait par l'arrêt, sans passage au premier plan. Le service passe maintenant toujours au premier plan d'abord, puis s'arrête si c'est un arrêt.
+
+## Console v432 (build 960) — raison du DMA refusé dans le journal
+- Journal de Mario Kart en v431 : toujours « sans DMA » (le cache vidé après le transfert n'était pas la cause). Lecture en fond : 30949 secteurs en 7707 morceaux, soit 2 Ko par morceau : un secteur coûte assez de temps sans DMA pour que le budget de ~1,5 ms n'en permette pas plus (~1,3 Mo/s au mieux, pour 1,6 Mo/s demandés par la vidéo).
+- Pulse note maintenant pourquoi le test du DMA échoue (champ `xfer`, bits 3-15) : lecture en erreur (et son code), ou données différentes (position de la 1re différence, tout à 00 = rien reçu, tout à FF = la carte n'a rien envoyé). Le journal l'écrit sous « Lecture de la carte ».
+
+## Console v431 (build 959) — DMA de la carte SD : cache vidé après le transfert
+- Au lancement d'un jeu, Pulse lit le même secteur sans puis avec DMA et garde le DMA seulement si les deux sont identiques. Sur la console du propriétaire, le test échouait (journal : « sans DMA »), donc la carte était lue 4 octets par 4 octets par le processeur.
+- Cause probable : le cache n'était vidé qu'AVANT le transfert. Pendant l'attente de la fin du DMA, le processeur peut lire le tampon par anticipation et garder l'ancien contenu de la mémoire dans son cache : la comparaison voyait une différence. Le cache est maintenant vidé aussi APRÈS le transfert (`dc_inv512`). Le test reste en place : si les données diffèrent encore, le DMA reste coupé, sans risque pour les jeux.
+- `rd_pump` compilée pour la taille (place pour le mode Pulse universel).
+
+## Console v430 (build 958) — vidéos des jeux moins saccadées (lecture en fond de Pulse)
+- Journal de Mario Kart Double Dash (vidéo d'avant le menu, `play1.thp`) : la vidéo demande ~1,6 Mo/s (46 s, 75,8 Mo, 59,94 images/s) ; la carte est lue sans DMA (le test du DMA échoue sur cette console), et la lecture en fond lisait par morceaux de 2 Ko, une commande à la carte par morceau (attente de la carte et arrêt à chaque fois), dans ~1,5 ms par réveil.
+- Pulse mesure maintenant le temps d'un secteur sur la carte et lit, à chaque réveil, un seul morceau aussi grand que le temps permis (2 à 32 Ko), d'une seule commande. Même temps de lecture par réveil (le son du jeu n'attend pas plus), moins de temps perdu en commandes.
+- Journal : « morceaux » sans « de 8 Ko » (la taille varie), et le temps de réveil du vrai lecteur est une moyenne par réveil (avant : divisé par le nombre de morceaux, d'où « 14 us »).
+
+## Console v429 (build 957) et appli privée 563 — mise à jour de la console par le téléphone
+- La console télécharge sa mise à jour en HTTPS, déchiffré par son propre processeur : des dizaines de minutes pour les 6 Mo. Le téléphone le fait en quelques secondes.
+- Appli privée, onglet Plus : « Mettre à jour la console par le téléphone ». L'appli demande à la console son build et l'adresse des versions (`GET /api/maj`), télécharge le `.dol` du dernier build sur GitLab, l'envoie par morceaux de 256 Ko sur le Wi-Fi (`/upload?dir=maj` → `SD:/gc-mp3/maj/nouveau.dol`), puis demande l'installation (`/api/maj/installer?b=N`).
+- Console : le fichier envoyé devient le `.part` de la mise à jour et passe par la même installation qu'un téléchargement de la console (vérification du `.dol`, ancien gardé en `.ancien`, autres copies remplacées, garde-fou, relance automatique). Un téléchargement de la console en cours est arrêté.
+- Testé dans le simulateur PC : envoi en deux morceaux, installation, programme remplacé.
+
+## Console v428 (build 956) — Mario Kart : retour du 50 Hz avec « Vidéo : comme le jeu »
+- La v424 démarrait un jeu PAL en PAL 60 Hz (EURGB60) avec « comme le jeu » dès qu'il y avait une sortie numérique (adaptateur HDMI) : Mario Kart Double Dash PAL restait sur un écran noir. Retour au comportement de la v405 : PAL 50 Hz, le jeu propose lui-même le 60 Hz s'il le connaît. Les réglages « PAL 60 Hz », « 480p forcé » et « 240p » ne changent pas.
+- Ce changement ne servait pas à Pokémon Colosseum USA (GC6E01) : c'est un jeu NTSC, il ne passait jamais par là.
+
+## Console v427 (build 955) et appli privée 562 — Pokémon Colosseum : GBA allumée sur sa cartouche ; plus d'analyse à la manette
+- Analyse de Colosseum (GC6E01) : le jeu ne passe pas par le démarrage par câble du BIOS de la GBA. Il parle au jeu Pokémon de la cartouche, qui écoute le câble pendant l'écran du copyright, juste après l'allumage ; ce jeu reçoit alors un programme de Colosseum, puis l'échange se fait avec lui (identifiant, renvoi de l'identifiant → JOYSTAT 0x30, longueur renvoyée en écho, données avec attentes d'au plus 100 ms).
+- Appli privée : bouton « ⏻ Allumer la GBA (cartouche) » (et « Éteindre et rallumer ») sur la carte de la GBA du téléphone quand une cartouche est insérée. mGBA démarre directement sur la cartouche, avec sa sauvegarde, sans programme envoyé par le câble (`demarrerCartouche`, compilé seulement dans l'appli privée). L'appli publique ne l'a pas.
+- Pulse : drapeau 0x40 des paquets « GCGB » = GBA allumée sur sa cartouche → relais tout de suite (état 4, compteurs à 0), sans attendre de programme. Le téléphone repart lui aussi de 0, et ne s'arrête plus quand le jeu remet Pulse dans un autre état.
+- Fiche d'un jeu : le stick C droite ne lance plus l'analyse native (et « R ANALYSE » est retiré de la légende). Demande du propriétaire : rien d'un jeu ne s'extrait depuis la manette ; seule l'appli privée peut extraire un fichier d'un jeu (`/api/discfile`).
+- À faire sur la console : « GBA du téléphone » sur le **port 2**, Colosseum lancé par Pulse ; au message « turn on the power », toucher « Allumer la GBA ». La sauvegarde de la GBA doit avoir été faite dans un Centre Pokémon.
+
+## Console v425 (build 954) — la console ne copie plus rien des jeux sur la carte SD
+- Demande du propriétaire : un fichier d'un jeu ne sort que sur demande du téléphone (appli privée), jamais depuis la console elle-même.
+- L'analyse native (R sur la fiche d'un jeu) ne copie plus `main.dol` (`gc-mp3/natif/<ID>-main.dol`, v170) ni l'image réduite du disque du banc d'essai (`gc-mp3/banc/<ID>.gcb`, v173). Le rapport texte et le test de lecture de la carte restent.
+- Liste des jeux > Options : « Banc d'essai rapide (tous) » retiré (export de tous les jeux, v171). Le code d'export est supprimé.
+
+## Console v424 (build 953) — « Vidéo : comme le jeu » laisse le jeu choisir (progressif compris)
+- Avec une sortie numérique ou composante (adaptateur HDMI GCVideo…), ou une console réglée en 60 Hz, un jeu PAL qui connaît le 60 Hz démarre en EURGB60 : il propose lui-même ses choix (60 Hz, mode progressif) et le joueur décide. Depuis v405, il démarrait toujours en PAL 50 Hz, et son mode progressif donnait « format vidéo pas pris en charge » sur la télé (Pokémon Colosseum PAL avec un adaptateur HDMI ; « 480p forcé » marchait).
+- Câble ordinaire et console en 50 Hz : PAL 50 Hz comme avant. Jeux qui ne connaissent pas le 60 Hz (Rayman 3 PAL) : toujours 50 Hz. Les réglages Vidéo « PAL 60 Hz », « 480p forcé » et « 240p » ne changent pas.
+
+## Appli privée 561 — l'extraction depuis la fiche d'un jeu revient
+- Le bouton « Extraire un fichier du jeu (main.dol…) » de la fiche est remis (appli privée seulement) : retiré à tort en 560. Le propriétaire veut extraire seulement sur demande du téléphone, jamais depuis l'écran de la console ; la console n'a aucune option pour le faire elle-même (seule la demande du téléphone, /api/discfile, le fait).
+
+## Console v423 (build 952) et appli 560 — musiques des jeux : ADX, archives AFS, musiques sous un autre nom ; plus d'extraction depuis la fiche
+- Fiche d'un jeu > musiques : en plus des AST, HPS, DSP et ADP reconnus à leur extension, GC Station regarde le début des gros fichiers au nom inconnu (.str, .bgm, .sng…, 700 au plus par jeu) et les reconnaît à leur contenu (AST, HPS, ADX, DSP standard).
+- Nouveau format : ADX (CRI : jeux Sega et d'autres : F-Zero GX, Super Monkey Ball, Sonic…), avec sa boucle ; seul ou dans une archive AFS (chaque musique de l'archive est listée). Écrit d'après la description publique du format. Les ADX chiffrés ne sont pas lus. Aussi dans l'onglet RÉTRO pour des .adx posés sur la carte SD.
+- Message quand rien n'est trouvé : la musique est jouée note par note, ou dans un format pas encore lu (la liste des formats lus).
+- Appli : plus de bouton « Extraire un fichier du jeu (main.dol…) » sur la fiche d'un jeu (demande du propriétaire).
+
+## Console v422 (build 951) — fluidité : jaquettes de l'onglet Jeux, moments lents dans le rapport
+- Le numéro affiché suit de nouveau les versions (il était resté à « v410 » depuis le build 939 : les v411 à v421 s'affichaient v410).
+- Onglet JEUX : les jaquettes téléchargées et converties en fond sont écrites et relues sur la carte SD par morceaux de 16 Ko (avant : d'un bloc ; libfat garde la carte pendant tout un fread / fwrite, et la boucle restait bloquée dès qu'elle lisait quelque chose : « dessin » 1,8 s, « manette » 1 s pendant l'arrivée d'une jaquette). Pareil pour toute lecture d'un fichier entier (read_file). Pendant un travail en fond, une seule jaquette lue par image au lieu de deux.
+- Mesure de fluidité : nouvelle partie « Moments les plus lents » (images de plus de 30 ms) : onglet, étape en cause et dernière action (onglet ouvert, fiche du jeu…), pour savoir quoi corriger.
 
 ## Appli 559 — guide des testeurs, plus de « Swiss » dans les consignes
 - Guide des testeurs RetroAchievements (anglais) : `docs/RA-TESTER-GUIDE.md`, lié depuis le README et depuis chaque publication GitHub.

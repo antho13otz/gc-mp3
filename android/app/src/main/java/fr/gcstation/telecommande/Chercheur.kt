@@ -85,6 +85,35 @@ object MemoireJeu {
     /** build 542 (console v414) : images gardees sans etre envoyees (bus pris), images en attente renvoyees, images sautees sans
      *  etre gardees, attentes trop longues de la file d'envoi (cumuls depuis le lancement) ; null : console plus ancienne */
     @Volatile var diagConsole: LongArray? = null
+    /** appli 570 (console v495) : images par seconde du jeu, d'après les jetons de dessin comptés par Pulse ("GCMT", +16) et
+     *  les images de l'écran (+4). Calibrage par partie : certains jeux posent plusieurs jetons par image (k = le plus haut
+     *  rapport jetons / image vu sur une seconde, arrondi) ; un jeu à 30 images par seconde par nature affiche 30.
+     *  fps < 0 : pas de mesure (console plus ancienne, ou jeu dont Pulse ne voit pas les jetons). */
+    @Volatile var fps = -1.0
+    @Volatile var fpsPct = -1
+    @Volatile var fpsT = 0L
+    private var fpsVi = -1L; private var fpsPe = -1L; private var fpsT0 = 0L; private var fpsK = 1.0; private var fpsVus = 0
+    private fun imagesJeu(vi: Long, pe: Long) {
+        val t = System.nanoTime()
+        if (fpsVi < 0 || vi < fpsVi || pe < fpsPe) { fpsVi = vi; fpsPe = pe; fpsT0 = t; fpsK = 1.0; fpsVus = 0; fps = -1.0; return }
+        val dvi = vi - fpsVi; val dpe = pe - fpsPe; val dt = (t - fpsT0) / 1e9
+        fpsVi = vi; fpsPe = pe; fpsT0 = t
+        if (dvi < 20 || dt <= 0.2) return
+        if (dpe == 0L) { if (++fpsVus > 3) { fps = -1.0 }; return }    // (pas de jetons vus : pas de mesure)
+        fpsVus = 0
+        val hz = if (dvi / dt < 55.0) 50.0 else 60.0                     // (fréquence de l'écran : 50 ou 60 Hz)
+        val r = dpe.toDouble() / dvi
+        if (r > fpsK + 0.6) fpsK = Math.round(r).toDouble().coerceAtLeast(1.0)
+        val f = (hz * r / fpsK).coerceAtMost(hz)
+        fps = f; fpsPct = (f * 100 / hz).toInt(); fpsT = t
+    }
+    /** pour l'écran : abonnement minimal (un mot, toutes les 60 images) quand rien d'autre n'écoute le direct, et écoute
+     *  pendant ms ; avec RetroAchievements ou le compagnon, leur écoute reçoit déjà "GCMT" */
+    fun ecouterImages(ms: Int) {
+        if (flux == null && fluxRA == null) { abonner(listOf(0x80000000L to 4), 60); ecouter(ms) }
+        else Thread.sleep(ms.toLong())
+    }
+
     /** les 10 dernieres minutes de mesures (heure, valeurs), pour le rapport du direct */
     val mesures = ArrayDeque<Pair<Long, LongArray>>()
 
@@ -119,10 +148,35 @@ object MemoireJeu {
                     else if (p.length >= 32) longArrayOf(g32(buf, 8), g32(buf, 12), g32(buf, 16), g32(buf, 20), g32(buf, 24), g32(buf, 28))
                     else longArrayOf(g32(buf, 8), g32(buf, 12), g32(buf, 16), g32(buf, 20), -1, -1)
             mesure = m; mesureT = System.nanoTime()
+            if (p.length == 36) imagesJeu(g32(buf, 4), g32(buf, 16))           // (appli 570, console v495 : images dessinées)
             synchronized(mesures) { mesures.addLast(System.currentTimeMillis() to m); while (mesures.size > 600) mesures.removeFirst() }
             return 0
         }
         return p.length
+    }
+
+    /** build 582 (GC Station Switch, build 7) : résultat de la dernière sauvegarde instantanée, à la fin de la réponse « GCMA »
+     *  (64 octets) : 'E' ou 'C' << 24 | emplacement << 16 | 0 réussi, 1 échec, 2 en cours, 3 autre jeu ; -1 : rien reçu */
+    @Volatile var etatInst = -1L
+    /** sauvegarde instantanée du moteur GameCube de la Switch : op 'E' sauver, 'C' reprendre ; emplacement 1 à 9. Le moteur
+     *  répond tout de suite, puis le fait entre deux images ; on redemande l'état jusqu'au résultat (15 s au plus). */
+    fun instantane(op: Char, slot: Int): String {
+        if (op == 'C' && RetroSucces.refuseEnHardcore(null, "Reprendre une sauvegarde instantanée")) return "Pas en mode hardcore"
+        etatInst = -1L
+        demande(op, slot.toLong(), garde = false) ?: return "Le moteur ne répond pas"
+        val fin = System.currentTimeMillis() + 15000
+        while (System.currentTimeMillis() < fin) {
+            Thread.sleep(300)
+            demande('I', garde = false)
+            val r = etatInst
+            if (r >= 0 && (r ushr 24).toInt() == op.code && ((r ushr 16) and 255L).toInt() == slot && (r and 255L) != 2L)
+                return when ((r and 255L).toInt()) {
+                    0 -> if (op == 'E') "Partie sauvée (emplacement $slot)" else "Partie reprise (emplacement $slot)"
+                    3 -> "Cette sauvegarde est d'un autre jeu"
+                    else -> if (op == 'C') "Rien dans l'emplacement $slot" else "La sauvegarde n'a pas pu être écrite"
+                }
+        }
+        return "Pas de réponse du moteur"
     }
 
     /** I (etat), P (pause : a = 1, reprise : a = 0), W (ecrire c, b octets, en a) ; null : Pulse ne repond pas */
@@ -144,6 +198,7 @@ object MemoireJeu {
                     if (n >= 36 && magie(buf, "GCMA") && g32(buf, 4).toInt() == sq) {
                         val jeu = String(buf, 12, 6, Charsets.ISO_8859_1).trim { it <= ' ' }
                         if (n >= 60) morceauxConsole = g32(buf, 56).toInt().coerceIn(1, 256)   // (build 550, console v419)
+                        if (n >= 64) etatInst = g32(buf, 60)          // (build 582 : GC Station Switch, résultat de la sauvegarde instantanée)
                         return if (n >= 56) Etat(g32(buf, 8) != 0L, jeu, g32(buf, 20), g32(buf, 24).toInt(), g32(buf, 28) or (g32(buf, 32) shl 32),
                                                  g32(buf, 36), g32(buf, 40), g32(buf, 44), g32(buf, 48), g32(buf, 52).toInt())
                                else Etat(g32(buf, 8) != 0L, jeu, g32(buf, 20), g32(buf, 24).toInt(), g32(buf, 28) or (g32(buf, 32) shl 32))
@@ -723,6 +778,7 @@ fun EcranChercheur() {
             val e = R.etat
             Doux(when {
                 g == null -> "Lance un jeu avec Pulse : l'appli lit sa mémoire pendant la partie."
+                g.pulse == 2 && !g.mem && e == null -> "Ce jeu tourne avec le Pulse léger : le téléphone n'est pas écouté pendant cette partie. Sur la console : START > Réglages > Chercheur de codes, puis relance le jeu."
                 !g.mem && e == null -> "Ce jeu a été lancé sans le chercheur de codes. Sur la console : START > Réglages > Chercheur de codes (appli) = Oui, puis relance le jeu."
                 e == null -> "Pulse ne répond pas (Broadband Adapter branché ? même Wi-Fi ?)"
                 else -> "En jeu : " + (g.name.ifEmpty { e.jeu }) + " (" + e.jeu + ")" + if (e.nSucces > 0) " · succès : " + java.lang.Long.bitCount(e.obtenus) + "/" + e.nSucces else ""

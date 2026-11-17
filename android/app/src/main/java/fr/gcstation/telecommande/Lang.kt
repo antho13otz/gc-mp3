@@ -60,6 +60,7 @@ object Lang {
         choix = v
         try { c.getSharedPreferences("gcs", 0).edit().putString("langue", v).apply() } catch (e: Exception) { }
         appliquer()
+        try { PlaybackService.channels(c) } catch (e: Exception) { }   // (build 579 : categories de notifications renommees tout de suite)
     }
 
     private fun appliquer() {

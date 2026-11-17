@@ -40,9 +40,14 @@ static void early_note(u32 a, u32 v, u32 st);           /* v166 */
    de place pour les aiguillages (Cocoto Kart Racer : 3 acces non branches faute de place en v95). */
 #define ext_tab ((natres_ext_t *)natres_hdr.ext)
 static natres_ext_t ret_tab[NATRES_RETMAX];              /* v64 : le .dol de GC Station sur la carte */
+#if defined(NATRES_COMPACT)
+static natres_ext_t card_tab[1], card2_tab[1];                  /* v474 : (compact : jamais de carte memoire virtuelle) */
+#else
 static natres_ext_t card_tab[NATRES_CARDMAX];            /* v65 : le fichier de la carte memoire virtuelle */
-static natres_ext_t card2_tab[NATRES_CARDMAX];           /* v122 : celui du slot B */
+static natres_ext_t card2_tab[NATRES_CARD2MAX];           /* v122 : celui du slot B */
+#endif
 static u32 si_load(u32 a);
+static u32 igr_gh[4], igr_gt = 0x80000000u;                            /* v457 : dernieres touches lues par le jeu (INBUFH), et quand */
 /* v139 : acces du jeu a la page des registres DI / SI / EXI / AI (0xCC006000) pris par exception (option) : le
    resident passe alors par une 2e adresse de la meme page (0xCC406000), qui ne declenche rien */
 static u32 hw_d = 0;
@@ -54,7 +59,7 @@ extern u32 trap_vec[];
 static u32 trap_br = 0, trap_mmu = 0;
 static void trap_fix(void);
 /* a chaque entree dans le resident : un autre programme du disque a pu remettre ses BAT ou ses vecteurs */
-static void __attribute__((noinline)) trap_guard(void) { if (hw_d && ((trap_mmu && MFSPR(538) != trap_br) || *(volatile u32 *)0x80000300u != TRAP_BR)) trap_fix(); }
+static MEM_OS void __attribute__((noinline)) trap_guard(void) { if (hw_d && ((trap_mmu && MFSPR(538) != trap_br) || *(volatile u32 *)0x80000300u != TRAP_BR)) trap_fix(); }
 static void si_store(u32 a, u32 val);
 static u8 secbuf[512] __attribute__((aligned(32)));
 static u32 sec_cached = 0xFFFFFFFFu;
@@ -86,8 +91,8 @@ natres_hdr_t natres_hdr = {
 #define H natres_hdr
 
 /* (le compilateur peut appeler ces fonctions de lui-meme) */
-void *memset(void *d, int c, unsigned long n) { u8 *p = (u8 *)d; while (n--) *p++ = (u8)c; return d; }
-void *memcpy(void *d, const void *s, unsigned long n) { u8 *p = (u8 *)d; const u8 *q = (const u8 *)s; while (n--) *p++ = *q++; return d; }
+void * MEM_OS memset(void *d, int c, unsigned long n) { u8 *p = (u8 *)d; while (n--) *p++ = (u8)c; return d; }
+void * MEM_OS memcpy(void *d, const void *s, unsigned long n) { u8 *p = (u8 *)d; const u8 *q = (const u8 *)s; while (n--) *p++ = *q++; return d; }
 
 /* ---------- bus EXI ---------- */
 static volatile u32 *exi;
@@ -97,8 +102,9 @@ static u32 freq;
    (canal 0, peripherique 2 : jeux en reseau local), vraie carte memoire. S'il a choisi un autre peripherique
    (CS) ou si un transfert est en cours, parler a la carte SD couperait sa commande au milieu : on attend.
    (Swiss passe par EXILock du jeu ; ici on regarde l'etat du canal lui-meme.) */
+static volatile u32 xv_st;                               /* (v444 : declaree ici pour exi_busy) */
 static int exi_busy(void) {
-    if (!exi) return 0;
+    if (!exi || xv_st) return 0;                         /* (v444 : notre propre suite par interruptions n'est pas le jeu) */
     return ((exi[0] & 0x380u) & ~(0x80u << H.dev)) || (exi[3] & 1u);
 }
 static u32 eb_tb = 0, eb_n = 0;
@@ -114,30 +120,53 @@ static int ex_wait(void) {
     H.err = NR_ETIMEOUT;
     return -1;
 }
+/* build 1059 : carte d'un slot (GC2SD), comme le pilote de GC Station (build 1051) : la carte n'est choisie (CS) que pour
+   envoyer ; tout ce qui se lit (reponse, jeton, blocs, CRC, attente) se lit horloge seule, carte non choisie. Le 32 MHz et le DMA
+   rataient sur la carte de Platter quand elle restait choisie pendant les lectures. x_cs : bit CS de la carte choisie pour la commande en cours, 0 sinon */
+static u32 x_nocs = 0, x_cs = 0;
 static void ex_sel(int cs) {
+    x_cs = cs ? 0x80u << H.dev : 0u;
     u32 v = (exi[0] & 0x405) | (freq << 4);
     if (cs) v |= 0x80u << H.dev;
     exi[0] = v;
 }
-static void ex_desel(void) { exi[0] = exi[0] & 0x405; }
+static void ex_desel(void) { x_cs = 0; exi[0] = exi[0] & 0x405; }
 /* v94 : CRC16 des blocs de donnees (CCITT, comme la carte) : sert a verifier le 32 MHz */
-static unsigned short crc_tab[256];
-static void crc_init(void) {
-    for (u32 i = 0; i < 256; i++) { u32 c = i << 8; for (int k = 0; k < 8; k++) c = c & 0x8000 ? (c << 1) ^ 0x1021 : c << 1; crc_tab[i] = (unsigned short)c; }
+/* (build 1063 : table de 16 valeurs, par demi-octet, au lieu de 256 calculees au demarrage : 480 octets de place ; meme resultat) */
+static const unsigned short crc_tab[16] = { 0x0000, 0x1021, 0x2042, 0x3063, 0x4084, 0x50A5, 0x60C6, 0x70E7,
+                                            0x8108, 0x9129, 0xA14A, 0xB16B, 0xC18C, 0xD1AD, 0xE1CE, 0xF1EF };
+static u32 crc16(const u8 *p, u32 n) {
+    u32 c = 0;
+    while (n--) { u32 b = *p++; c = ((c << 4) ^ crc_tab[((c >> 12) ^ (b >> 4)) & 15]) & 0xFFFF; c = ((c << 4) ^ crc_tab[((c >> 12) ^ b) & 15]) & 0xFFFF; }
+    return c;
 }
-static u32 crc16(const u8 *p, u32 n) { u32 c = 0; while (n--) c = ((c << 8) ^ crc_tab[((c >> 8) ^ *p++) & 0xFF]) & 0xFFFF; return c; }
 static int x_dma = 0, x_fast = 0, x_fast_off = 0, x_crcbad = 0;   /* (H.xfer) */
-static void ex_put(u32 v, int n) { exi[4] = v; exi[3] = ((u32)(n - 1) << 4) | (1u << 2) | 1u; ex_wait(); }
-static u32 ex_get(int n) { exi[4] = 0xFFFFFFFFu; exi[3] = ((u32)(n - 1) << 4) | 1u; ex_wait(); return exi[4]; }
+static u32 x_why = 0;                                    /* v432 : (H.xfer, bits 3-15) raison du DMA refuse */
+static void ex_put(u32 v, int n) { if (x_nocs) exi[0] = (exi[0] & 0x475u) | x_cs; exi[4] = v; exi[3] = ((u32)(n - 1) << 4) | (1u << 2) | 1u; ex_wait(); }
+static u32 ex_get(int n) { if (x_nocs) exi[0] &= 0x475u; exi[4] = 0xFFFFFFFFu; exi[3] = ((u32)(n - 1) << 4) | 1u; ex_wait(); return exi[4]; }
 static u32 ex_get8(void) { return ex_get(1) >> 24; }
 
 /* ---------- carte SD (SPI) ---------- */
-static void sd_end(void) {                     /* fin de commande : CS relache + 8 coups d'horloge */
+static MEM_OS void sd_end(void) {                     /* fin de commande : CS relache + 8 coups d'horloge */
     ex_desel();
     ex_sel(0); ex_put(0xFF000000u, 1); ex_desel();
 }
-static u32 sd_cmd(u32 cmd, u32 arg, u32 crc) {  /* envoie la commande, rend la reponse R1 (CS reste actif) */
+/* v488 : canal de la carte SD rien qu'a Pulse : port serie 2, ou slot B quand sa carte memoire virtuelle est imposee (le jeu ne
+   touche jamais a ce canal). v489 : slot A aussi (son canal 0 sert aussi a l'horloge et aux reglages de la console : voir sd_yield). */
+#define SD_OWN_CH (H.chan == 2 || (H.chan == 1 && (H.flags & NRF_CARDB)) || (H.chan == 0 && (H.flags & NRF_CARD)))   /* (v489 : slot A aussi :
+                                                           le jeu qui touche au canal fait d'abord finir Pulse, sd_yield) */
+static u32 sd_wbusy = 0;                           /* (build 1062 : ecriture envoyee, carte peut-etre encore occupee) */
+static u32 st_open = 0, st_next = 0;               /* v434 : lecture en continu ouverte, prochain secteur */
+static void st_close(void) __attribute__((noinline));
+static volatile u32 xv_st;
+static void xv_drain(void);
+static MEM_OS u32 sd_cmd(u32 cmd, u32 arg, u32 crc) {  /* (v439 : -Os, place) */ /* envoie la commande, rend la reponse R1 (CS reste actif) */
+    if (xv_st) xv_drain();                      /* v437 : (lecture par interruptions en cours : finie d'abord) */
+    st_close();                                  /* v434 : (lecture en continu ouverte : arretee d'abord) */
     ex_sel(1);
+    /* build 1062 : la carte finit d'enregistrer la derniere ecriture (occupee = 00) avant la commande suivante, pas a la fin de
+       l'ecriture : le jeu repart pendant que la carte enregistre (Kirby Air Ride : ses ecritures de la carte memoire, 1 a 10 ms) */
+    if (sd_wbusy) { for (u32 i = 0; i < 2000000u; i++) if (ex_get8() == 0xFF) break; sd_wbusy = 0; }
     ex_put(0xFF000000u, 1);
     ex_put(((0x40u | cmd) << 24) | (arg >> 8), 4);
     ex_put(((arg & 0xFFu) << 24) | (crc << 16), 2);
@@ -146,16 +175,30 @@ static u32 sd_cmd(u32 cmd, u32 arg, u32 crc) {  /* envoie la commande, rend la r
     H.r1 = r;
     return r;
 }
+#if !defined(NATRES_COMPACT)
+/* build 1063 : la carte SD a-t-elle fini d'enregistrer la derniere ecriture ? (un octet lu, sans attendre) */
+static MEM_OS __attribute__((noinline)) int sd_free(void) {
+    if (!sd_wbusy) return 1;
+    st_close(); ex_sel(1);
+    if (ex_get8() == 0xFF) sd_wbusy = 0;
+    sd_end();
+    return !sd_wbusy;
+}
+#endif
 
 /* v94 : DMA et 32 MHz, essayes une fois (le meme secteur lu en mode simple, en DMA, puis a 32 MHz,
    4 fois, CRC verifie) : gardes seulement si tout est identique */
 static int nr_read_sd(u32 sector, void *dst);
-static u8 t_ref[512] __attribute__((aligned(32))), t_buf[512] __attribute__((aligned(32)));
+static u8 dmabuf[512] __attribute__((aligned(32)));
+static u32 x_dnocs = 0;                                  /* v494 : DMA sans la carte choisie pendant le bloc (2e facon) */
+#define t_ref secbuf                                     /* v485 : le test emprunte le cache du secteur (vide par nr_init juste avant)
+                                                           et le tampon du DMA : 1 Ko de moins (place du reveil provoque) */
+#define t_buf dmabuf
 static int t_same(void) { for (int i = 0; i < 512; i++) if (t_ref[i] != t_buf[i]) return 0; return 1; }
+#if !defined(NATRES_COMPACT)
 static MEM_OS void nr_speed(void) {
     static int tried = 0;
     u32 sec = H.n_ext ? ext_tab[0].sd : 0;
-    if (!crc_tab[1]) crc_init();
     if (tried) { x_fast = x_fast && !x_fast_off; if (x_fast) freq = 5; goto out; }
     tried = 1;
     x_dma = 0; x_fast = 1;                                  /* (CRC verifie pendant l'essai) */
@@ -163,20 +206,43 @@ static MEM_OS void nr_speed(void) {
     freq = slow;
     if (nr_read_sd(sec, t_ref)) { x_fast = 0; goto done; }
     x_dma = 1;
-    if (nr_read_sd(sec, t_buf) || !t_same()) x_dma = 0;
+    /* v432 : pourquoi le DMA est refuse (journal, champ xfer) : 08 lecture en erreur (code en bits 8-15), 10 donnees
+       differentes (1re difference / 2 en bits 8-15), + 20 tout a 00, + 40 tout a FF (le DMA n'a rien recu) */
+    if (nr_read_sd(sec, t_buf)) { x_dma = 0; x_why = 0x08u | (H.err & 0xFFu) << 8; }
+    else if (!t_same()) {
+        u32 i = 0, z = 1, ff = 1;
+        while (t_ref[i] == t_buf[i]) i++;
+        for (u32 k = 0; k < 512; k++) { if (t_buf[k]) z = 0; if (t_buf[k] != 0xFF) ff = 0; }
+        x_dma = 0; x_why = 0x10u | (i >> 1) << 8 | z << 5 | ff << 6;
+    }
+    if (!x_dma) {                                        /* v494 : 2e essai : DMA sans la carte choisie pendant le bloc (comme Swiss) */
+        x_dma = 1; x_dnocs = 1;
+        if (nr_read_sd(sec, t_buf) || !t_same()) { x_dma = 0; x_dnocs = 0; }
+        else x_why = 0x20u;                              /* (journal : avec DMA (bit 0) + 20 : la 2e facon) */
+    }
+    if (slow < 4 || (H.freq & 0x10u)) { x_fast = 0; goto done; }   /* v471 : carte d'un slot (comme Swiss) : la vitesse de GC Station, jamais 32 MHz */
     freq = 5;
-    for (int k = 0; k < 4 && x_fast; k++) if (nr_read_sd(sec, t_buf) || !t_same()) x_fast = 0;
+    for (int a = 0, ok = 0; a < 3 && !ok; a++) {         /* v451 : 3 essais (avant : 1 ; Wind Waker, Paper Mario restaient a 16 MHz) ;
+                                                            sans risque : chaque bloc lu a 32 MHz est verifie (CRC), aussi par interruptions */
+        ok = 1; x_fast = 1; x_crcbad = 0;
+        for (int k = 0; k < 4 && ok; k++) if (nr_read_sd(sec, t_buf) || !t_same()) ok = 0;
+        x_fast = ok;
+    }
     if (!x_fast) freq = slow;
 done:
     H.err = NR_OK; H.crc_err = 0; x_crcbad = 0;
 out:
-    H.xfer = (u32)x_dma | (u32)x_fast << 1 | (u32)x_fast_off << 2;
+    H.xfer = (u32)x_dma | (u32)x_fast << 1 | (u32)x_fast_off << 2 | x_why;
 }
+#else
+static void nr_speed(void) { x_dma = 0; x_fast = 0; H.err = NR_OK; H.xfer = 0; }   /* (compact : ni DMA ni 32 MHz : pas d'essai) */   /* v474 : Pulse compact */
+#endif
 static int MEM_OS nr_init(void) {
     exi = (volatile u32 *)(0xCC006800u + hw_d + H.chan * 0x14u);
-    H.err = NR_OK; H.sdhc = 0; H.stage = 1;
+    H.err = NR_OK; H.sdhc = 0; H.stage = 1; x_nocs = 0;   /* (demarrage de la carte : a l'ancienne) */
     sec_cached = 0xFFFFFFFFu;
-    u32 want = H.freq ? H.freq : 4;
+    st_open = 0;                                /* v434 : (carte redemarree : plus de lecture en continu) */
+    u32 want = (H.freq & 7u) ? (H.freq & 7u) : 4;         /* (v471 : bit 0x10 = jamais 32 MHz, voir nr_speed) */
     freq = 0;                                   /* 1 MHz pour demarrer la carte */
     /* peripherique : celui indique, puis l'autre position du port (0 / 2) sur le canal 0 */
     int found = 0;
@@ -219,6 +285,7 @@ static int MEM_OS nr_init(void) {
     if (!H.sdhc) { sd_cmd(16, 512, 0x01); sd_end(); }   /* CMD16 : secteurs de 512 octets */
     freq = want;
     H.stage = 5;
+    x_nocs = (H.freq >> 5) & 1u;                   /* build 1059 : bit 0x20 = carte de slot lue carte non choisie (GC Station l'a verifie) */
     nr_speed();
     return 0;
 }
@@ -226,17 +293,51 @@ static int MEM_OS nr_init(void) {
 /* v94 : les 512 octets d'un bloc (apres le jeton FE) puis son CRC. En DMA, le bus EXI copie le bloc
    tout seul en memoire (adresse alignee sur 32) : bien moins de travail pour le processeur. A 32 MHz,
    le CRC est verifie (un bloc faux = erreur : relu, et on repasse a 16 MHz). Rend 0 si bon. */
-static u8 dmabuf[512] __attribute__((aligned(32)));
-static int nr_block(u8 *o) {
+static MEM_OS void __attribute__((noinline)) dc_inv512(u8 *d) {   /* (v431 : 512 octets retires du cache, avant et apres le DMA) */
+    __asm__ volatile("sync" ::: "memory");
+    for (u32 a = (u32)d; a < (u32)d + 512; a += 32) __asm__ volatile("dcbi 0,%0" :: "r"(a) : "memory");
+    __asm__ volatile("sync\n isync" ::: "memory");
+}
+static int __attribute__((noinline)) nr_block(u8 *o) {   /* (v494 : une seule copie : place) */
     u8 *d = o;
     if (x_dma) {
         if ((u32)o & 31) d = dmabuf;
-        for (u32 a = (u32)d; a < (u32)d + 512; a += 32) __asm__ volatile("dcbi 0,%0" :: "r"(a) : "memory");
+        dc_inv512(d);
+        exi[4] = 0xFFFFFFFFu;                     /* v493 : la carte doit recevoir des 1 (0xFF) pendant qu'elle envoie le bloc ;
+                                                     avant, le registre gardait le dernier octet recu (le jeton FE) : bloc faux des la
+                                                     position 8, DMA refuse au test (port serie 2 et slot B). Swiss le met aussi a FF */
+        u32 cs = exi[0];
+        if (x_dnocs) exi[0] = (cs & 0x405u) | (cs & 0x070u);   /* v494 : 2e facon (si la 1re rate au test) : pendant le DMA du bloc, la carte
+                                                             n'est plus choisie (CS relache, horloge gardee), comme Swiss dans sa version DMA ;
+                                                             1021 : donnees encore fausses des la position 18 avec la carte choisie */
         exi[1] = (u32)d & 0x1FFFFFE0u;
         exi[2] = 512;
         exi[3] = 3;                               /* DMA, lecture, depart */
-        if (ex_wait()) return -1;
+        int w = ex_wait();
+        if (x_dnocs) exi[0] = (cs & 0x405u) | (cs & 0x3F0u);   /* (la carte de nouveau choisie : CRC, suite) */
+        if (w) return -1;
+        /* v431 : le cache est vide une 2e fois APRES le transfert : pendant l'attente, le processeur peut deja lire ce tampon
+           par anticipation (la suite du code : CRC, comparaison) et garder dans son cache l'ancien contenu de la memoire. Le
+           test du DMA (meme secteur lu sans et avec DMA) voyait alors une difference et le DMA restait coupe (lecture lente :
+           videos des jeux saccadees, journal : "sans DMA") */
+        dc_inv512(d);
         if (d != o) for (int i = 0; i < 512; i++) o[i] = d[i];
+    } else if (!((u32)o & 3)) {
+        /* v435 : sans DMA (port serie 2), la boucle la plus courte possible : registres du canal en direct (pas d'appel par
+           mot), un mot ecrit d'un coup, et une petite attente avant de regarder si le transfert est fini (le transfert de
+           4 octets dure ~1 us a 32 MHz : chaque lecture d'un registre du bus coute cher, on n'en fait plus 3 ou 4 pour rien).
+           Avant : ~3 us par mot, la video de Mario Kart (1,6 Mo/s) n'etait servie qu'a ~1,3 Mo/s */
+        volatile u32 *e = exi;
+        u32 *w = (u32 *)o, pause = freq >= 5 ? 30u : freq == 4 ? 70u : 0u;   /* (tics de 1/40,5 us : un peu moins que le transfert) */
+        for (int i = 0; i < 128; i++) {
+            e[4] = 0xFFFFFFFFu;
+            e[3] = 0x31u;                                 /* 4 octets, lecture, depart */
+            u32 t, t0, k = 0; __asm__ volatile("mftb %0" : "=r"(t0));   /* (et un nombre de tours : horloge arretee dans le banc d'essai) */
+            do __asm__ volatile("mftb %0" : "=r"(t)); while (t - t0 < pause && ++k < 64u);
+            u32 n = 0;
+            while (e[3] & 1) if (++n > 1000000u) { H.err = NR_ETIMEOUT; return -1; }
+            w[i] = e[4];
+        }
     } else {
         for (int i = 0; i < 128; i++) {
             u32 w = ex_get(4);
@@ -244,10 +345,11 @@ static int nr_block(u8 *o) {
         }
     }
     u32 crc = ex_get(2) >> 16;
-    if (x_fast && crc16(o, 512) != crc) { H.crc_err++; x_crcbad = 1; H.err = NR_ETOKEN; return -1; }
+    if ((x_fast | x_dma) && crc16(o, 512) != crc)   /* v484 : en DMA aussi (carte d'un slot) */
+        { H.crc_err++; x_crcbad = 1; H.err = NR_ETOKEN; return -1; }
     return 0;
 }
-static int nr_read_sd(u32 sector, void *dst) {
+static MEM_OS int nr_read_sd(u32 sector, void *dst) {   /* (v464 : -Os : attend surtout la carte) */
     u8 *o = (u8 *)dst;
     u32 r = sd_cmd(17, H.sdhc ? sector : sector << 9, 0x01);   /* CMD17 : lire un secteur */
     if (r != 0) { sd_end(); H.err = NR_ECMD; return -1; }
@@ -264,30 +366,45 @@ static int nr_read_sd(u32 sector, void *dst) {
 /* v88 : plusieurs secteurs a la suite (CMD18 : une commande, puis les blocs ; CMD12 : arret).
    Avant : une commande par secteur (CMD17) : la carte cherche a chaque fois (lecture lente,
    le jeu attendait, le son du jeu craquait / coupait). */
-static int nr_read_multi(u32 sector, u32 count, u8 *o) {
-    u32 r = sd_cmd(18, H.sdhc ? sector : sector << 9, 0x01);
-    if (r != 0) { sd_end(); H.err = NR_ECMD; return -1; }
-    int ok = 1;
-    for (u32 s = 0; s < count && ok; s++) {
-        u32 t = 0xFF;
-        for (u32 i = 0; i < 400000u; i++) { t = ex_get8(); if (t != 0xFF) break; }
-        if (t != 0xFE) { H.err = NR_ETOKEN; H.r1 = t; ok = 0; break; }
-        if (nr_block(o)) { ok = 0; break; }
-        o += 512;
-        H.nread++;
-    }
+/* v434 : lecture en continu laissee ouverte entre deux lectures (st_open) : si la suivante commence au secteur d'apres
+   (video du jeu, gros fichier lu par morceaux de 2 Ko), la carte continue d'envoyer ses blocs sans nouvelle commande ni
+   arret. Avant, chaque morceau de 2 Ko payait une commande, l'attente du 1er bloc et l'arret (CMD12) : sans DMA (port
+   serie 2), presque autant que la lecture elle-meme, et les videos saccadaient. Toute autre commande a la carte (sd_cmd)
+   ferme d'abord la lecture en cours. */
+static MEM_OS void st_close(void) {
+    if (!st_open) return;
+    st_open = 0;
     ex_put(0x4C000000u, 4);                           /* CMD12 : arret de la lecture */
     ex_put(0x00010000u, 2);
     ex_get8();                                        /* (octet de bourrage) */
-    for (int i = 0; i < 16; i++) { r = ex_get8(); if (!(r & 0x80)) break; }
+    for (int i = 0; i < 16; i++) { if (!(ex_get8() & 0x80)) break; }
     for (u32 i = 0; i < 400000u; i++) if (ex_get8() == 0xFF) break;   /* (occupee : 00) */
     sd_end();
-    return ok ? 0 : -1;
+}
+static MEM_OS int nr_read_multi(u32 sector, u32 count, u8 *o) {   /* (v434 : -Os : place) */
+    if (xv_st) xv_drain();                            /* v437 */
+    if (!(st_open && sector == st_next)) {
+        u32 r = sd_cmd(18, H.sdhc ? sector : sector << 9, 0x01);   /* (ferme la lecture d'avant) */
+        if (r != 0) { sd_end(); H.err = NR_ECMD; return -1; }
+        st_open = 1;
+    }
+    for (u32 s = 0; s < count; s++) {
+        u32 t = 0xFF;
+        for (u32 i = 0; i < 400000u; i++) { t = ex_get8(); if (t != 0xFF) break; }
+        if (t != 0xFE) { H.err = NR_ETOKEN; H.r1 = t; st_close(); return -1; }
+        if (nr_block(o)) { st_close(); return -1; }
+        o += 512;
+        H.nread++;
+    }
+    st_next = sector + count;                         /* (la carte prepare deja le bloc suivant : on le prendra peut-etre) */
+    if (!SD_OWN_CH) st_close();                       /* (SD Gecko dans un port de carte : le jeu partage ce canal, on le rend ; v488 : pas
+                                                         en slot B avec la carte virtuelle imposee : le jeu n'y touche jamais) */
+    return 0;
 }
 
 /* v54 : ecrire un secteur (CMD24) : seulement le journal, dans un fichier prepare par GC Station */
 static int nr_write_sd1(u32 sector, const u8 *s);
-static MEM_OS int nr_write_sd(u32 sector, const u8 *s) {       /* v94 : ecriture toujours a 16 MHz au plus (pas de CRC verifie) */
+static MEM_OS __attribute__((noinline)) int nr_write_sd(u32 sector, const u8 *s) {       /* v94 : ecriture toujours a 16 MHz au plus (pas de CRC verifie) */
     u32 f = freq;
     if (freq > 4) freq = 4;
     int r = nr_write_sd1(sector, s);
@@ -303,14 +420,14 @@ static MEM_OS int nr_write_sd1(u32 sector, const u8 *s) {
     ex_put(0xFFFF0000u, 2);                       /* CRC (ignore en SPI) */
     u32 t = 0xFF;
     for (int i = 0; i < 16; i++) { t = ex_get8(); if (t != 0xFF) break; }
-    for (u32 i = 0; i < 2000000u; i++) if (ex_get8() == 0xFF) break;   /* la carte ecrit (occupee = 00) */
+    sd_wbusy = 1;                                 /* (build 1062 : la carte ecrit ; attendu avant la commande suivante, sd_cmd) */
     sd_end();
     return (t & 0x1F) == 0x05 ? 0 : -1;
 }
 
 /* secteur de l'ISO -> secteur de la carte (v88 : *run = secteurs a la suite sur la carte) */
 static u32 iso_run = 1;
-static int iso_to_sd(u32 isec, u32 *sd) {
+static __attribute__((noinline)) int iso_to_sd(u32 isec, u32 *sd) {
     u32 n = H.n_ext;
     if (ext_last < n) {
         const natres_ext_t *e = &ext_tab[ext_last];
@@ -330,13 +447,57 @@ static int iso_to_sd(u32 isec, u32 *sd) {
 
 static int nr_read1(void *dst, u32 off, u32 len);
 static int di_ready = 0;
+/* ======================= v467 : journal complet (Pulse leger seulement, diagnostic) =======================
+   Chaque evenement (interruptions, commandes et registres du lecteur, lectures de la carte, reveils, carte memoire) :
+   16 octets {type << 24 | temps (mftb / 256, 24 bits), numero, a, b}, 32 par secteur, dans un fichier de la carte
+   prepare par GC Station (gc-mp3/natif/journal-complet.bin : snap_sec, snap_cnt secteurs, en boucle ; snap_done =
+   secteurs pleins, snap_hi = numero du dernier evenement). Le secteur en cours est reecrit a chaque image. */
+#if defined(NATRES_LITE) && !defined(NATRES_COMPACT)
+#define EVON ((H.opt & NRO_LOGALL) && H.snap_cnt > 1u && !(H.flags & NRF_SNAP))
+static u32 ev_buf[128] __attribute__((aligned(32)));
+static u32 ev_n = 0;
+static MEM_OS __attribute__((noinline)) void ev_flush(void) {
+    if (!EVON || !di_ready || exi_defer()) return;
+    nr_write_sd(H.snap_sec + H.snap_done % H.snap_cnt, (const u8 *)ev_buf);
+}
+static MEM_OS __attribute__((noinline)) void ev(u32 t, u32 a, u32 b) {
+    if (!EVON) return;
+    u32 m, tb;
+    __asm__ volatile("mfmsr %0" : "=r"(m));
+    __asm__ volatile("mtmsr %0" :: "r"(m & ~0x8000u) : "memory");
+    __asm__ volatile("mftb %0" : "=r"(tb));
+    u32 *e = ev_buf + ev_n;
+    e[0] = t << 24 | ((tb >> 8) & 0xFFFFFFu); e[1] = ++H.snap_hi; e[2] = a; e[3] = b;
+    if ((ev_n += 4) >= 128u) { ev_flush(); ev_n = 0; H.snap_done++; for (u32 i = 0; i < 128u; i++) ev_buf[i] = 0; }
+    __asm__ volatile("mtmsr %0" :: "r"(m) : "memory");
+}
+static MEM_OS __attribute__((noinline)) void evc(u32 t, u32 ctx) {   /* (interruption : ou etait le jeu) */
+    int ok = ctx >= 0x80000000u && ctx < NATRES_AT && !(ctx & 3);
+    ev(t, ok ? *(volatile u32 *)(ctx + 0x198) : 0, ok ? *(volatile u32 *)(ctx + 0x84) : ctx);
+}
+static MEM_OS __attribute__((noinline)) void ev_sum(u32 off, u32 len, u32 dst) {   /* v469 : empreinte des octets donnes au jeu */
+    if (!EVON) return;
+    u32 s = 0; const u8 *q = (const u8 *)dst;
+    for (u32 i = 0; i < len; i++) s = (s << 5 | s >> 27) ^ q[i];   /* (meme calcul dans GC Station, natif.c) */
+    ev(0x2C, off, len); ev(0x2D, s, dst);
+}
+#define EV(t, a, b) ev(t, a, b)
+#define EVC(t, ctx) evc(t, ctx)
+#define EVF() ev_flush()
+#define EVSUM(off, len, dst) ev_sum(off, len, dst)
+#else
+#define EV(t, a, b) ((void)0)
+#define EVC(t, ctx) ((void)0)
+#define EVF() ((void)0)
+#define EVSUM(off, len, dst) ((void)0)
+#endif
 static int pn_read(void *dst, u32 off, u32 len);   /* v143 : (ISO sur le reseau) */
 static int pn_ready = 0;
 /* v136 : corrections par jeu dans les autres executables du disque (.dol, .elf, .tgc) : GC Station a calcule
    la position dans l'ISO de chaque instruction a changer ; elle est changee quand le jeu lit cet endroit.
    Table a la suite des cheats : {mots de cheats, mots..., "FIXT", n, n x {position, valeur, taille (1-4)}} */
 #define NATRES_FIXT 0x46495854u
-static void fx_apply(u8 *dst, u32 off, u32 len) {
+static MEM_OS void fx_apply(u8 *dst, u32 off, u32 len) {   /* (v462 : -Os) */
     if (!H.chts) return;
     const u32 *w = (const u32 *)H.chts;
     const u32 *f = w + 1 + w[0];
@@ -352,12 +513,14 @@ static void fx_apply(u8 *dst, u32 off, u32 len) {
         }
     }
 }
-static int nr_read(void *dst, u32 off, u32 len) {    /* v54 : une erreur de la carte -> on la redemarre et on reessaie */
+static MEM_OS int nr_read(void *dst, u32 off, u32 len) {    /* v54 : une erreur de la carte -> on la redemarre et on reessaie */
+    EV(0x30, off, len);
     for (int t = 0; t < 3; t++) {
         if (nr_read1(dst, off, len) == 0) { if (t) H.nretry++; fx_apply((u8 *)dst, off, len); return 0; }
         if (H.err == NR_ERANGE) break;
         H.nrderr++;
         if (x_fast && x_crcbad) x_fast_off = 1;           /* v94 : CRC faux a 32 MHz : retour a 16 MHz */
+        if (x_dma) { x_dma = 0; x_why = 0x18u | (H.err & 0xFFu) << 8; }   /* v484 : lecture ratee en DMA : sans DMA jusqu'a la fin (journal : 08+10) */
         x_crcbad = 0;
         sec_cached = 0xFFFFFFFFu;
         if (H.net) { pn_ready = 0; continue; }          /* v143 : (reseau : on redemarre le BBA) */
@@ -365,7 +528,7 @@ static int nr_read(void *dst, u32 off, u32 len) {    /* v54 : une erreur de la c
     }
     return -1;
 }
-static int nr_read1(void *dst, u32 off, u32 len) {
+static MEM_OS int nr_read1(void *dst, u32 off, u32 len) {
     if (H.net) return pn_read(dst, off, len);           /* v143 : ISO sur le reseau */
     u8 *o = (u8 *)dst;
     while (len) {
@@ -421,7 +584,7 @@ static inline u32 irq_off(void) {
     return m;
 }
 static inline void irq_restore(u32 m) { __asm__ volatile("mtmsr %0" :: "r"(m) : "memory"); }
-static void cache_flush(u32 a, u32 len) {                /* donnees ecrites par le processeur -> memoire */
+static MEM_OS void cache_flush(u32 a, u32 len) {                /* donnees ecrites par le processeur -> memoire */
     u32 e = a + len;
     for (a &= ~31u; a < e; a += 32) __asm__ volatile("dcbf 0,%0" :: "r"(a) : "memory");
     __asm__ volatile("sync" ::: "memory");
@@ -429,14 +592,90 @@ static void cache_flush(u32 a, u32 len) {                /* donnees ecrites par 
 
 static u32 kick_tb = 0;
 static inline u32 tbl(void);
+/* v513 : mesure du temps passe dans Pulse pendant les interruptions (Kirby Air Ride : son qui gresille pendant les videos,
+   meme sans telephone ni vrai lecteur). Par type : nombre de passages, temps total, pire passage (us), le temps du jeu
+   (ses propres fonctions d'interruption) en dehors ; et les ecarts entre deux interruptions du DSP (le son du jeu).
+   Ecrit dans le 8e secteur du journal (GCSI), avec l'en-tete. Seulement dans le Pulse leger (place : le Pulse normal est plein). */
+#if defined(NATRES_LITE) && !defined(NATRES_COMPACT) && !defined(NATRES_LAN)
+#define PF_ON 1
+#define PFN 9                                            /* 0 image, 1 son (AI), 2 DSP, 3 lecteur, 4 carte SD (suites), 5 dessin ;
+                                                            v526 : morceaux du temps du lecteur (Kirby : 19 ms au pire, menus) : 6 lecture en fond (rd_pump,
+                                                            partout), 7 aiguillage EXI (carte virtuelle) dans le crochet du lecteur, 8 relance du vrai lecteur */
+static u32 pf_n[PFN], pf_us[PFN], pf_max[PFN], pf_dsp_tb, pf_gap[3];   /* (ecart max, ecarts > 6 ms, > 12 ms) */
+static MEM_OS __attribute__((noinline)) void pf_add(u32 k, u32 t0) {
+    u32 d = (tbl() - t0) / 41u;
+    pf_n[k]++; pf_us[k] += d; if (d > pf_max[k]) pf_max[k] = d;
+}
+#define PF_T0(v) u32 v = tbl()
+#define PF_ADD(k, v) pf_add(k, v)
+#define PF_XD(c) do { u32 t_ = tbl(); x_dispatch(c); pf_add(7, t_); } while (0)   /* v526 */
+static u32 ld_tb, ld_n, ld_us, ld_kb, ld_max, ld_mlen;   /* v527 : chargements (lectures en fond) : nombre, temps (us), Ko, la plus longue */
+#define PF_LD0() (ld_tb = tbl())
+#define PF_LD1() do { u32 d_ = (tbl() - ld_tb) / 41u; ld_n++; ld_us += d_; ld_kb += rd_len0 >> 10; if (d_ > ld_max) { ld_max = d_; ld_mlen = rd_len0; } } while (0)
+#else
+#define PF_XD(c) x_dispatch(c)
+#define PF_LD0() ((void)0)
+#define PF_LD1() ((void)0)
+#define PF_ON 0
+#define PF_T0(v) do { } while (0)
+#define PF_ADD(k, v) do { } while (0)
+#endif
 /* v133 : comment le jeu est reveille a la fin d'une commande. 0 = par une vraie commande du lecteur (rapide :
    ~0,1 ms) ; 1 = sans le lecteur (pas de lecteur, ou il ne repond plus) : la fin est donnee au jeu depuis ses
    propres interruptions (image, son, dessin, manettes : quelques ms) */
 static int wk_tick = -1;
-static int wake_tick(void) { if (wk_tick < 0) wk_tick = !(H.flags & NRF_REAL_IRQ); return wk_tick; }
-static u32 di_real_kick(void) {                          /* vraie commande "inquiry" : sa fin reveille le jeu */
+#if 1
+#define WT_SELF (H.opt & NRO_SELFIRQ)                    /* v480 : sans lecteur, le reveil provoque (v485 : Pulse normal aussi) plutot que les interruptions du jeu */
+#else
+#define WT_SELF 0u
+#endif
+static int wake_tick(void) { if (wk_tick < 0) wk_tick = !(H.flags & NRF_REAL_IRQ) && !WT_SELF; return wk_tick; }
+/* v476 : reveil sans le vrai lecteur, par une vraie interruption (idee de Swiss, codee ici) : une lecture a une adresse ou il
+   n'y a rien (0xC4000000 : memoire sans cache, 64 Mo, au-dela des 24 Mo) fait lever au processeur d'E/S (PI) son interruption
+   "erreur". Le systeme du jeu l'envoie a err_hook (table du SDK, numero 23, demasquee ici), qui l'efface et fait comme une fin
+   du lecteur (di_hook). Interruptions coupees (fonctions d'interruption, souvent les fonctions du lecteur du jeu) : elle arrive
+   juste apres, comme celle d'un lecteur tres rapide. */
+#if 1                             /* (v476-v477 : Pulse leger seulement ; v485 : Pulse normal aussi) */
+#define SELFIRQ_ON (H.opt & NRO_SELFIRQ)
+static void di_hook(u32 irq, u32 ctx);
+static u32 err_orig = 0;
+/* v477 : avec le reveil provoque, la fin de commande n'est donnee au jeu qu'avec son interruption, comme un vrai lecteur (et
+   comme Dolphin et Swiss) : jusque-la le lecteur reste "occupe" (DICR bit 0) et ni TCINT ni DEINT. Avant : fini des l'envoi,
+   interruption apres. sf_bits : la fin en attente (0x10 TCINT, 0x04 DEINT). Si le jeu attend en relisant les registres sans
+   interruptions, la fin lui est donnee au bout de ~300 us (di_load), comme un lecteur qui finit tout seul. */
+static u32 sf_bits = 0;
+static void sf_apply(void) { if (sf_bits) { di[0] |= sf_bits; di[7] &= ~1u; sf_bits = 0; } }
+static void err_hook(u32 irq, u32 ctx) {
+    (void)irq;
+    *(volatile u32 *)0xCC003000u = 1u;                   /* (efface l'erreur voulue) */
+    sf_apply();                                          /* v477 */
+    di_hook(21, ctx);
+}
+static MEM_OS __attribute__((noinline)) void self_irq(void) {
+    volatile u32 *t = (volatile u32 *)0x80003040u;       /* (OS_INT_TABLE, plus bas) */
+    if (t[23] != (u32)err_hook) { err_orig = t[23]; t[23] = (u32)err_hook; }
+    *(volatile u32 *)0x800000C4u &= ~(0x80000000u >> 23);   /* (masques du SDK : 1 = coupee) */
+    *(volatile u32 *)0x800000C8u &= ~(0x80000000u >> 23);
+    *(volatile u32 *)0xCC003004u |= 1u;                   /* (masque materiel du PI : erreur permise) */
+    (void)*(volatile u32 *)0xC4000000u;
+}
+#else
+#define SELFIRQ_ON 0
+#define sf_bits 0u
+static void sf_apply(void) { }
+static void self_irq(void) { }
+#endif
+#if PF_ON
+static u32 di_real_kick_i(void);
+static MEM_OS __attribute__((noinline)) u32 di_real_kick(void) { PF_T0(t); u32 r = di_real_kick_i(); PF_ADD(8, t); return r; }   /* v526 : mesure */
+#else
+#define di_real_kick_i di_real_kick
+#endif
+static MEM_OS u32 di_real_kick_i(void) {                   /* (v501 : -Os) vraie commande "inquiry" : sa fin reveille le jeu */
+    EV(0x26, DI_REAL[0], DI_REAL[7]);
     volatile u32 *r = DI_REAL;
     if (wake_tick()) return 4;                           /* (v133 : sans le lecteur : la fin viendra a la prochaine interruption du jeu) */
+    if (SELFIRQ_ON) { H.nkick++; kick_tb = tbl(); self_irq(); return 4; }   /* v476 */
     for (u32 i = 0; i < 3000000u && (r[7] & 1); i++) ;  /* v54 : le vrai lecteur est occupe : on attend un peu */
     if (r[7] & 1) { H.nskip++; return 2; }
     H.nkick++;
@@ -449,7 +688,7 @@ static u32 di_real_kick(void) {                          /* vraie commande "inqu
 
 /* v66 : "inquiry" du jeu : on la pose au vrai lecteur et on attend sa reponse (interruptions
    coupees, < 50 ms) ; sa fin est acquittee ici (le reveil du jeu vient ensuite, comme avant) */
-static int di_real_inq(void) {
+static MEM_OS int di_real_inq(void) {
     volatile u32 *r = DI_REAL;
     if (!(H.flags & NRF_REAL_IRQ) || wake_tick()) return 0;
     for (u32 i = 0; i < 3000000u && (r[7] & 1); i++) ;
@@ -467,17 +706,20 @@ static int di_real_inq(void) {
     return (sr & 0x10) != 0;
 }
 
+#if !defined(NATRES_NOLOG)
 static u32 log_ring[NATRES_LOGN][4];
 static u8 logbuf[512] __attribute__((aligned(32)));
+#endif
 static inline u32 tbl(void) { u32 t; __asm__ volatile("mftb %0" : "=r"(t)); return t; }   /* (declaree plus haut) */
 #define TB_SEC 40500000u                                  /* (horloge : 162 MHz / 4) */
-static void vi_snap(void) {                              /* v99 : etat de l'ecran (journal) */
+static MEM_OS void vi_snap(void) {                              /* v99 : etat de l'ecran (journal) */
     volatile unsigned short *v = (volatile unsigned short *)0xCC002000u;
     u32 now = (u32)v[1] << 16 | (v[0x6C / 2] & 1u);
     if (H.vi_now && ((now ^ H.vi_now) & ~0x00010000u)) { H.vi_chg++; H.vi_chg_at = H.vi_count; }
     H.vi_now = now;
     H.vi_dtv = (u32)v[0x6E / 2] << 16 | v[26];           /* (v111 : bas = DI1, interruption de la 1re ligne) */
 }
+static u32 xv_fall, xv_lost, ch2_w;                      /* (v517 : declarees plus bas ; ecrites dans le secteur de mesure) */
 static MEM_OS void nr_log_flush(void) {
     H.flush_tb = tbl();
     vi_snap();
@@ -488,6 +730,9 @@ static MEM_OS void nr_log_flush(void) {
         di_ready = nr_init() == 0;
         if (!di_ready) return;
     }
+#if defined(NATRES_NOLOG)
+    nr_write_sd(H.log_sec, (const u8 *)&H);              /* v509 : Pulse sans journaux : l'en-tete seul (temps de jeu, resume), sans tampon */
+#else
     const u8 *p = (const u8 *)&H;
     for (u32 i = 0; i < sizeof(natres_hdr_t); i++) logbuf[i] = p[i];
     for (u32 k = 0; k < NATRES_LOGN; k++) {                     /* le plus ancien d'abord */
@@ -495,15 +740,49 @@ static MEM_OS void nr_log_flush(void) {
         for (int w = 0; w < 4; w++) d[w] = log_ring[j][w];
     }
     nr_write_sd(H.log_sec, logbuf);
+#if PF_ON
+    if ((H.flags & NRF_PERF) && H.vi_count) {            /* v513 : 8e secteur : temps passe dans Pulse */
+        u32 *w = (u32 *)logbuf;
+        for (u32 i = 0; i < 128; i++) w[i] = 0;
+        w[0] = NATRES_PERF_MAGIC; w[1] = 5;              /* (v517 : 2 = avec les lectures de la carte debloquees ; v526 : 4 = morceaux du lecteur en 26..34 ; v527 : 5 = chargements en 35..40) */
+        for (u32 k = 0; k < PFN; k++) { u32 b = k < 6u ? 2 + k * 3 : 8 + k * 3; w[b] = pf_n[k]; w[b + 1] = pf_us[k]; w[b + 2] = pf_max[k]; }
+        w[20] = pf_gap[0]; w[21] = pf_gap[1]; w[22] = pf_gap[2]; w[23] = xv_fall; w[24] = xv_lost; w[25] = ch2_w;
+        w[35] = ld_n; w[36] = ld_us; w[37] = ld_kb; w[38] = ld_max; w[39] = ld_mlen;
+        nr_write_sd(H.log_sec + 7, logbuf);
+    }
+#endif
+#endif
 }
 static void nr_log_add(u32 a, u32 b, u32 c, u32 d) {
+#if defined(NATRES_NOLOG)
+    (void)a; (void)b; (void)c; (void)d; H.nlog++;
+#else
     u32 *e = log_ring[H.nlog % NATRES_LOGN];
     e[0] = a; e[1] = b; e[2] = c; e[3] = d;
     H.nlog++;
+#endif
 }
+static int exec_on;                                      /* (v463 : declaree plus bas, OSExec en cours) */
+#if defined(NATRES_LITE) && !defined(NATRES_COMPACT)
+/* v470 : fin d'une interruption (son, DSP, image GX, manettes, lecteur) : le secteur en cours du journal complet est aussi ecrit
+   ici, au plus toutes les 4 ms (avant : seulement a chaque image ; un figeage entre deux images perdait la fin du journal :
+   Simpsons US). Pendant OSExec (pas d'image : Shrek Extra Large), a chaque fois. Jamais au milieu d'un transfert sur le bus. */
+static u32 ev_tb = 0;
+static MEM_OS __attribute__((noinline)) void ev_end(u32 t, u32 a, u32 b) {
+    ev(t, a, b);
+    u32 tb; __asm__ volatile("mftb %0" : "=r"(tb));
+    if (!exi || (exi[0] & 0x380u) || (exi[3] & 1u) || (!exec_on && tb - ev_tb < 162000u)) return;
+    ev_tb = tb; ev_flush();
+}
+#define EVE(t, a, b) ev_end(t, a, b)
+#else
+#define EVE(t, a, b) ((void)0)
+#endif
 static void nr_log(u32 off, u32 len, u32 info) {
     nr_log_add(di[2], off, len, info | (H.err & 0xFF) << 24);
-    if (info & 1 || H.ncmd <= 40 || tbl() - H.flush_tb > TB_SEC * 2) nr_log_flush();   /* (debut du jeu, erreurs, puis toutes les 2 s) */
+    if (info & 1 || H.ncmd <= 40 || exec_on || (!H.vi_count && tbl() - H.flush_tb > TB_SEC * 2)) nr_log_flush();   /* (debut du jeu, erreurs ;
+                                                            v516 : toutes les 2 s seulement avant la 1re image, comme alive_tick en v515 :
+                                                            Kirby Air Ride lit sans arret, le journal etait encore reecrit toutes les 2 s) */
 }
 /* ======================= v143 : Pulse par le reseau (option, experimental) =======================
    L'ISO n'est pas sur la carte SD : elle est lue sur une autre GC Station (ou un PC, tools/pulse-serveur.py)
@@ -533,7 +812,7 @@ static const natres_net_t *pn_cfg = 0;                   /* (H.net, ou les regla
 #define BB_SI_ACTRL2 0x60
 #define BB_RXINTT 0x14
 static volatile u32 *bx;                                   /* registres EXI du canal 0 */
-extern u8 exc_stack[2048];
+extern u8 exc_stack[1600];
 #define pn_fr exc_stack                                   /* (trame : la pile du retour a GC Station ne sert pas en meme temps) */
 static u8 pn_mac[6], pn_smac[6];
 static u32 pn_seq = 0x5000;
@@ -543,6 +822,11 @@ static int pn_hw = 0;
 /* build 908 : deux Pulse compiles a partir de ce fichier (place pour le direct) : PULSE_NET=1 Broadband Adapter seulement
    (natres_bin), PULSE_NET=2 W5500 seulement (natres_wz_bin) ; GC Station met le bon selon l'adaptateur branche (natif.c,
    na_rb). Sans PULSE_NET (Pulse LAN, bancs d'essai) : les deux pilotes, comme avant. Le pilote absent n'est pas compile. */
+/* v455 : PULSE_NET=3 W6100 / W6300 seulement (natres_w6_bin), PULSE_NET=4 ENC28J60 seulement (natres_enc_bin) */
+#ifdef NATRES_LITE                                        /* v452 : Pulse leger : aucun adaptateur (ni telephone, ni jeu par le reseau) */
+#undef PULSE_NET
+#define PULSE_NET 9
+#endif
 #ifndef PULSE_NET                                         /* (build 909 : sans precision, le Pulse du BBA ; Pulse LAN : les deux pilotes, comme avant) */
 #ifdef NATRES_LAN
 #define PULSE_NET 0
@@ -550,8 +834,10 @@ static int pn_hw = 0;
 #define PULSE_NET 1
 #endif
 #endif
-#define PN_BBA (PULSE_NET != 2)
-#define PN_WZ (PULSE_NET != 1)
+#define PN_BBA (PULSE_NET == 0 || PULSE_NET == 1)
+#define PN_WZ (PULSE_NET == 0 || PULSE_NET == 2 || PULSE_NET == 3)
+#define PN_WZ6 (PULSE_NET == 3)                           /* (v455 : meme code que le W5500, autres registres) */
+#define PN_ENC (PULSE_NET == 4)
 static u32 pn_cs = 0x80u << 2, pn_frq = 5, pn_ch = 0;
 static void bb_sel(void) { bx[0] = (bx[0] & 0x405) | (pn_frq << 4) | pn_cs; }   /* (BBA : 32 MHz, peripherique 2) */
 static void bb_desel(void) { bx[0] = bx[0] & 0x405; }
@@ -583,7 +869,38 @@ static void pn_p32(u8 *p, u32 v) { p[0] = (u8)(v >> 24); p[1] = (u8)(v >> 16); p
 /* ---- v327 : W5500 (WIZnet, ETH2SP1 / ETH2GC), socket 0 en MACRAW (trames Ethernet brutes), sans interruption.
    Trame SPI : adresse (16 bits), controle (bloc << 3 | ecriture << 2 | 0 = longueur libre), donnees. Blocs : 0 commun,
    1 registres du socket 0, 2 son tampon d'envoi, 3 son tampon de reception (les pointeurs font le tour seuls). */
-static __attribute__((noinline, optimize("Os"))) void wz_hdr(u32 bsb, u32 a, int wr) { bb_w((a << 16) | ((bsb << 3) | (wr ? 4u : 0u)) << 8, 3); }
+/* v455 : W6100 / W6300 (ETH2SP1 recents) : memes trames que le W5500 pour le W6100 ; le W6300 met d'abord un octet
+   d'instruction (ecriture << 5 | bloc), puis l'adresse et un octet vide. Registres du socket et communs ailleurs. */
+#if PN_WZ6
+#define WZ_SCR 0x10
+#define WZ_SSR 0x30
+#define WZ_TXFSR 0x204
+#define WZ_TXWR 0x20C
+#define WZ_RXRSR 0x224
+#define WZ_RXRD 0x228
+#define WZ_TXBSR 0x200
+#define WZ_RXBSR 0x220
+#define WZ_SIMR0 0x24
+#define WZ_SHAR 0x4120
+static u32 wz_63 = 0;                                     /* (1 : W6300) */
+#else
+#define WZ_SCR 0x01
+#define WZ_SSR 0x03
+#define WZ_TXFSR 0x20
+#define WZ_TXWR 0x24
+#define WZ_RXRSR 0x26
+#define WZ_RXRD 0x28
+#define WZ_TXBSR 0x1F
+#define WZ_RXBSR 0x1E
+#define WZ_SIMR0 0x2C
+#define WZ_SHAR 0x09
+#endif
+static __attribute__((noinline, optimize("Os"))) void wz_hdr(u32 bsb, u32 a, int wr) {
+#if PN_WZ6
+    if (wz_63) { bb_w(((bsb | (wr ? 0x20u : 0u)) << 24) | (a << 8), 4); return; }
+#endif
+    bb_w((a << 16) | ((bsb << 3) | (wr ? 4u : 0u)) << 8, 3);
+}
 static __attribute__((noinline, optimize("Os"))) void wz_wr(u32 bsb, u32 a, const u8 *s, u32 n) {
     bb_sel(); wz_hdr(bsb, a, 1);
     for (; n >= 4; n -= 4, s += 4) bb_w((u32)s[0] << 24 | (u32)s[1] << 16 | (u32)s[2] << 8 | s[3], 4);
@@ -604,24 +921,81 @@ static __attribute__((noinline, optimize("Os"))) u32 wz_r16(u32 bsb, u32 a) {   
     return v;
 }
 static __attribute__((noinline, optimize("Os"))) void wz_w16(u32 bsb, u32 a, u32 v) { u8 b[2] = { (u8)(v >> 8), (u8)v }; wz_wr(bsb, a, b, 2); }
-static __attribute__((noinline, optimize("Os"))) void wz_cmd(u32 c) { wz_w8(1, 0x01, c); for (u32 i = 0; i < 20000u && wz_r8(1, 0x01); i++) { } }   /* Sn_CR */
+static __attribute__((noinline, optimize("Os"))) void wz_cmd(u32 c) { wz_w8(1, WZ_SCR, c); for (u32 i = 0; i < 20000u && wz_r8(1, WZ_SCR); i++) { } }   /* Sn_CR */
 static __attribute__((noinline, optimize("Os"))) void wz_send(const u8 *f, u32 n) {
-    for (u32 i = 0; i < 20000u && wz_r16(1, 0x20) < n; i++) { }    /* Sn_TX_FSR : place dans le tampon d'envoi */
-    u32 wr = wz_r16(1, 0x24);                                       /* Sn_TX_WR */
+    for (u32 i = 0; i < 20000u && wz_r16(1, WZ_TXFSR) < n; i++) { }    /* Sn_TX_FSR : place dans le tampon d'envoi */
+    u32 wr = wz_r16(1, WZ_TXWR);                                    /* Sn_TX_WR */
     wz_wr(2, wr, f, n);
-    wz_w16(1, 0x24, (wr + n) & 0xFFFFu);
+    wz_w16(1, WZ_TXWR, (wr + n) & 0xFFFFu);
     wz_cmd(0x20);                                                   /* SEND */
 }
 static __attribute__((noinline, optimize("Os"))) u32 wz_recv(void) {
-    u32 rsr = wz_r16(1, 0x26);                                      /* Sn_RX_RSR : octets recus */
+    u32 rsr = wz_r16(1, WZ_RXRSR);                                  /* Sn_RX_RSR : octets recus */
     if (rsr < 2) return 0;
-    u32 rd = wz_r16(1, 0x28), n = 0;                                /* Sn_RX_RD */
+    u32 rd = wz_r16(1, WZ_RXRD), n = 0;                             /* Sn_RX_RD */
     u8 h[2]; wz_rd(3, rd, h, 2);
     u32 len = (u32)h[0] << 8 | h[1];                                /* (longueur, ces 2 octets compris) */
     if (len < 2 || len > rsr || len - 2 > 1536u) len = rsr;         /* (incoherent : tout est jete) */
     else { n = len - 2; wz_rd(3, (rd + 2) & 0xFFFFu, pn_fr, n); }
-    wz_w16(1, 0x28, (rd + len) & 0xFFFFu);
+    wz_w16(1, WZ_RXRD, (rd + len) & 0xFFFFu);
     wz_cmd(0x40);                                                   /* RECV */
+    return n;
+}
+#endif
+#if PN_ENC
+/* ---- v455 : ENC28J60 (Microchip, ETH2GC Lite...), sans interruption. Commandes SPI : 3 bits d'operation + 5 bits
+   d'adresse. Registres par banque (ECON1.BSEL) ; ceux du MAC et du MII rendent d'abord un octet vide. Ici, un registre
+   = banque << 5 | adresse, + 0x80 pour MAC / MII. Tampon : reception 0x0000-0x0FFF (anneau), envoi a 0x1000. */
+#define EN_ECON1 0x1F
+#define EN_ECON2 0x1E
+#define EN_ESTAT 0x1D
+#define EN_EIR 0x1C
+#define EN_RXEND 0x0FFFu
+#define EN_TXST 0x1000u
+static u32 en_bank = 0, en_next = 0;
+static __attribute__((noinline, optimize("Os"))) void en_op(u32 op, u32 r, u32 v) {           /* WCR (0x40), BFS (0x80), BFC (0xA0) */
+    bb_sel(); bb_w(((op | (r & 0x1Fu)) << 24) | (v << 16), 2); bb_desel();
+}
+static __attribute__((noinline, optimize("Os"))) void en_bk(u32 r) {
+    u32 b = (r >> 5) & 3u;
+    if ((r & 0x1Fu) < 0x1Bu && b != en_bank) { en_op(0xA0, EN_ECON1, 3); if (b) en_op(0x80, EN_ECON1, b); en_bank = b; }
+}
+static __attribute__((noinline, optimize("Os"))) void en_w(u32 r, u32 v) { en_bk(r); en_op(0x40, r, v & 0xFFu); }
+static __attribute__((noinline, optimize("Os"))) void en_w16(u32 r, u32 v) { en_w(r, v); en_w(r + 1, v >> 8); }
+static __attribute__((noinline, optimize("Os"))) u32 en_r(u32 r) {
+    en_bk(r);
+    bb_sel(); bb_w((r & 0x1Fu) << 24, 1); if (r & 0x80u) bb_r(1); u32 v = bb_r(1) >> 24; bb_desel();
+    return v;
+}
+static __attribute__((noinline, optimize("Os"))) void en_buf(int wr, u8 *d, u32 n) {         /* RBM (0x3A) / WBM (0x7A) */
+    bb_sel(); bb_w((wr ? 0x7Au : 0x3Au) << 24, 1);
+    if (wr) for (; n; n--) bb_w((u32)*d++ << 24, 1);
+    else for (; n; n--) *d++ = (u8)(bb_r(1) >> 24);
+    bb_desel();
+}
+static __attribute__((noinline, optimize("Os"))) void en_phy(u32 a, u32 v) {                 /* registre du PHY */
+    en_w(0x80 | 2 << 5 | 0x14, a); en_w(0x80 | 2 << 5 | 0x16, v); en_w(0x80 | 2 << 5 | 0x17, v >> 8);   /* MIREGADR, MIWRL, MIWRH */
+    for (u32 i = 0; i < 20000u && (en_r(0x80 | 3 << 5 | 0x0A) & 1u); i++) { }   /* MISTAT.BUSY */
+}
+static __attribute__((noinline, optimize("Os"))) void en_send(const u8 *f, u32 n) {
+    for (u32 i = 0; i < 20000u && (en_r(EN_ECON1) & 0x08u); i++) { }   /* (envoi precedent fini : TXRTS) */
+    if (en_r(EN_EIR) & 0x02u) { en_op(0x80, EN_ECON1, 0x80); en_op(0xA0, EN_ECON1, 0x80); en_op(0xA0, EN_EIR, 0x02); }   /* (erreur d'envoi : remise a zero de l'envoi) */
+    en_w16(0x02, EN_TXST);                                /* EWRPT */
+    u8 c = 0; en_buf(1, &c, 1);                           /* (octet de controle : reglages par defaut) */
+    en_buf(1, (u8 *)f, n);
+    en_w16(0x04, EN_TXST); en_w16(0x06, EN_TXST + n);     /* ETXST, ETXND */
+    en_op(0x80, EN_ECON1, 0x08);                          /* TXRTS : envoyer */
+}
+static __attribute__((noinline, optimize("Os"))) u32 en_recv(void) {
+    if (!en_r(1 << 5 | 0x19)) return 0;                   /* EPKTCNT */
+    en_w16(0x00, en_next);                                /* ERDPT */
+    u8 h[6]; en_buf(0, h, 6);                             /* suivante (2), longueur (2), etat (2) */
+    u32 nx = h[0] | (u32)h[1] << 8, len = h[2] | (u32)h[3] << 8, n = 0;
+    if (len >= 4 + 14 && len - 4 <= 1536u && nx <= EN_RXEND) { n = len - 4; en_buf(0, pn_fr, n); }   /* (sans le CRC) */
+    if (nx > EN_RXEND) nx = 0;                            /* (incoherent : on repart du debut) */
+    en_next = nx;
+    en_w16(0x0C, nx ? nx - 1 : EN_RXEND);                 /* ERXRDPT (impair : erratum) */
+    en_op(0x80, EN_ECON2, 0x40);                          /* PKTDEC */
     return n;
 }
 #endif
@@ -629,6 +1003,9 @@ static MEM_OS void pn_send(u8 *f, u32 n) {                       /* trame Ethern
     while (n < 60) f[n++] = 0;
 #if PN_WZ
     if (!PN_BBA || pn_hw == 2) { u32 m = irq_off(); wz_send(f, n); irq_restore(m); return; }
+#endif
+#if PN_ENC
+    { u32 m = irq_off(); en_send(f, n); irq_restore(m); return; }
 #endif
 #if PN_BBA
     u32 m = irq_off();
@@ -643,6 +1020,9 @@ static MEM_OS void pn_send(u8 *f, u32 n) {                       /* trame Ethern
 static u32 pn_recv(void) {
 #if PN_WZ
     if (!PN_BBA || pn_hw == 2) { u32 m = irq_off(); u32 k = wz_recv(); irq_restore(m); return k; }
+#endif
+#if PN_ENC
+    { u32 m = irq_off(); u32 k = en_recv(); irq_restore(m); return k; }
 #endif
 #if PN_BBA
     u32 m = irq_off(), n = 0;
@@ -702,12 +1082,21 @@ static int __attribute__((noinline, optimize("Os"))) pn_wz_init(u32 ch, u32 dev)
     pn_cs = 0x80u << dev; pn_frq = 3;
     u32 m = irq_off();
     bb_sel(); bb_w(0, 2); u32 id = bb_r(4); bb_desel();
+#if PN_WZ6
+    if (id != 0x03000000u && id != 0xFF800000u) { irq_restore(m); return -1; }   /* (W6100 : comme le W5500 ; W6300 : le sien) */
+    wz_63 = id == 0xFF800000u;
+#else
     if (id != 0x03000000u) { irq_restore(m); return -1; }
+#endif
     static const u32 fq[3] = { 5, 4, 3 };                 /* (32, 16, 8 MHz : la premiere qui repond juste) */
     int ok = 0;
+#if PN_WZ6
+    for (int i = 0; i < 3 && !ok; i++) { pn_frq = fq[i]; ok = wz_r8(0, 0x0000) == 0x61 && wz_r8(0, 0x0002) == 0x46; }   /* CIDR, VER */
+#else
     for (int i = 0; i < 3 && !ok; i++) { pn_frq = fq[i]; ok = wz_r8(0, 0x39) == 0x04; }   /* VERSIONR */
+#endif
     if (!ok) { irq_restore(m); return -1; }
-    u8 mac[6]; wz_rd(0, 0x09, mac, 6);                    /* SHAR : l'adresse que GC Station a mise */
+    u8 mac[6]; wz_rd(0, WZ_SHAR, mac, 6);                 /* SHAR : l'adresse que GC Station a mise */
     u32 z = mac[0] | mac[1] | mac[2] | mac[3] | mac[4] | mac[5], f = mac[0] & mac[1] & mac[2] & mac[3] & mac[4] & mac[5];
     if (!z || f == 0xFF) {
         u32 e0, e1, e2, e3;
@@ -715,19 +1104,68 @@ static int __attribute__((noinline, optimize("Os"))) pn_wz_init(u32 ch, u32 dev)
         u32 x = e0 ^ (e1 * 31u) ^ (e2 * 961u) ^ (e3 * 29791u) ^ ch;
         mac[0] = 0x00; mac[1] = 0x09; mac[2] = 0xBF; mac[3] = (u8)(x >> 16); mac[4] = (u8)(x >> 8); mac[5] = (u8)x;
     }
+#if PN_WZ6
+    wz_w8(0, 0x41F4, 0xCE); wz_w8(0, 0x2004, 0); wz_w8(0, 0x41F4, 0x31);   /* CHPLCKR ouvert, SYCR0 : remise a zero, ferme */
+    for (u32 i = 0; i < 20000u && wz_r8(0, 0x0000) != 0x61; i++) { }       /* (la puce repond de nouveau) */
+    wz_w8(0, 0x41F5, 0x3A); wz_wr(0, WZ_SHAR, mac, 6); wz_w8(0, 0x41F5, 0xC5);   /* (NETLCKR ouvert le temps d'ecrire SHAR) */
+    wz_w8(0, 0x2104, 0); wz_w8(0, 0x2114, 0);             /* (aucune interruption : IMR, SIMR) */
+#else
     wz_w8(0, 0x00, 0x80);                                 /* MR : remise a zero */
     for (u32 i = 0; i < 20000u && (wz_r8(0, 0x00) & 0x80u); i++) { }
-    wz_wr(0, 0x09, mac, 6);
-    for (u32 k = 1; k < 8; k++) { wz_w8(k * 4 + 1, 0x1E, 0); wz_w8(k * 4 + 1, 0x1F, 0); }   /* (autres sockets : sans tampon) */
-    wz_w8(1, 0x1E, 16); wz_w8(1, 0x1F, 16);               /* socket 0 : 16 Ko + 16 Ko */
-    wz_w8(0, 0x16, 0); wz_w8(0, 0x18, 0); wz_w8(1, 0x2C, 0);   /* (aucune interruption : IMR, SIMR, S0_IMR) */
-    wz_w8(1, 0x00, 0x84);                                 /* S0_MR : MACRAW, filtre (notre adresse + diffusion) */
+    wz_wr(0, WZ_SHAR, mac, 6);
+    wz_w8(0, 0x16, 0); wz_w8(0, 0x18, 0);                 /* (aucune interruption : IMR, SIMR) */
+#endif
+    for (u32 k = 1; k < 8; k++) { wz_w8(k * 4 + 1, WZ_RXBSR, 0); wz_w8(k * 4 + 1, WZ_TXBSR, 0); }   /* (autres sockets : sans tampon) */
+    wz_w8(1, WZ_RXBSR, 16); wz_w8(1, WZ_TXBSR, 16);       /* socket 0 : 16 Ko + 16 Ko */
+    wz_w8(1, WZ_SIMR0, 0);                                /* (S0_IMR) */
+    wz_w8(1, 0x00, PN_WZ6 ? 0x87 : 0x84);                 /* S0_MR : MACRAW, filtre (notre adresse + diffusion) */
     wz_cmd(0x01);                                         /* OPEN */
-    ok = wz_r8(1, 0x03) == 0x42;                          /* S0_SR : MACRAW */
+    ok = wz_r8(1, WZ_SSR) == 0x42;                        /* S0_SR : MACRAW */
     for (int i = 0; i < 6; i++) pn_mac[i] = mac[i];
     irq_restore(m);
     if (!ok) return -1;
     pn_hw = 2; pn_ch = ch;
+    return 0;
+}
+#endif
+#if PN_ENC
+/* v455 : un ENC28J60 en (canal, peripherique) pret a recevoir : 0, -1, ou -2 (canal pris par le jeu). La puce n'a pas
+   d'adresse Ethernet : celle que la pile reseau de GC Station lui donne (tiree du numero de la console, registres ECID,
+   comme le fait le pilote ENC28J60 de libogc2, licence zlib), pour que le routeur la reconnaisse. */
+static int __attribute__((noinline, optimize("Os"))) pn_en_init(u32 ch, u32 dev) {
+    if (exi && exi == HW6(0xCC006800u + ch * 0x14u) && dev == H.dev) return -1;   /* (la carte SD de Pulse) */
+    bx = HW6(0xCC006800u + ch * 0x14u);
+    if (((bx[0] & 0x380u) & ~(0x80u << dev)) || (bx[3] & 1u)) return -2;
+    pn_cs = 0x80u << dev; pn_frq = 0;                     /* (1 MHz : remise a zero et identifiant) */
+    u32 m = irq_off();
+    bb_sel(); bb_w(0xFFu << 24, 1); bb_desel();           /* SRC : remise a zero */
+    for (u32 t0 = tbl(), i = 0; i < 200000u && tbl() - t0 < TB_SEC / 500u; i++) { }   /* (2 ms) */
+    bb_sel(); bb_w(0, 2); u32 id = bb_r(4); bb_desel();   /* (ERDPT apres remise a zero : 0x05FA) */
+    if (id != 0xFA050000u) { irq_restore(m); return -1; }
+    pn_frq = 4; en_bank = 0;                              /* (16 MHz) */
+    for (u32 i = 0; i < 20000u && !(en_r(EN_ESTAT) & 1u); i++) { }   /* CLKRDY */
+    en_w16(0x08, 0); en_w16(0x0A, EN_RXEND); en_w16(0x0C, EN_RXEND); en_w16(0x00, 0); en_next = 0;   /* ERXST, ERXND, ERXRDPT, ERDPT */
+    en_w(1 << 5 | 0x18, 0xA1);                            /* ERXFCON : notre adresse, CRC juste, diffusion */
+    en_w(0x80 | 2 << 5 | 0x00, 0x01);                     /* MACON1 : MARXEN */
+    en_w(0x80 | 2 << 5 | 0x02, 0x32);                     /* MACON3 : bourrage a 60 octets + CRC, longueur verifiee */
+    en_w(0x80 | 2 << 5 | 0x03, 0x40);                     /* MACON4 : DEFER */
+    en_w16(0x80 | 2 << 5 | 0x0A, 1536);                   /* MAMXFL */
+    en_w(0x80 | 2 << 5 | 0x04, 0x12); en_w16(0x80 | 2 << 5 | 0x06, 0x0C12);   /* MABBIPG, MAIPG */
+    u32 e[4];
+    __asm__ volatile("mfspr %0,924\n\tmfspr %1,925\n\tmfspr %2,926\n\tmfspr %3,927" : "=r"(e[0]), "=r"(e[1]), "=r"(e[2]), "=r"(e[3]));
+    u8 d[19]; for (int i = 0; i < 16; i++) d[i] = (u8)(e[i >> 2] >> (24 - 8 * (i & 3)));
+    d[16] = 0x04; d[17] = 0xA3; d[18] = 0; d[15] ^= 0x00;
+    u32 sum = ch;
+    for (int i = 0; i < 18; i += 3) { sum += (u32)d[i] << 16 | (u32)d[i + 1] << 8 | d[i + 2]; sum = (sum & 0xFFFFFFu) + (sum >> 24); }
+    u8 mac[6] = { 0x00, 0x09, 0xBF, (u8)(sum >> 16), (u8)(sum >> 8), (u8)sum };
+    static const u8 ma[6] = { 0x04, 0x05, 0x02, 0x03, 0x00, 0x01 };   /* MAADR1..6 (banque 3) */
+    for (int i = 0; i < 6; i++) en_w(0x80 | 3 << 5 | ma[i], mac[i]);
+    en_phy(0x10, 0x0100);                                 /* PHCON2 : HDLDIS */
+    en_w(0x1B, 0);                                        /* EIE : aucune interruption */
+    en_op(0x80, EN_ECON1, 0x04);                          /* RXEN : reception */
+    for (int i = 0; i < 6; i++) pn_mac[i] = mac[i];
+    irq_restore(m);
+    pn_hw = 3; pn_ch = ch;
     return 0;
 }
 #endif
@@ -744,10 +1182,15 @@ static int __attribute__((noinline)) MEM_OS pn_bba_init(void) {
     if (id != 0x04020200u) {
         irq_restore(m);
 #endif
-#if PN_WZ
-        static const u8 wp[3][2] = { { 0, 2 }, { 1, 0 }, { 0, 0 } };
+#if PN_WZ || PN_ENC
+        /* (v455 : port serie 1, port serie 2 (sauf si la carte SD y est), ports de carte B et A) */
+        static const u8 wp[4][2] = { { 0, 2 }, { 2, 0 }, { 1, 0 }, { 0, 0 } };
         int pris = 0;
-        for (int i = 0; i < 3; i++) { int r = pn_wz_init(wp[i][0], wp[i][1]); if (!r) return 0; if (r == -2) pris = 1; }
+#if PN_ENC
+        for (int i = 0; i < 4; i++) { int r = pn_en_init(wp[i][0], wp[i][1]); if (!r) return 0; if (r == -2) pris = 1; }
+#else
+        for (int i = 0; i < 4; i++) { int r = pn_wz_init(wp[i][0], wp[i][1]); if (!r) return 0; if (r == -2) pris = 1; }
+#endif
         bx = HW6(0xCC006800u); pn_cs = 0x80u << 2; pn_frq = 5; pn_hw = 1; pn_ch = 0;
         return pris ? -2 : -1;
 #else
@@ -776,6 +1219,7 @@ static int __attribute__((noinline)) MEM_OS pn_bba_init(void) {
     return 0;
 #endif
 }
+#if !defined(NATRES_COMPACT)
 static int __attribute__((noinline)) MEM_OS pn_init(void) {
     if (!H.net || ((const natres_net_t *)H.net)->magic != NATRES_NET_MAGIC) return -1;
     pn_cfg = (const natres_net_t *)H.net;
@@ -794,6 +1238,9 @@ static int __attribute__((noinline)) MEM_OS pn_init(void) {
     H.net_rt = (H.net_rt & 0xFFFFFFu) | (u32)NRN_NOARP << 24;
     return -1;
 }
+#else
+static int __attribute__((noinline)) pn_init(void) { return -1; }   /* (v474 : Pulse compact) */
+#endif
 /* une demande (<= 2048 octets) et ses reponses */
 static int __attribute__((noinline)) MEM_OS pn_req(u8 *dst, u32 off, u32 len) {
     u32 tok = PN_NET->tok[H.disc & 1u];
@@ -825,6 +1272,7 @@ static int __attribute__((noinline)) MEM_OS pn_req(u8 *dst, u32 off, u32 len) {
     H.err = NR_ETIMEOUT;
     return -1;
 }
+#if !defined(NATRES_COMPACT)
 static int __attribute__((noinline)) MEM_OS pn_read(void *dst, u32 off, u32 len) {
     if (!pn_ready) { pn_ready = pn_init() == 0; if (!pn_ready) { H.err = NR_ENOCARD; return -1; } }
     u8 *o = (u8 *)dst;
@@ -838,8 +1286,11 @@ static int __attribute__((noinline)) MEM_OS pn_read(void *dst, u32 off, u32 len)
     }
     return 0;
 }
+#else
+static int __attribute__((noinline)) pn_read(void *dst, u32 off, u32 len) { (void)dst; (void)off; (void)len; return -1; }   /* (v474 : Pulse compact) */
+#endif
 
-#ifndef NATRES_LAN                                        /* (le Pulse normal ; Pulse LAN : voir plus bas, le pont) */
+#if !defined(NATRES_LAN) && !defined(NATRES_LITE)      /* (le Pulse normal ; Pulse LAN : voir plus bas, le pont ; v452 : Pulse leger : rien) */
 /* ======================= manettes du telephone =======================
    L'appli du telephone envoie ses touches en UDP (port 51237) : {"GCPD", version, port 0-3, 0, 0, numero, INBUFH,
    INBUFL}. A chaque image, Pulse lit le Broadband Adapter (si le jeu ne se sert pas du canal EXI 0), repond aux
@@ -849,7 +1300,8 @@ static int __attribute__((noinline)) MEM_OS pn_read(void *dst, u32 off, u32 len)
    manettes du jeu sur ce port. Pas de touches depuis 1 s : manette au repos. */
 static natres_pad_t *pd = 0;
 static u32 pd_seen = 0;
-static natres_pad_t *pd_find(void) {
+static u32 pd_cm0;                                       /* v457 : ports du telephone voulus (actifs au 1er paquet) */
+static MEM_OS natres_pad_t *pd_find(void) {   /* (v494 : -Os, place) */
     if (pd_seen) return pd;
     pd_seen = 1;
     if (!(H.opt & (NRO_PHONE | NRO_MEM)) || !H.chts || H.net) return 0;
@@ -857,7 +1309,11 @@ static natres_pad_t *pd_find(void) {
     q += 1 + q[0];
     if (q[0] == 0x46495854u) q += 2 + q[1] * 3;          /* ("FIXT") */
     if (q[0] == 0x41434831u) { u32 n = q[1], *d = q + 2 + 2 * n; while (n--) d += 3 + 4 * d[0]; q = d; }   /* ("ACH1") */
-    if (q[0] == NATRES_PAD_MAGIC) pd = (natres_pad_t *)q;
+    if (q[0] == NATRES_PAD_MAGIC) { pd = (natres_pad_t *)q; pd_cm0 = pd->chmask; pd->chmask = 0; }
+    /* v457 : un port du telephone n'existe pour le jeu qu'a partir du 1er paquet de touches recu. Avant, sans telephone,
+       le port restait "branche" : le jeu lui posait sa question "type" ~14 fois par seconde, et ce transfert partait vers
+       la vraie manette du port 1 (lue en ce moment) : des lectures de la manette 1 perdues (touches et stick qui sautent,
+       Tony Hawk's Pro Skater 4) */
     return pd;
 }
 /* trame UDP vers (mac, ip, port) : donnees deja en pn_fr + 42 */
@@ -949,7 +1405,7 @@ static unsigned short *ms_lp = ms_l;
 static MEM_OS u32 ms_out(u32 l) { return l >> 15 ? 48u + ((l & 0x1FFFu) / 48u - 1u) * 18u : l & 0x1FFFu; }
 static MEM_OS void ms_req(natres_pad_t *p, const u8 *d, u32 dispo) {
     u32 n = pn_be32(d + 8), per = pn_be32(d + 12), tot = 0, o = dispo >= 20 ? pn_be32(d + 16) : 0;
-    if (p->msr) { ms_ap = (u32 *)((u8 *)p + p->msr + NATRES_MSR_BYTES); ms_lp = (unsigned short *)(ms_ap + 256); ms_max = 256; }
+    if (p->msr) { ms_ap = (u32 *)((u8 *)p + p->msr - NATRES_MSL_BYTES); ms_lp = (unsigned short *)(ms_ap + 256); ms_max = 256; }
     else { ms_ap = ms_a; ms_lp = ms_l; ms_max = MS_MAX; }
     /* v419 : option bit 6 : suite de la liste (un paquet ne tient que ~180 morceaux) : ajoutes a la fin */
     if (o >> 6 & 1u) for (u32 i = 0; i < ms_n; i++) tot += ms_out(ms_lp[i]);
@@ -1181,7 +1637,7 @@ static MEM_OS void ms_send(natres_pad_t *p) {
         u8 *tab = (u8 *)p + p->msr;
         /* v417 : compression : l'image de reference n'est que dans ref (le journal ne garde que les changements, au plus un
            quart du journal chacun : sinon image de reference) : listes jusqu'a ~12 Ko dans 16 Ko (avant : ~3,9 Ko) */
-        u32 cz = ms_cz, refsz = cz ? (ms_tot + 3u) & ~3u : 0, js = NATRES_MSR_BYTES > MSJ_TAB + refsz ? NATRES_MSR_BYTES - MSJ_TAB - refsz : 0,
+        u32 cz = ms_cz, refsz = cz ? (ms_tot + 3u) & ~3u : 0, rs = p->len * 4u - p->msr, js = rs > MSJ_TAB + refsz ? rs - MSJ_TAB - refsz : 0,   /* (v508 : taille de la reserve = la fin de la structure : 16 Ko, ou moins pour un jeu qui manque de place) */
             need = (16u + ms_tot + 3u) & ~3u;
         u8 *ref = tab + MSJ_TAB, *jr = ref + refsz;
         if (cz && need > js / 4u) need = (js / 4u) & ~3u;
@@ -1427,6 +1883,12 @@ static MEM_OS void gb_rx(natres_pad_t *p, const u8 *f, const u8 *u, const u8 *d,
     p->gseq = sq;
     if (ack - p->ga <= p->gw - p->ga) p->ga = ack;       /* (accuse dans [ga, gw]) */
     if (o & 4u) { p->gst = 0; p->gjoy = 0; p->gw = p->ga = 0; p->gnew = 0; p->gtid = p->gtidlu = 0; p->grst = p->gid = 0; p->grw = p->gpred = 0; p->gqr = p->gqw = p->gqlast = 0; return; }
+    /* v427 : GBA du telephone allumee sur sa cartouche (Pokemon Colosseum, XD) : aucun programme a recevoir ; le jeu de la
+       cartouche ecoute lui-meme le cable : relais des maintenant (compteurs a 0 : le telephone repart de 0 aussi) */
+    if ((o & 0x40u) && p->gst != 4) {
+        p->gst = 4; p->gjoy = 0; p->gw = p->ga = 0; p->gnew = 0; p->gtid = p->gtidlu = 0; p->grst = p->gid = 0; p->grw = p->gpred = 0;
+        p->gqr = p->gqw = p->gqlast = 0; p->gcode = p->gx = p->gfin = 0; p->glen = p->gpos = 0; p->gfr = p->gfn = 0;
+    }
     u32 id = (o >> 16) & 0xFFu;                          /* (v333 : un JOY_TRANS deja donne n'est pas redonne) */
     /* v347 : appli qui suit les remises a zero (bit 4) : JOY_TRANS et drapeaux d'avant la derniere remise a zero ignores */
     int frais = !(o & 0x10u) || (o >> 24) == (p->grst & 0xFFu);
@@ -1529,14 +1991,14 @@ static void MEM_OS pd_frame(natres_pad_t *p, u32 n, u32 now) {
     if (pn_be32(d) == NATRES_MIC_MAGIC) { mic_rx(p, f, u, d, (u32)(f + n - d)); return; }   /* v332 : micro du telephone */
     if (pn_be32(d) != 0x47435044u) { p->bad++; return; }   /* "GCPD" */
     u32 ch = d[5] & 3;
-    if (!(p->chmask >> ch & 1)) { p->bad++; return; }
+    if (!(pd_cm0 >> ch & 1)) { p->bad++; return; }
     u32 seq = pn_be32(d + 8);
     if (seq == p->seq[ch]) return;                        /* (deja vu) */
     /* v383 : d[6] bit 0 = bongos (DK Bongos : Donkey Konga, Jungle Beat). Les vrais bongos se disent manette standard (0x0900)
        mais n'ont pas le bit 0x0080 des touches : c'est ce que le jeu regarde pour les reconnaitre (lu dans Donkey Konga 2,
        adresses seulement : 0x800B0B5C) ; il prend alors la gachette R pour le niveau du micro. Ce bit n'est donc plus
        ajoute pour un port bongos */
-    p->seq[ch] = seq; p->h[ch] = pn_be32(d + 12) | ((d[6] & 3) ? 0u : 0x00800000u); p->l[ch] = pn_be32(d + 16); p->tb[ch] = now; p->rx++;
+    p->seq[ch] = seq; p->h[ch] = pn_be32(d + 12) | ((d[6] & 3) ? 0u : 0x00800000u); p->l[ch] = pn_be32(d + 16); p->tb[ch] = now; p->rx++; p->chmask = pd_cm0;
     /* v384 : d[6] bit 1 = clavier : INBUFH porte alors les 3 touches enfoncees (codes du clavier, octets 1 a 3) ; la
        reponse au jeu (8 octets : compteur, 0, 0, 0, touches, controle) est faite a sa lecture (kb_h, kb_l) */
     if (d[6] & 2) { p->kbmask |= 1u << ch; p->h[ch] &= 0x00FFFFFFu; p->l[ch] = 0; } else p->kbmask &= ~(1u << ch);
@@ -1580,7 +2042,7 @@ void MEM_OS pd_poll(void) {
         if (ms_n) { mt_sum += us; mt_n++; if (us > mt_max) mt_max = us; }
         if (ms_n && p->mip && mt_n >= 60) {               /* v372 : "GCMT" brut : sommes, pires, nombre d'images (28 octets) */
             u8 *b = pn_fr + 42;
-            pn_p32(b, 0x47434D54u); pn_p32(b + 4, H.vi_count); pn_p32(b + 8, mt_sum); pn_p32(b + 12, mt_max); pn_p32(b + 16, 0);   /* (v372 : plus mesure : la place de Pulse) */
+            pn_p32(b, 0x47434D54u); pn_p32(b + 4, H.vi_count); pn_p32(b + 8, mt_sum); pn_p32(b + 12, mt_max); pn_p32(b + 16, H.cnt_pe);   /* v495 : images dessinees par le jeu (jetons du GP) : images par seconde dans l'appli */
             pn_p32(b + 20, mt_oct); pn_p32(b + 24, mt_n);
             pn_p32(b + 28, ms_cb << 16 | (ms_cr & 0xFFFFu)); pn_p32(b + 32, ms_cs << 16 | (ms_cw & 0xFFFFu));   /* v414 : diagnostic (36 octets) */
             pn_udp(p, p->mmac, p->mip, p->mport, 36);
@@ -1660,7 +2122,7 @@ static MEM_OS u32 pd_si_load(natres_pad_t *p, u32 o, u32 v, int *done) {
     return v;
 }
 
-#else                                                     /* (Pulse LAN : pas de telephone ni de chercheur de codes : place pour le pont) */
+#else                                                     /* (Pulse LAN : pas de telephone ni de chercheur de codes : place pour le pont ; v452 : Pulse leger aussi) */
 static natres_pad_t *const pd = 0;
 static natres_pad_t *pd_find(void) { return 0; }
 static int mem_resumed = 0, mfz_n = 0;
@@ -1682,7 +2144,7 @@ static u32 pd_si_load(natres_pad_t *p, u32 o, u32 v, int *done) { (void)p; (void
      = retour a GC Station : redemarrage de la console (PicoLoader -> ipl.dol). */
 #define OS_INT_TABLE ((volatile u32 *)0x80003040u)
 #define RD_CHUNK 2048u                                    /* v61 : morceau d'une lecture en fond (v88 : 8 Ko -> 2 Ko) */
-#define RD_BUDGET (TB_SEC / 1000u * 3u / 2u)              /* v88 : au plus ~1,5 ms de lecture par interruption (le son du jeu
+#define RD_BUDGET (TB_SEC / 1000u * 3u)                  /* v436 : 3 ms (avant 1,5 ms : videos des jeux servies trop lentement sans DMA) ; v88 : au plus ~1,5 ms de lecture par interruption (le son du jeu
                                                              attend : une sortie audio toutes les ~5 ms) */
 static u32 si_orig, igr_hold = 0;
 static void hot_reset(void);
@@ -1691,6 +2153,7 @@ static void hot_reset(void);
    .dol de GC Station est relu sur la carte (meme lecteur SD que pour l'ISO) et lance.
    GC Station (libogc) remet tout le reste en route. Sans .dol prepare : redemarrage. */
 static void trap_disarm(void);
+static void vc_flush_all(void);
 static MEM_OS void ret_to_gcstation(void) {
     irq_off();
     trap_disarm();                                       /* v139 : (BAT, table des pages, vecteur du jeu remis) */
@@ -1711,8 +2174,16 @@ static MEM_OS void ret_to_gcstation(void) {
         pi[6] = 0;
         for (volatile u32 i = 0; i < 1000u; i++) ;
     }
+    {   /* v456 : video remise a zero et eteinte : VIDEO_Init de GC Station refait alors l'initialisation complete,
+           au lieu de garder le 480p du jeu (ecran brouille ou fige apres A+Z+START, Tony Hawk's Pro Skater 4) */
+        volatile unsigned short *vi = (volatile unsigned short *)0xCC002000u;
+        vi[1] = 2;
+        for (volatile u32 i = 0; i < 2000u; i++) ;
+        vi[1] = 0;
+    }
     H.net = 0;                                           /* v143 : (le .dol de GC Station est sur la carte SD) */
     if (!di_ready) di_ready = nr_init() == 0;
+    vc_flush_all();                                      /* v512 : ecritures de la carte virtuelle pas encore faites */
     natres_hdr.ext = (u32)ret_tab;                       /* v159 : la table du .dol de GC Station, en place (plus de recopie) */
     H.n_ext = H.ret_n; ext_last = 0; sec_cached = 0xFFFFFFFFu;
     static u8 dh[256] __attribute__((aligned(32)));
@@ -1728,6 +2199,9 @@ static MEM_OS void ret_to_gcstation(void) {
         cache_flush(addr, sz);
         for (u32 a = addr & ~31u; a < addr + sz; a += 32) __asm__ volatile("icbi 0,%0" :: "r"(a));
     }
+    if (xv_st) xv_drain();                               /* v446 : la carte rendue au repos avant GC Station : lecture en continu */
+    st_close(); sd_end();                                /* (v434) arretee (CMD12), CS relache ; sinon la carte envoyait encore ses
+                                                            secteurs, GC Station ne la montait pas et gardait ses reglages par defaut */
     __asm__ volatile("sync; isync" ::: "memory");
     ((void (*)(void))entry)();                           /* (GC Station : ne revient pas) */
     hot_reset();
@@ -1737,7 +2211,7 @@ void ret_go(void) __attribute__((used));
 void ret_go(void) { ret_to_gcstation(); }
 extern void ret_entry(void);
 __asm__(".pushsection .text\n.globl ret_entry\nret_entry:\n"
-        "  lis 1,exc_stack@ha\n  addi 1,1,exc_stack@l\n  addi 1,1,2032\n  b ret_go\n.popsection\n");
+        "  lis 1,exc_stack@ha\n  addi 1,1,exc_stack@l\n  addi 1,1,1584\n  b ret_go\n.popsection\n");
 static MEM_OS void hot_reset(void) {
     volatile u32 *pi = (volatile u32 *)0xCC003000u;
     irq_off();
@@ -1759,8 +2233,11 @@ static MEM_OS void alive_tick(void) {
     if (!H.vi_count || (alive_n & 63) == 0) hooks_check();   /* v402 : avant la 1re image, a chaque fois (Rayman 3 : image jamais branchee) */
     sw_tick();                                           /* v121 : changement de disque en attente ? */
     if (vc_pending()) x_kick();                          /* (carte : interruption pas encore donnee) */
-    /* (une ecriture sur la carte coupe le son quelques ms : toutes les 3 s la 1re minute, puis toutes les 20 s) */
-    if (tbl() - H.flush_tb > (H.vi_count < 3000u ? TB_SEC * 3 : TB_SEC * 20)) {
+    /* (une ecriture sur la carte coupe le son quelques ms : toutes les 3 s la 1re minute, puis toutes les 20 s)
+       v515 : plus du tout une fois que le jeu affiche des images. Mesure (Kirby Air Ride, build 1042) : jusqu'a 18-20 ms
+       d'interruptions coupees a chaque reecriture, le son du jeu (toutes les 5 ms) gresillait. Le journal est ecrit a la fin
+       (A+Z+START, plantage, redemarrage demande par le jeu) ; avant la 1re image (jeux qui se figent au demarrage), comme avant. */
+    if (!H.vi_count && tbl() - H.flush_tb > TB_SEC * 3) {
         nr_log_flush();
         if (!H.vi_count && fd_ctx) crash_dump(0xFD, fd_ctx, 0, 0);   /* v402 : pas encore d'image : registres, appels, fils du jeu, interruptions */
     }
@@ -1768,8 +2245,12 @@ static MEM_OS void alive_tick(void) {
 #define NR_HOOK(nm, counter) \
     static u32 nm##_orig = 0; \
     static void nm##_hook(u32 irq, u32 ctx) { \
+        EVC(0x42, ctx); \
         if (nm##_orig) ((void (*)(u32, u32))nm##_orig)(irq, ctx); \
+        PF_T0(pt_); \
+        EVE(0x4A, 0, 0); \
         counter++; fd_ctx = ctx; alive_tick(); di_tick(ctx, 0); \
+        PF_ADD(5, pt_); \
     }
 static u32 vi_orig;
 static void nr_log_flush(void);
@@ -1808,34 +2289,65 @@ static MEM_OS void freeze_check(u32 ctx) {
 }
 static void nr_sample(u32 ctx);
 static MEM_OS void vi_hook(u32 irq, u32 ctx) {                  /* v66 : entree comptee avant la fonction du jeu */
+    PF_T0(pt_);
     trap_guard();
-#ifdef NATRES_LAN
+#if defined(NATRES_LAN)
     pd_poll();                                            /* (Pulse LAN : signe de vie du pont) */
-#else
-    if (H.opt & (NRO_PHONE | NRO_MEM)) {                 /* manettes du telephone, chercheur de codes : avant que le jeu lise les manettes */
+#elif !defined(NATRES_LITE)                              /* (v452 : Pulse leger : ni telephone ni chercheur de codes) */
+    if (H.opt & NRO_PHONE) {                             /* manettes du telephone : avant que le jeu lise les manettes (v487 : le chercheur
+                                                            de codes seul : apres la fonction d'image du jeu, plus bas) */
         pd_poll();
         pn_link_check();                                 /* v372 */
     }
 #endif        /* manettes du telephone, chercheur de codes : avant que le jeu lise les manettes */
     if (mem_resumed) { mem_resumed = 0; frz_tb = tbl(); }   /* (v306 : apres une pause : pas un jeu fige) */
-    if (++H.vi_in == 1) nr_log_flush();                  /* (1re image : on sait si le jeu y arrive) */
-    if (vi_orig) ((void (*)(u32, u32))vi_orig)(irq, ctx);
+#if defined(NATRES_LITE) && !defined(NATRES_COMPACT)
+#define LOGALL_ON (H.opt & NRO_LOGALL)                   /* (v467 : journal detaille et complet : Pulse leger seulement) */
+#else
+#define LOGALL_ON 0
+#endif
+    if (++H.vi_in == 1 || LOGALL_ON) {
+        nr_sample(ctx);
+        if (LOGALL_ON) { nr_log_add(0xE4000002u, H.vi_in, 0, 0); EVC(0x01, ctx); EVF(); }   /* (v467 : une ecriture du journal) */
+        nr_log_flush();                                  /* v464 : repere dans l'anneau (diagnostic) : bloque avec 1 = dans
+                                                            l'ecriture de la carte (Pulse) ; avec 2 = dans la fonction d'image du jeu */
+    }   /* (1re image : on sait si le jeu y arrive ; v462 : diagnostic,
+                                                            a chaque image : un jeu bloque dans sa fonction d'image laisse vi_in = vi_count + 1) */
+    PF_ADD(0, pt_);                                      /* (v513 : avant la fonction d'image du jeu) */
+    if (vi_orig) {
+        ((void (*)(u32, u32))vi_orig)(irq, ctx);          /* (v468 : plus d'interruptions ouvertes pendant celle-ci : la 1re interruption
+                                                            arrivee avant que le jeu ait garde son etat l'ecrasait, Simpsons US fige des la 1re image) */
+        EV(0x02, H.vi_in, 0);
+    }
+#if PF_ON
+    pt_ = tbl();                                         /* (v513 : apres la fonction d'image du jeu) */
+#endif
+#if !defined(NATRES_LITE) && !defined(NATRES_LAN)
+    /* v487 : chercheur de codes / succes / compagnon sans manettes du telephone : la liaison apres la fonction d'image du jeu.
+       Avant elle, l'envoi des morceaux de memoire retardait le changement d'image du jeu : image dechiree (deux images
+       decalees un instant), et grésillements (Simpsons, Sonic Adventure DX, build 1013) */
+    if ((H.opt & (NRO_PHONE | NRO_MEM)) == NRO_MEM) { pd_poll(); pn_link_check(); }
+#endif
     H.vi_count++; vi_snap(); alive_tick();
-    freeze_check(ctx);                                   /* v169 */
     igr_ctx = ctx;
     di_tick(ctx, 1);                                     /* v133 : fins de commande (sans le lecteur, ou secours) */
+    freeze_check(ctx);                                   /* v169 */
     if ((H.vi_count & 31u) == 0) nr_sample(ctx);         /* v355 : apres la 1re image aussi (toutes les 32 images) : ou tourne
                                                             le jeu quand il reste bloque sans figer l'image (Mario Party 7) */
     if (H.chts) gk_run();                                /* v121 : cheats, une fois par image (apres le jeu) */
     if (H.flags & NRF_ACH) ach_run();                    /* v268 : succes */
     if (mfz_n) mfz_run();                                /* v307 : valeurs bloquees par le telephone */
     igr_poll();                                          /* v86 : (apres le jeu : il a lu les manettes) */
+    PF_ADD(0, pt_);
 }
 static u32 ai_orig;
 static void st_mix(void);
 static void ai_hook(u32 irq, u32 ctx) {                  /* v65 : apres le jeu, la musique du disque */
     trap_guard();
+    EVC(0x40, ctx);
     if (ai_orig) ((void (*)(u32, u32))ai_orig)(irq, ctx);
+    PF_T0(pt_);
+    EVE(0x48, 0, 0);
     H.cnt_ai++;
     st_mix();
     alive_tick();
@@ -1843,16 +2355,26 @@ static void ai_hook(u32 irq, u32 ctx) {                  /* v65 : apres le jeu, 
     igr_ctx = ctx;
     igr_poll2(0);                                        /* v89 : aussi ici (~ toutes les 5 ms) : a l'image (VI), le jeu n'a
                                                             souvent pas encore pris les manettes (Wind Waker) : lecture interdite */
+    PF_ADD(1, pt_);
 }
 static u32 dsp_orig = 0;
 static void st_mix_from(int from_dsp);
 static void dsp_hook(u32 irq, u32 ctx) {                 /* v98 : le jeu y programme parfois le tampon du son suivant */
     trap_guard();
+#if PF_ON
+    {   u32 t = tbl();                                   /* v513 : ecart avec l'interruption du DSP d'avant */
+        if (pf_dsp_tb) { u32 g = (t - pf_dsp_tb) / 41u; if (g > pf_gap[0]) pf_gap[0] = g; if (g > 6000u) pf_gap[1]++; if (g > 12000u) pf_gap[2]++; }
+        pf_dsp_tb = t; }
+#endif
+    EVC(0x41, ctx);
     if (dsp_orig) ((void (*)(u32, u32))dsp_orig)(irq, ctx);
+    PF_T0(pt_);
+    EVE(0x49, 0, 0);
     H.cnt_dsp++;
     st_mix_from(1);
     alive_tick();
     di_tick(ctx, 0);
+    PF_ADD(2, pt_);
 }
 NR_HOOK(pet, H.cnt_pe)
 /* (v244 : NR_HOOK(pef) retire : voir hooks_check) */
@@ -1862,7 +2384,8 @@ NR_HOOK(pet, H.cnt_pe)
    si c'est ipl.dol). Table des exceptions du SDK : 0x80003000 (2 DSI, 3 ISI, 5, 6).
    Le gestionnaire tourne sur sa propre pile (celle du jeu est peut-etre la cause). */
 #define OS_EXC_TABLE ((volatile u32 *)0x80003000u)
-u8 exc_stack[2048] __attribute__((aligned(32), used));   /* (v371 : 32 : le direct l'envoie par DMA) */
+u8 exc_stack[1600] __attribute__((aligned(32), used));   /* (builds 1061-1063 : 1600 au lieu de 2048, place ; une trame reseau tient en 1536 ;
+                                                            pile du plantage : moins de 600 octets au plus, mesure -fstack-usage) */   /* (v371 : 32 : le direct l'envoie par DMA) */
 void exc_c(u32 ex, u32 ctx) __attribute__((used));
 extern void exc_entry(void);
 /* v83 : le vecteur du SDK ne sauve que r3-r5, CR, LR, CTR, XER, SRR0/1 : r0-r2 et r6-r31 sont
@@ -1871,7 +2394,7 @@ extern void exc_entry(void);
 __asm__(".pushsection .text\n.globl exc_entry\nexc_entry:\n"
         "  mtctr 0\n  oris 5,4,0x8000\n  rlwinm 0,5,7,25,31\n  cmplwi 0,0x40\n  mfctr 0\n  bne 1f\n"
         "  stw 0,0(5)\n  stw 1,4(5)\n  stw 2,8(5)\n  stmw 6,0x18(5)\n"
-        "1:\n  lis 1,exc_stack@ha\n  addi 1,1,exc_stack@l\n  addi 1,1,2032\n  b exc_c\n.popsection\n");
+        "1:\n  lis 1,exc_stack@ha\n  addi 1,1,exc_stack@l\n  addi 1,1,1584\n  b exc_c\n.popsection\n");
 /* v79 : details d'un plantage (format : natres.h, NATRES_CRASH_*), pour savoir POURQUOI le
    jeu s'est arrete : registres, chaine des appels (pile du jeu), textes passes a sa fonction
    d'erreur (un jeu qui s'arrete expres ecrit souvent a une adresse bidon comme 01234567,
@@ -1879,6 +2402,7 @@ __asm__(".pushsection .text\n.globl exc_entry\nexc_entry:\n"
 static u8 crashbuf[512] __attribute__((aligned(32)));
 static int ram_ok(u32 a, u32 n) { return a >= 0x80000000u && a < 0x81800000u && a + n <= 0x81800000u; }
 static void cw(u32 o, u32 v) { crashbuf[o] = (u8)(v >> 24); crashbuf[o + 1] = (u8)(v >> 16); crashbuf[o + 2] = (u8)(v >> 8); crashbuf[o + 3] = (u8)v; }
+#if !defined(NATRES_NOLOG)                               /* v509 : (Pulse sans journaux : aucun compte rendu) */
 /* v82 : la pile du jeu au moment du plantage (3e secteur du journal) : un jeu qui s'arrete
    expres (OSPanic) y a range le nom du fichier, la ligne et le message de son erreur */
 static int is_txt(u32 a) {
@@ -1971,7 +2495,9 @@ static MEM_OS void thr_dump(void) {
     nr_write_sd(H.log_sec + 3, crashbuf);
 }
 static void vc_diag(void);
+#endif
 static u32 xl_n;
+#if !defined(NATRES_COMPACT) && !defined(NATRES_NOLOG)
 static void MEM_OS crash_dump(u32 ex, u32 ctx, u32 dar, u32 dsisr) {
     if (!(H.flags & NRF_CRASH) || !H.log_sec || !di_ready) return;
     if ((H.flags & NRF_EXILOG) && xl_n) nr_write_sd(H.log_sec + 4, crashbuf);   /* v260 : (avant tout le reste : crashbuf) */
@@ -2010,7 +2536,57 @@ static void MEM_OS crash_dump(u32 ex, u32 ctx, u32 dar, u32 dsisr) {
     }
     if (ex != 0xFD) mem_snap(c);
 }
-void exc_c(u32 ex, u32 ctx) {
+#else
+static void crash_dump(u32 ex, u32 ctx, u32 dar, u32 dsisr) { (void)ex; (void)ctx; (void)dar; (void)dsisr; }   /* (v474 : Pulse compact ; v509 : sans journaux) */
+#endif
+#if defined(NATRES_LITE) && !defined(NATRES_COMPACT)
+/* v480 : GC Station branche l'entree de OSPanic (arret d'urgence du SDK) et de OSReport (messages du jeu pour ses
+   developpeurs) sur un aiguillage qui appelle di_store(0x7F00 + n, pile de l'aiguillage). Messages : les 8 derniers,
+   ecrits dans le 5e secteur ("GCSR") avant la 1re image (64 fois au plus) ; arret d'urgence : en plus, comme un
+   plantage (registres, appels, fils du jeu, photo de la memoire), exception FC. Pile de l'aiguillage : r0 en 0x08,
+   r2-r31 en 0x0C, LR (retour vers l'appelant) en 0x88 ; pile du jeu = pile + 0x100. */
+static u32 rp_fmt[8], rp_lr[8], rp_n = 0;
+static int rd_on;                                        /* (plus bas) */
+static MEM_OS void rp_write(u32 why) {
+    for (u32 i = 0; i < 512; i++) crashbuf[i] = 0;
+    cw(0x00, NATRES_REP_MAGIC); cw(0x04, rp_n); cw(0x08, why); cw(0x0C, H.vi_count);
+    for (u32 k = 0; k < 8; k++) {
+        if (rp_n < 8 - k) continue;
+        u32 j = (rp_n - 8 + k) & 7, a = rp_fmt[j], o = 0x10 + k * 0x3C;
+        cw(o, rp_lr[j]); cw(o + 4, a);
+        if (ram_ok(a, NATRES_REP_STR)) for (u32 i = 0; i < NATRES_REP_STR; i++) crashbuf[o + 8 + i] = *(volatile u8 *)(a + i);
+    }
+    nr_write_sd(H.log_sec + 4, crashbuf);
+}
+static MEM_OS void os_hook(u32 n, u32 fr) {
+    volatile u32 *f = (volatile u32 *)fr;
+    u32 lr = f[0x88 / 4];
+    if (n == 0) {                                        /* OSReport(fmt, ...) */
+        rp_fmt[rp_n & 7] = f[0x10 / 4]; rp_lr[rp_n & 7] = lr; rp_n++;
+        if (!H.vi_count && rp_n <= 64 && di_ready && !rd_on && !xv_st && !exi_busy()) { u32 m = irq_off(); rp_write(0); irq_restore(m); }   /* (pas une lecture du jeu au milieu) */
+        return;
+    }
+    static u8 rst_done;                                  /* v491 : n >= 2 : le jeu ecrit dans le registre de redemarrage (0xCC003024) */
+    if (n >= 2) { if (rst_done) return; rst_done = 1; }  /* (une fois : la boucle de redemarrage y repasse sans fin) */
+    u32 ctx[0x1A0 / 4];                                  /* OSPanic(fichier, ligne, fmt, ...) : un OSContext pour crash_dump */
+    for (u32 i = 0; i < 0x1A0 / 4; i++) ctx[i] = 0;
+    ctx[0] = f[0x08 / 4]; ctx[1] = fr + 0x100u;
+    for (u32 i = 2; i < 32; i++) ctx[i] = f[(0x0C + (i - 2) * 4) / 4];
+    ctx[0x84 / 4] = lr; ctx[0x198 / 4] = lr;
+    u32 ex = n >= 2 ? 0xFBu : 0xFCu;
+    if (n >= 2) ctx[0x19C / 4] = n - 2;                  /* (v491 : quel endroit du jeu, dans SRR1) */
+    H.exc_num = ex; H.exc_srr0 = lr; H.exc_lr = lr;
+    if (!di_ready) di_ready = nr_init() == 0;
+    if (!di_ready) return;
+    u32 m = irq_off();
+    if (n == 1) { rp_fmt[rp_n & 7] = ctx[5]; rp_lr[rp_n & 7] = lr; rp_n++; }   /* (le message de l'arret, en dernier) */
+    rp_write(1);
+    crash_dump(ex, (u32)ctx, n >= 2 ? di[5] : 0, n >= 2 ? di[6] : 0);   /* (v491 : derniere lecture : DIMAR, DILENGTH) */
+    nr_log_flush();
+    irq_restore(m);
+}
+#endif
+MEM_OS void exc_c(u32 ex, u32 ctx) {   /* (v462 : -Os) */
     trap_guard();
     u32 dar, dsisr;
     __asm__ volatile("mfdar %0" : "=r"(dar));
@@ -2043,7 +2619,9 @@ static MEM_OS void si_hook(u32 irq, u32 ctx) {
         }
     }
     if (!H.vi_count) nr_sample(ctx);
+    EVC(0x43, ctx);
     if (si_orig) ((void (*)(u32, u32))si_orig)(irq, ctx);
+    EVE(0x4B, 0, 0);
     H.si_count++;
     alive_tick();
     di_tick(ctx, 0);
@@ -2060,15 +2638,23 @@ static MEM_OS void igr_poll2(int count) {
     static u8 igr_ch[4];                                 /* v99 : derniere chose vue sur chaque port (1 = A+Z+START tenus) */
     int on = 0, seen = 0;
     u32 sr = si[14];                                     /* SISR (lecture sans effet) */
+    /* v457 : le jeu lit ses manettes par nos aiguillages (si_load) : on regarde ce qu'il a lu. Lire nous-memes INBUF
+       effacait parfois des donnees neuves arrivees entre SISR et INBUF : le jeu recevait une manette vide pour cette
+       image (touches perdues, stick qui saute). Sans lecture du jeu depuis 12 images (jeu fige) : comme avant. */
+    int game = H.vi_count - igr_gt < 12u;          /* (igr_gt part loin : rien lu par le jeu = comme avant) */
     for (int ch = 0; ch < 4; ch++) {
         /* v58 : lire SICnINBUFH efface le drapeau "donnees neuves" (RDST) : si le jeu ne les a
            pas encore prises, il croirait la manette debranchee (1080 : fige sur la question 60 Hz).
            On ne lit donc que si le jeu les a deja prises (RDST = 0). */
-        if (sr & (0x20000000u >> (ch * 8))) { H.si_skip++; continue; }
-        u32 b = si[ch * 3 + 1];                          /* SICnINBUFH : boutons (deja lus par le jeu) */
-        (void)si[ch * 3 + 2];                            /* v59 : puis INBUFL, comme le jeu (H puis L : rien de bloque) */
+        u32 b;
+        if (game) b = igr_gh[ch];                        /* v457 : ce que le jeu a lu lui-meme : plus aucune lecture du materiel */
+        else {
+            if (sr & (0x20000000u >> (ch * 8))) { H.si_skip++; continue; }
+            b = si[ch * 3 + 1];                          /* SICnINBUFH : boutons (deja lus par le jeu) */
+            (void)si[ch * 3 + 2];                        /* v59 : puis INBUFL, comme le jeu (H puis L : rien de bloque) */
+        }
         H.si_reads++;
-        if (ch == 0 && (b >> 16) != H.si_last) { H.si_last = b >> 16; H.si_changes = ((H.si_changes & 0xFFFFu) + 1) | (H.si_changes & 0xFFFF0000u) | ((b >> 16) & 0x1F7Fu) << 16; }   /* v96 : bits hauts = toutes les touches vues (diagnostic A+Z+START) */
+        if (ch == 0 && (b >> 16) != H.si_last) { H.si_last = b >> 16; H.si_changes = (H.si_changes + 1) | ((b >> 16) & 0x1F7Fu) << 16; }   /* v96 : bits hauts = toutes les touches vues (diagnostic A+Z+START) */
         /* v99 : une vraie manette met toujours le bit 0x0080 de ses touches. Un port que le jeu n'interroge
            pas (rien de branche) garde 00000000, sans le bit d'erreur : avant, il comptait comme "manette sans
            A+Z+START" chaque fois que la manette 1 etait sautee (donnees neuves) et remettait le compte a zero,
@@ -2107,6 +2693,13 @@ static MEM_OS void igr_go(void) {
    et les ajoute au son que le jeu envoie a la sortie audio (tampon DMA), au rythme de ses
    interruptions DMA. Commandes : E1 (jouer / arreter), E2 (etat, position). */
 static u32 st_on = 0, st_stop_end = 0, st_pos = 0, st_cur_start = 0, st_cur_len = 0, st_next_start = 0, st_next_len = 0;
+/* build 1060 : morceaux de 4 Ko quand la musique du disque joue (64 secteurs sinon). La musique lit la carte dans l'interruption
+   du son : elle attendait la fin du morceau en cours, jusqu'a 32 Ko (16 ms, interruptions coupees) : petits trous dans le son
+   (journal de Super Monkey Ball : 16,6 ms au pire dans l'interruption du son). Les morceaux s'enchainent sans commande (v527) */
+/* build 1061 : pareil pendant les acces du jeu a la carte memoire virtuelle (et 5 s apres) : elle lit et ecrit la carte SD dans le
+   crochet du lecteur et attendait aussi la fin du morceau en cours (Kirby Air Ride : 17 ms au pire, grezillements des menus) */
+static u32 vc_vi = 0x80000000u;
+static __attribute__((noinline)) u32 xv_max(void) { return st_on || (u32)(H.vi_count - vc_vi) < 300u ? 8u : 64u; }
 static int st_hl1 = 0, st_hl2 = 0, st_hr1 = 0, st_hr2 = 0;
 static u32 st_snap_addr = 0xFFFFFFFFu;                /* v106 : tampon de la derniere sauvegarde du decodeur */
 static short st_pcm[56];
@@ -2118,6 +2711,11 @@ static int st_pl = 0, st_pr = 0;                          /* v107 : dernier echa
 #define ST_SECS 4u
 static u8 st_sec[512 * ST_SECS] __attribute__((aligned(32)));
 static u32 st_sec_off = 0xFFFFFFFFu, st_sec_n = 0;
+#if !defined(NATRES_COMPACT)
+#define WQ_N ST_SECS                                      /* (build 1063 : ecritures de la carte memoire en attente, dans st_sec) */
+static u32 wq_sd[WQ_N], wq_n = 0;
+static void wq_drain(void);
+#endif
 static int nr_read_multi(u32 sector, u32 count, u8 *o);
 static int st_clamp(int v, int lo, int hi) { return v < lo ? lo : v > hi ? hi : v; }
 static int st_dec(int bits, int q, int *h1, int *h2) {
@@ -2147,6 +2745,9 @@ static int st_block(void) {                              /* bloc suivant (32 oct
             goto have;
         }
         if (iso_to_sd(so >> 9, &sd)) { st_on = 0; return -1; }
+#if !defined(NATRES_COMPACT)
+        if (wq_n) wq_drain();                             /* (build 1063 : le tampon servait aux ecritures en attente) */
+#endif
         u32 n = iso_run < ST_SECS ? iso_run : ST_SECS;
         if (!n) n = 1;
         if (sd == NATRES_ZERO) { for (u32 i = 0; i < n * 512; i++) st_sec[i] = 0; }   /* (v121 : .ciso, bloc absent) */
@@ -2164,11 +2765,16 @@ have:
     H.st_blocks++;
     return 0;
 }
+#if !defined(NATRES_COMPACT)
 static void st_adv(void) {                               /* echantillon suivant du disque (48 kHz) */
     if (st_pcm_i >= 28 && (!st_on || st_block())) { st_cl = st_cr = 0; return; }
     st_cl = st_pcm[st_pcm_i * 2]; st_cr = st_pcm[st_pcm_i * 2 + 1]; st_pcm_i++;
 }
-static void st_cmd(u32 c0, u32 off, u32 len) {           /* E1 */
+#else
+static void st_adv(void) { }   /* (v474 : Pulse compact) */
+#endif
+#if !defined(NATRES_COMPACT)
+static MEM_OS void st_cmd(u32 c0, u32 off, u32 len) {           /* E1 */
     st_snap_addr = 0xFFFFFFFFu;                          /* (v106 : nouvelle commande : pas de retour en arriere) */
     u32 sub = (c0 >> 16) & 0xFF;
     if (sub == 0) {
@@ -2183,7 +2789,11 @@ static void st_cmd(u32 c0, u32 off, u32 len) {           /* E1 */
         }
     } else if (sub == 1) { st_stop_end = 0; st_on = 0; }
 }
-static u32 st_status(u32 c0) {                           /* E2 */
+#else
+static void st_cmd(u32 c0, u32 off, u32 len) { (void)c0; (void)off; (void)len; }   /* (v474 : Pulse compact) */
+#endif
+#if !defined(NATRES_COMPACT)
+static MEM_OS u32 st_status(u32 c0) {                           /* E2 */
     switch ((c0 >> 16) & 0xFF) {
     case 0: return st_on ? 1 : 0;
     case 1: return (st_pos & ~0x7FFFu) >> 2;
@@ -2192,6 +2802,9 @@ static u32 st_status(u32 c0) {                           /* E2 */
     }
     return 0;
 }
+#else
+static u32 st_status(u32 c0) { (void)c0; return 0; }   /* (v474 : Pulse compact) */
+#endif
 /* apres la fonction du jeu (interruption DMA du son) : le tampon qu'il vient de programmer
    va etre joue ; on y ajoute la musique du disque, au bon volume et a la bonne frequence */
 /* v98 : le tampon est complete des que le jeu le programme, depuis l'interruption du son OU celle du DSP
@@ -2220,6 +2833,7 @@ static MEM_OS void st_load(void) {
     for (int i = 0; i < 56; i++) st_pcm[i] = s->pcm[i];
 }
 static u32 st_sum(const u32 *w, u32 n) { u32 s = 0x9E3779B9u; for (u32 i = 0; i < n; i++) s = (s ^ w[i]) * 0x01000193u; return s; }
+#if !defined(NATRES_COMPACT)
 static void st_mix_from(int from_dsp) {
     volatile u32 *ai = HW6(0xCC006C00u);
     u32 cr = ai[0];
@@ -2272,6 +2886,9 @@ static void st_mix_from(int from_dsp) {
     cache_flush((u32)p, len);
     H.st_mix++;
 }
+#else
+static void st_mix_from(int from_dsp) { (void)from_dsp; }   /* (v474 : Pulse compact) */
+#endif
 static void st_mix(void) { st_mix_from(0); }
 
 /* ======================= v65 : cartes memoire virtuelles (v122 : slots A et B) =======================
@@ -2285,6 +2902,8 @@ static void st_mix(void) { st_mix_from(0); }
 typedef struct {
     u32 mar, len, cr, data, irq, csr;                    /* registres vus par le jeu (irq : EXIINT 2, TCINT 8) */
     u32 pos, cmd, addr, status, irq_sw, sec_no;
+    u32 dirty, lvi, eblk, emask;                         /* v512 : secteur modifie pas encore ecrit ; image de la derniere ecriture ;
+                                                            bloc efface (1er secteur) et ses secteurs pas encore ecrits (FF) */
     u8 prog[128];
     const natres_ext_t *tab;
     u32 n, size, id, on;
@@ -2299,7 +2918,7 @@ static MEM_OS void vc_setup(void) {                             /* (au 1er acces
     vc[1].tab = card2_tab; vc[1].n = H.card2_n; vc[1].size = H.card2_size; vc[1].id = H.card2_id; vc[1].on = (H.flags & NRF_CARDB) && H.card2_n;
     if (mic_p()) { vc[1].on = 1; vc[1].n = 0; vc[1].id = MIC_ID; }   /* v332 : micro du telephone (a la place de la carte B) */
 }
-static int card_sd(vcard_t *v, u32 csec, u32 *sd) {
+static MEM_OS int card_sd(vcard_t *v, u32 csec, u32 *sd) {
     for (u32 k = 0; k < v->n && k < NATRES_CARDMAX; k++) {
         const natres_ext_t *e = &v->tab[k];
         if (csec >= e->iso && csec - e->iso < e->cnt) { *sd = e->sd + (csec - e->iso); return 0; }
@@ -2307,14 +2926,81 @@ static int card_sd(vcard_t *v, u32 csec, u32 *sd) {
     return -1;
 }
 static u8 *card_buf(vcard_t *v) { return c_sec[v == &vc[1]]; }
-static int card_load(vcard_t *v, u32 csec) {             /* secteur de la carte dans c_sec */
-    if (csec == v->sec_no) return 0;
+/* v512 : ecritures differees. Avant : chaque ecriture du jeu (page de 128 octets, effacement de 8 Ko) reecrivait tout de suite
+   des secteurs entiers de la carte SD, interruptions coupees : 4 ecritures par secteur pour les pages, 16 par effacement, puis
+   16 de plus pour les donnees ; pendant ce temps, plus de lecture du jeu (Kirby Air Ride : 1840 secteurs ecrits en 44 s
+   pendant l'intro, son hache dans la video et les menus, build 1039 ; propre avec une vraie carte). Maintenant : le secteur
+   modifie reste en memoire et n'est ecrit que quand le jeu passe a un autre secteur, ou a une image sans lecture en cours ;
+   un bloc efface n'est pas ecrit en FF tout de suite (ses secteurs le sont s'il ne les reecrit pas). Tout est ecrit avant
+   le retour a GC Station. */
+/* build 1063 : jusqu'a 4 secteurs a ecrire mis en attente (dans le tampon de la musique du disque, st_sec, libre quand elle ne
+   joue pas) et ecrits a une image ou la carte SD est libre (vc_idle) : plus d'ecriture ni d'attente de la carte SD quand le jeu passe
+   d'un secteur de sa carte memoire a l'autre (Kirby Air Ride : 9 ms au pire, grezillements des menus). Un secteur en attente relu
+   par le jeu vient d'ici. Tout est ecrit avant le retour a GC Station (vc_flush_all) et avant que la musique reprenne le tampon. */
+#if !defined(NATRES_COMPACT)
+static MEM_OS __attribute__((noinline)) void cp512(u8 *d, const u8 *s) { u32 *a = (u32 *)d; const u32 *b = (const u32 *)s; for (u32 i = 0; i < 128; i++) a[i] = b[i]; }
+static MEM_OS __attribute__((noinline)) void wq_write1(void) {   /* le plus ancien secteur en attente, ecrit (sans attendre la fin) */
+    if (!nr_write_sd(wq_sd[0], st_sec)) H.card_writes++;
+    wq_n--;
+    for (u32 i = 0; i < wq_n; i++) { wq_sd[i] = wq_sd[i + 1]; cp512(st_sec + i * 512u, st_sec + i * 512u + 512u); }
+}
+static MEM_OS void wq_drain(void) { while (wq_n) wq_write1(); }
+static MEM_OS __attribute__((noinline)) u8 *wq_find(u32 sd) { for (u32 i = 0; i < wq_n; i++) if (wq_sd[i] == sd) return st_sec + i * 512u; return 0; }
+#endif
+static MEM_OS __attribute__((noinline)) int card_flush(vcard_t *v) {
     u32 sd;
+    if (!v->dirty) return 0;
+    v->dirty = 0;
+    if (card_sd(v, v->sec_no, &sd)) { v->sec_no = 0xFFFFFFFFu; return -1; }
+#if !defined(NATRES_COMPACT)
+    if (!st_on) {                                        /* (build 1063 : en attente, ecrit plus tard) */
+        u8 *q = wq_find(sd);
+        if (!q) { if (wq_n >= WQ_N) wq_write1(); q = st_sec + wq_n * 512u; wq_sd[wq_n++] = sd; st_sec_off = 0xFFFFFFFFu; }
+        cp512(q, card_buf(v));
+        return 0;
+    }
+#endif
+#if !defined(NATRES_COMPACT)
+    if (wq_n) wq_drain();                                /* (musique du disque en cours : les plus anciennes d'abord, jamais par-dessus) */
+#endif
+    if (nr_write_sd(sd, card_buf(v))) { v->sec_no = 0xFFFFFFFFu; return -1; }
+    H.card_writes++;
+    return 0;
+}
+static MEM_OS int card_load(vcard_t *v, u32 csec) {   /* (v464 : -Os) */             /* secteur de la carte dans c_sec */
+    if (csec == v->sec_no) return 0;
+    card_flush(v);
+    u32 sd, e = csec - v->eblk;
     v->sec_no = 0xFFFFFFFFu;
-    if (card_sd(v, csec, &sd) || nr_read_sd(sd, card_buf(v))) return -1;
+    if (e < 16u && (v->emask >> e & 1u)) {               /* (efface, pas encore ecrit : FF, a ecrire) */
+        u8 *b = card_buf(v);
+        for (u32 i = 0; i < 512; i++) b[i] = 0xFF;
+        v->emask &= ~(1u << e); v->dirty = 1;
+    } else {
+        if (card_sd(v, csec, &sd)) return -1;
+#if !defined(NATRES_COMPACT)
+        const u8 *q = wq_find(sd);                       /* (build 1063 : encore en attente d'ecriture : la copie d'ici) */
+        if (q) cp512(card_buf(v), q); else
+#endif
+        if (nr_read_sd(sd, card_buf(v))) return -1;
+    }
     v->sec_no = csec;
     return 0;
 }
+static MEM_OS __attribute__((noinline)) void card_e1(vcard_t *v) {   /* un secteur efface pas encore ecrit : en FF sur la carte SD */
+    if (card_load(v, v->eblk + 31u - (u32)__builtin_clz(v->emask))) v->emask = 0;
+    card_flush(v);
+}
+static MEM_OS __attribute__((noinline)) void card_erase(vcard_t *v, u32 s) {   /* effacement du bloc de 8 Ko qui commence au secteur s */
+    while (v->emask) card_e1(v);
+    v->eblk = s; v->emask = 0xFFFFu; v->lvi = H.vi_count;
+    if (v->sec_no - s < 16u) { v->sec_no = 0xFFFFFFFFu; v->dirty = 0; }   /* (le secteur en memoire est efface : relu en FF) */
+}
+#if !defined(NATRES_COMPACT)
+static MEM_OS void vc_flush_all(void) { for (int c = 0; c < 2; c++) { while (vc[c].emask) card_e1(&vc[c]); card_flush(&vc[c]); } wq_drain(); }
+#else
+static void vc_flush_all(void) { }
+#endif
 static u8 card_rd1(vcard_t *v, u32 a) { return card_load(v, a >> 9) ? 0xFF : card_buf(v)[a & 511]; }
 static MEM_OS void card_rd(vcard_t *v, u8 *dst, u32 a, u32 len) {   /* (v410 : -Os) */
     while (len) {
@@ -2327,14 +3013,16 @@ static MEM_OS void card_rd(vcard_t *v, u8 *dst, u32 a, u32 len) {   /* (v410 : -
 }
 static MEM_OS void card_wr(vcard_t *v, u32 a, const u8 *src, int fill, u32 len) {   /* src = NULL : remplir avec fill */
     while (len) {
-        u32 n = 512 - (a & 511), sd;
+        u32 n = 512 - (a & 511), s = a >> 9, e = s - v->eblk;
         if (n > len) n = len;
-        if (n == 512) v->sec_no = a >> 9;                 /* (secteur entier : pas besoin de le relire) */
-        if (!card_load(v, a >> 9)) {
+        if (n == 512 && s != v->sec_no) {                /* (secteur entier : pas besoin de le relire) */
+            card_flush(v); v->sec_no = s;
+            if (e < 16u) v->emask &= ~(1u << e);
+        }
+        if (!card_load(v, s)) {
             u8 *b = card_buf(v);
             for (u32 i = 0; i < n; i++) b[(a & 511) + i] = src ? src[i] : (u8)fill;
-            if (!card_sd(v, a >> 9, &sd) && !nr_write_sd(sd, b)) H.card_writes++;
-            else v->sec_no = 0xFFFFFFFFu;
+            v->dirty = 1; v->lvi = H.vi_count;            /* v512 : ecrit plus tard */
         }
         if (src) src += n;
         a += n; len -= n;
@@ -2345,7 +3033,7 @@ static void card_done(vcard_t *v) {                      /* fin d'effacement / d
     v->status |= 0x01; v->status &= ~0x80u;
     if (v->irq_sw) { v->irq |= 0x2; H.card_irqs++; x_kick(); }   /* EXIINT */
 }
-#ifndef NATRES_LAN
+#if !defined(NATRES_LAN) && !defined(NATRES_LITE)
 /* ======================= v332 : micro du telephone (slot B) =======================
    Le micro GameCube (DOL-022 : Mario Party 6 et 7, Karaoke Revolution...) se branche dans le slot B (canal EXI 1,
    peripherique 0). Son fonctionnement a ete lu dans le pilote de Mario Party 7 (commandes et bits seulement, aucun code
@@ -2430,7 +3118,7 @@ static MEM_OS void card_cs(vcard_t *v, int on) {
     if (on) { v->pos = 0; if (v->id == MIC_ID) { natres_pad_t *p = pd_find(); if (p) p->mnsel++; } return; }   /* (v352 : diagnostic) */
     if (v->id == MIC_ID) { natres_pad_t *p = mic_p(); if (p && v->cmd == 0x20) mic_ready(p); return; }   /* v332 : paquet lu : le suivant ? */
     u32 mask = v->size - 1;
-    if (v->cmd == 0xF1 && v->pos > 2) { card_wr(v, v->addr & mask & ~0x1FFFu, 0, 0xFF, 0x2000); card_done(v); }
+    if (v->cmd == 0xF1 && v->pos > 2) { card_erase(v, (v->addr & mask & ~0x1FFFu) >> 9); card_done(v); }   /* v512 */
     else if (v->cmd == 0xF4 && v->pos > 2) { card_wr(v, 0, 0, 0xFF, v->size); v->status &= ~0x80u; }
     else if (v->cmd == 0xF2 && v->pos >= 5) {
         u32 cnt = v->pos - 5, a = v->addr;
@@ -2447,7 +3135,7 @@ static MEM_OS u8 card_byte(vcard_t *v, u8 b) {               /* (v410 : -Os) */
     if (v->id == MIC_ID) return mic_byte(v, b);          /* v332 */
     if (v->pos == 0) {
         v->cmd = b; b = 0xFF;
-        H.card_cmds++; H.card_last = v->cmd;
+        H.card_cmds++; H.card_last = v->cmd; vc_vi = H.vi_count;
         if (v->cmd == 0x89) { v->status &= ~0x18u; v->status |= 0x01; v->irq &= ~0x2u; v->pos = 0; }
     } else {
         switch (v->cmd) {
@@ -2498,20 +3186,20 @@ static MEM_OS void x_xfer(vcard_t *v) {                         /* transfert ver
    dans son systeme (masques du SDK : 0x800000C4 global, 0x800000C8 local ; EXI0 : 9 et 10, EXI1 : 12 et 13). Sinon
    elle attend qu'il la demasque (Soulcalibur II GRSPAF : fige en relisant sa sauvegarde, la fin arrivait masquee). */
 #define VC_OSMASK (*(volatile u32 *)0x800000C4u | *(volatile u32 *)0x800000C8u)
-static u32 vc_want(int c) {                              /* interruptions de la carte c que le jeu accepte maintenant */
+static MEM_OS u32 vc_want(int c) {                              /* interruptions de la carte c que le jeu accepte maintenant */
     vcard_t *v = &vc[c];
     u32 w = (v->csr & 1 ? 2u : 0) | (v->csr & 4 ? 8u : 0), m = VC_OSMASK;
     if (m & (0x80000000u >> (c ? 12 : 9))) w &= ~2u;
     if (m & (0x80000000u >> (c ? 13 : 10))) w &= ~8u;
     return w;
 }
-static int vc_pending(void) {                            /* une interruption de carte attend d'etre donnee au jeu */
+static MEM_OS int vc_pending(void) {                            /* une interruption de carte attend d'etre donnee au jeu */
     int p = 0;
     for (int c = 0; c < 2; c++) if (vc[c].on && (vc[c].irq & vc_want(c))) p = 1;
     return p;
 }
 /* a = adresse visee par le jeu (calculee pendant le jeu) : canal 0 (slot A), canal 1 (slot B) si emules */
-static vcard_t *vc_of(u32 a) {
+static MEM_OS vcard_t *vc_of(u32 a) {
     u32 o = a - 0xCC006800u;
     if (o >= 0x28u) return 0;
     if (!vc[0].tab) vc_setup();
@@ -2522,6 +3210,10 @@ static vcard_t *vc_of(u32 a) {
    slot A emulee : Soulcalibur II sans textes ni question 50/60 Hz avec la carte virtuelle, normal sans elle */
 /* (les echanges sont notes directement dans crashbuf, libre pendant le jeu : il ne sert qu'aux comptes rendus de la
    fin, et le 5e secteur est ecrit en premier) */
+#if defined(NATRES_NOLOG)
+static inline void xl_start(vcard_t *v, u32 cr) { (void)v; (void)cr; }
+static inline void xl_end(void) {}
+#else
 static u32 xl_n = 0, xl_cur = 0xFFFFFFFFu;
 static u32 xl_get(u32 o) { return (u32)crashbuf[o] << 24 | (u32)crashbuf[o + 1] << 16 | (u32)crashbuf[o + 2] << 8 | crashbuf[o + 3]; }
 static u32 xl_rd(u32 a) { return *(volatile u32 *)((a & 0x01FFFFFCu) | 0xC0000000u); }
@@ -2535,7 +3227,7 @@ static void xl_start(vcard_t *v, u32 cr) {
     cw(o, (v->csr & 0xFFFFu) << 16 | (cr & 0xFFFFu)); cw(o + 4, v->data); cw(o + 8, v->mar); cw(o + 12, v->len);
     xl_cur = o;
 }
-static void xl_end(void) {                               /* (le jeu deselectionne : les donnees du DMA sont la) */
+static MEM_OS void xl_end(void) {                               /* (le jeu deselectionne : les donnees du DMA sont la) */
     u32 o = xl_cur, c;
     if (o >= 0x200u) return;
     xl_cur = 0xFFFFFFFFu;
@@ -2544,6 +3236,7 @@ static void xl_end(void) {                               /* (le jeu deselectionn
     u32 m = xl_get(o + 8);
     for (u32 k = 0; k < 4; k++) cw(o + 16 + k * 4, xl_rd(m + (k & 1) * 4 + (k & 2) * 8));
 }
+#endif
 #ifdef NATRES_LAN
 /* ======================= Pulse LAN : le pont (jeu en reseau local par Internet) =======================
    Le jeu garde le vrai Broadband Adapter (canal 0, peripherique 2) ; Pulse se glisse entre les deux :
@@ -2757,8 +3450,30 @@ void MEM_OS pd_poll(void) {
 }
 #endif
 
+#if !defined(NATRES_COMPACT)
+/* v489 : le jeu touche au canal de la carte SD (carte virtuelle du slot, horloge, reglages) : Pulse finit d'abord sa lecture par
+   interruptions et ferme la lecture en continu (la carte SD n'est plus choisie), puis le jeu passe (comme le verrou du canal
+   que prend Swiss). Avant, une ecriture du jeu dans ce canal pendant une lecture de Pulse pouvait desactiver la carte SD. */
+/* v519 : carte SD dans le port serie 2 (canal 2, rien qu'a Pulse) : le jeu y ecrit quand meme. Kirby Air Ride (journal complet,
+   build 1046) : CSR du canal 2 = 0 puis 1 environ toutes les secondes (son pilote EXI qui guette un peripherique) ; pendant une
+   lecture par interruptions de Pulse, ca effacait le masque de fin de transfert et la selection de la carte : fin jamais signalee
+   (83 lectures bloquees en 3 min 30), et le secours de 10 ms figeait tout le temps de finir. Maintenant, les acces du jeu a ce
+   canal ne vont plus au vrai materiel (lectures : laissees, sans effet). */
+#if PF_ON
+#define CH2_CNT() (ch2_w++)
+#else
+#define CH2_CNT() ((void)0)
+#endif
+static void sd_yield(u32 a) {
+    if ((a - 0xCC006800u) / 0x14u != H.chan || hw_d || !(xv_st || st_open)) return;
+    u32 m = irq_off();
+    if (xv_st) xv_drain();
+    st_close();
+    irq_restore(m);
+}
 static MEM_OS u32 exi_load(u32 a) {
     trap_guard();
+    EV(0x51, a, 0);
 #ifdef NATRES_LAN
     { u32 lv; if (lan_load(a, &lv)) { (void)*HW6(a); return lv; } }
 #endif
@@ -2770,6 +3485,7 @@ static MEM_OS u32 exi_load(u32 a) {
     if ((H.opt & (NRO_PHONE | NRO_MEM)) && a == 0xCC006810u && (*HW6(0xCC006800u) & 0x380u) == 0x200u) { H.bba_n++; return 0; }
     vcard_t *v = vc_of(a);
     if (!v) return *HW6(a);                              /* (autres canaux, cartes reelles : vrai materiel) */
+    sd_yield(a);                                         /* v489 */
     volatile u32 *real = HW6(a & ~3u) - (((a & ~3u) - 0xCC006800u) % 0x14u) / 4u;   /* (registres du canal) */
     u32 m = irq_off(), x;
     switch ((((a - 0xCC006800u) % 0x14u)) >> 2) {
@@ -2781,14 +3497,23 @@ static MEM_OS u32 exi_load(u32 a) {
     case 1: x = (v->csr & 0x80) ? v->mar : real[1]; break;
     case 2: x = (v->csr & 0x80) ? v->len : real[2]; break;
     case 3: x = (v->csr & 0x80) ? v->cr : real[3]; break;
-    case 4: x = (v->csr & 0x80) ? v->data : real[4]; if (!(v->csr & 0x80) && xl_cur < 0x200u && !(xl_get(xl_cur) & 2)) cw(xl_cur + 16, x); break;
+    case 4: x = (v->csr & 0x80) ? v->data : real[4];
+#if !defined(NATRES_NOLOG)
+        if (!(v->csr & 0x80) && xl_cur < 0x200u && !(xl_get(xl_cur) & 2)) cw(xl_cur + 16, x);
+#endif
+        break;
     default: x = 0; break;
     }
     irq_restore(m);
     return x;
 }
+#else
+static u32 exi_load(u32 a) { (void)a; return 0; }   /* (v474 : Pulse compact) */
+#endif
+#if !defined(NATRES_COMPACT)
 static MEM_OS void exi_store(u32 a, u32 val) {
     trap_guard();
+    EV(0x50, a, val);
 #ifdef NATRES_LAN
     if (a - 0xCC006800u < 0x14u && lan_store(a, val)) return;
 #endif
@@ -2796,7 +3521,8 @@ static MEM_OS void exi_store(u32 a, u32 val) {
     early_note(a, val, 1);
     if (a == 0xCC006800u && (val & 0x200u)) H.bba_n++;   /* v145 : le jeu parle au Broadband Adapter (jeu en reseau) */
     vcard_t *v = vc_of(a);
-    if (!v) { *HW6(a) = val; return; }
+    if (!v) { if (H.chan == 2u && a - 0xCC006828u < 0x14u) { CH2_CNT(); return; } *HW6(a) = val; return; }   /* (v519 : canal 2 : rien) */
+    sd_yield(a);                                         /* v489 */
     volatile u32 *real = HW6(a & ~3u) - (((a & ~3u) - 0xCC006800u) % 0x14u) / 4u;
     u32 m = irq_off();
     switch ((((a - 0xCC006800u) % 0x14u)) >> 2) {
@@ -2817,6 +3543,9 @@ static MEM_OS void exi_store(u32 a, u32 val) {
     }
     irq_restore(m);
 }
+#else
+static void exi_store(u32 a, u32 val) { (void)a; (void)val; }   /* (v474 : Pulse compact) */
+#endif
 /* les "interruptions" des cartes : fonctions EXI du jeu appelees depuis une interruption
    (table du SDK : canal 0 = 9 EXI, 10 TC ; canal 1 = 12 EXI, 13 TC) */
 static MEM_OS void x_dispatch(u32 ctx) {
@@ -2854,12 +3583,14 @@ static MEM_OS u32 si_fix(int ch, int lo) {               /* (v410 : -Os) */
     if (thr && !(h & 0x80000000u)) { if (tl >= thr) btn |= 0x00400000u; if (tr >= thr) btn |= 0x00200000u; }   /* (L, R numeriques) */
     return btn | sx << 8 | sy;
 }
+#if !defined(NATRES_COMPACT)
 static MEM_OS u32 si_load(u32 a) {
     trap_guard();
     u32 o = a - 0xCC006400u, v = *HW6(a);
+    int ch = (int)(o / 12u), r = (int)(o - (u32)ch * 12u);
+    if (o < 0x30u && r == 4) { igr_gh[ch] = v; igr_gt = H.vi_count; }   /* v457 : touches lues par le jeu (A+Z+START) */
     if (H.opt & NRO_PHONE) { natres_pad_t *p = pd_find(); int done; if (p) { v = pd_si_load(p, o, v, &done); if (done) return v; } }   /* */
     if (o < 0x30u && (H.opt & 0xFF07u)) {
-        int ch = (int)(o / 12u), r = (int)(o % 12u);
         if ((r == 4 || r == 8) && si_mode(ch) == 3) {
             if (r == 4) { si_h[ch] = v; si_l[ch] = *HW6(a + 4); return si_fix(ch, 0); }   /* (H : on lit aussi L) */
             si_l[ch] = v; return si_fix(ch, 1);
@@ -2867,6 +3598,10 @@ static MEM_OS u32 si_load(u32 a) {
     }
     return v;
 }
+#else
+static u32 si_load(u32 a) { return *(volatile u32 *)a; }   /* v474 : Pulse compact */
+#endif
+#if !defined(NATRES_COMPACT)
 static MEM_OS void si_store(u32 a, u32 val) {
     trap_guard();
     if (H.opt & NRO_PHONE) {                              /* transfert vers un port : on retient le port et la commande */
@@ -2917,6 +3652,9 @@ static MEM_OS void si_store(u32 a, u32 val) {
     }
     *HW6(a) = val;
 }
+#else
+static void si_store(u32 a, u32 val) { *(volatile u32 *)a = val; }   /* v474 : Pulse compact */
+#endif
 
 /* ======================= v121 : cheats (codes Gecko) =======================
    GC Station range ici les codes actives du jeu : {nombre de mots, puis les codes (2 mots chacun)}.
@@ -2926,13 +3664,13 @@ static MEM_OS void si_store(u32 a, u32 val) {
    16 bits masque), 40 42 48 4A adresse de base / pointeur, C2 code insere, E0 E2 fins de conditions, F0 fin.
    Bit 0x10 du 1er octet : adresse relative au pointeur (po) au lieu de l'adresse de base (ba). */
 static int gk_ram(u32 a, u32 n) { return a >= 0x80000000u && a + n <= NATRES_AT && a + n > a; }
-static void gk_sync(u32 a, u32 len) {
+static MEM_OS void gk_sync(u32 a, u32 len) {
     for (u32 x = a & ~31u; x < a + len; x += 32) __asm__ volatile("dcbst 0,%0; sync; icbi 0,%0" :: "r"(x) : "memory");
     __asm__ volatile("sync; isync" ::: "memory");
 }
-static void gk_w8(u32 a, u32 v) { if (gk_ram(a, 1)) { *(volatile u8 *)a = (u8)v; gk_sync(a, 1); } }
-static void gk_w16(u32 a, u32 v) { a &= ~1u; if (gk_ram(a, 2)) { *(volatile unsigned short *)a = (unsigned short)v; gk_sync(a, 2); } }
-static void gk_w32(u32 a, u32 v) { a &= ~3u; if (gk_ram(a, 4)) { *(volatile u32 *)a = v; gk_sync(a, 4); } }
+static MEM_OS void gk_w8(u32 a, u32 v) { if (gk_ram(a, 1)) { *(volatile u8 *)a = (u8)v; gk_sync(a, 1); } }
+static MEM_OS void gk_w16(u32 a, u32 v) { a &= ~1u; if (gk_ram(a, 2)) { *(volatile unsigned short *)a = (unsigned short)v; gk_sync(a, 2); } }
+static MEM_OS void gk_w32(u32 a, u32 v) { a &= ~3u; if (gk_ram(a, 4)) { *(volatile u32 *)a = v; gk_sync(a, 4); } }
 static u32 gk_r32(u32 a) { a &= ~3u; return gk_ram(a, 4) ? *(volatile u32 *)a : 0; }
 static u32 gk_r16(u32 a) { a &= ~1u; return gk_ram(a, 2) ? *(volatile unsigned short *)a : 0; }
 /* niveaux de conditions : depth = ouverts, skip = 1er niveau faux (0 = tout est vrai, on applique) */
@@ -2940,6 +3678,7 @@ static void gk_endif(u32 *depth, u32 *skip, u32 n) {
     *depth = n > *depth ? 0 : *depth - n;
     if (*skip > *depth) *skip = 0;
 }
+#if !defined(NATRES_COMPACT)
 static MEM_OS void gk_run(void) {                            /* (v407 : -Os, place pour la suite) */
     const u32 *w = (const u32 *)H.chts;
     u32 nw = w[0], ba = 0x80000000u, po = 0x80000000u, depth = 0, skip = 0;
@@ -3030,6 +3769,9 @@ static MEM_OS void gk_run(void) {                            /* (v407 : -Os, pla
     }
     if ((H.disc >> 16) < 0xFFFFu) H.disc += 0x10000u;   /* (journal : images avec cheats appliques, 16 bits hauts) */
 }
+#else
+static void gk_run(void) { }   /* (v474 : Pulse compact) */
+#endif
 
 /* ---------- v268 : succes (conditions sur la memoire du jeu, verifiees une fois par image) ----------
    Section juste apres les cheats (GC Station ne la met pas s'il y a des corrections "FIXT") : {"ACH1", n,
@@ -3112,12 +3854,14 @@ static u32 sp_until = 0, sp_next = 0, sp_kicks = 0;       /* v122 : vitesse d'un
 static void x_kick(void) {                               /* v65 : vraie fin de commande du lecteur -> fonctions EXI du jeu */
     if (x_kicked || rd_on) return;                       /* (une lecture en fond reveille deja souvent) */
     if (wake_tick()) { x_kicked = 1; return; }           /* (v133 : sans le lecteur : a la prochaine interruption du jeu) */
-    if (DI_REAL[7] & 1) return;
+    if (!WT_SELF && (DI_REAL[7] & 1)) return;           /* v516 : pas avec le reveil provoque (il ne passe pas par le vrai lecteur).
+                                                            Console sans lecteur (Platter, build 1042-1043) : DICR toujours occupe,
+                                                            la fin d'une lecture de la carte virtuelle n'arrivait jamais : jeu fige */
     x_kicked = 1;
     di_real_kick();
 }
 /* v67 : echantillon : ou le jeu a ete interrompu (OSContext : srr0 en 0x198, lr en 0x84) */
-static void nr_sample(u32 ctx) {
+static MEM_OS void nr_sample(u32 ctx) {
     if (ctx < 0x80000000u || ctx >= NATRES_AT || (ctx & 3)) return;
     u32 pc = *(volatile u32 *)(ctx + 0x198);
     H.n_samp++; H.samp_lr = *(volatile u32 *)(ctx + 0x84);
@@ -3130,6 +3874,7 @@ static u32 rd_vi = 0, dp_vi = 0;
 /* v171 : jeu fige (Crash Bandicoot GCBP7D, carte virtuelle) : tout ce qui decide si la fin d'un transfert de la
    carte arrive au jeu, ecrit a la place des textes dans le 2e secteur du journal (0x110, magique "VCRD") */
 static void di_hook(u32 irq, u32 ctx);
+#if !defined(NATRES_NOLOG)
 static MEM_OS void vc_diag(void) {
     for (u32 i = 0x110; i < 0x200; i++) crashbuf[i] = 0;
     vcard_t *v = &vc[0];
@@ -3141,47 +3886,309 @@ static MEM_OS void vc_diag(void) {
                       vc[1].on ? vc[1].irq | vc[1].csr << 16 : 0xFFFFFFFFu, rd_left, H.vi_count - rd_vi, H.vi_count - dp_vi };
     for (u32 i = 0; i < sizeof(w) / 4; i++) cw(0x110 + i * 4, w[i]);
 }
+#endif
+#if !defined(NATRES_COMPACT)
+static MEM_OS __attribute__((noinline)) void rd_adv(u32 n) {   /* (n octets de la lecture en fond arrives) */
+    cache_flush(rd_dst, n);
+    rd_dst += n; rd_off += n; rd_left -= n;
+    di[5] += n; di[6] -= n;
+}
+#endif
+#if !defined(NATRES_NO_XV) && !defined(NATRES_COMPACT)                                     /* (v437 : pas dans les Pulse du mode universel : place) */
+/* ======================= v437 : lecture de la carte par interruptions (option NRO_XV, essai) =======================
+   Sans DMA (port serie 2), chaque mot de 4 octets de la carte est un transfert du bus (~1 us a 32 MHz). Avant, Pulse
+   attendait la fin de chacun, interruptions du jeu coupees, par paquets de 1,5 a 3 ms : le jeu (video, son) ne tournait
+   pas pendant ce temps. Ici, Pulse lance le transfert et rend la main ; la fin du transfert (interruption "TC" du canal)
+   arrive par le vecteur des interruptions externes (0x500), avant le systeme du jeu : xv_vec garde les registres, active
+   la traduction des donnees (registres du bus sans cache), appelle xv_c sur une petite pile a part, puis revient au jeu
+   (rfi). Ce qui n'est pas pour nous repart dans le vecteur du SDK (son 1re instruction, puis 0x504). xv_c fait avancer
+   la lecture : attente du jeton du bloc (FE), 128 mots (directement a destination), 2 octets de CRC (pas verifie ici),
+   bloc suivant. rd_pump (au reveil du lecteur) lance une suite de secteurs et regarde ou elle en est. Si les
+   interruptions n'arrivent pas (masquees par le jeu...), la suite est finie a l'ancienne (xv_drain), sans rien perdre.
+   Pas avec Pulse universel (registres a une 2e adresse), ni avec une carte dans un port de carte memoire.
+   Code d'execution sans traduction des instructions (adresses physiques) : pas de saut par table dans xv_c. */
+/* (place : les registres sont gardes dans trap_regs (Pulse universel, jamais en meme temps) et la pile est le haut de
+   exc_stack (pile du journal de plantage)) */
+static volatile u32 xv_st = 0;                          /* 0 rien, 1 attente du jeton, 2 mots du bloc, 3 CRC */
+static volatile u32 xv_row = 0;                         /* (v444 : reprises de suite sans vraie interruption) */
+static u32 xv_tok, xv_n, xv_nsec, xv_cnt, xv_err, xv_sd, xv_words, xv_last, xv_off;
+static u32 *xv_buf;
+static u32 xv_dm = 0, xv_cs = 0;                       /* v501 : suite en DMA (un bloc de 512 octets par transfert, comme Swiss) ;
+                                                            CS de la carte pendant le bloc (2e facon) */
+static u32 xv_fall = 0, xv_runs = 0;                     /* (journal) suites finies a l'ancienne, suites lancees */
+static u32 xv_ptb = 0;                                   /* v517 : heure du dernier vrai progres de la suite (xv_adv) */
+extern u32 xv_vec[], xv_orig[];
+static void trap_sync(u32 a);
+int xv_c(void) __attribute__((used));
+__asm__(".pushsection .text\n.globl xv_vec\n.globl xv_orig\n.p2align 5\nxv_vec:\n"
+        "  mtspr 274,3\n  mtspr 275,4\n"
+        "  lis 4,trap_regs@ha\n  addi 4,4,trap_regs@l\n  clrlwi 4,4,2\n"           /* (sans traduction : adresse physique) */
+        "  mfcr 3\n  stw 3,0(4)\n  stw 0,4(4)\n  stw 1,8(4)\n  mfspr 3,274\n  stw 3,12(4)\n  mfspr 3,275\n  stw 3,16(4)\n"
+        "  stw 5,20(4)\n  stw 6,24(4)\n  stw 7,28(4)\n  stw 8,32(4)\n  stw 9,36(4)\n  stw 10,40(4)\n  stw 11,44(4)\n  stw 12,48(4)\n"
+        "  mflr 3\n  stw 3,52(4)\n  mfctr 3\n  stw 3,56(4)\n  mfxer 3\n  stw 3,60(4)\n"
+        "  mfmsr 3\n  stw 3,64(4)\n  ori 3,3,0x10\n  mtmsr 3\n  isync\n"            /* (traduction des donnees : registres sans cache) */
+        "  lis 1,exc_stack@ha\n  addi 1,1,exc_stack@l\n  addi 1,1,1584\n"
+        "  bl xv_c\n"
+        "  lis 4,trap_regs@ha\n  addi 4,4,trap_regs@l\n"                          /* (v440 : adresse normale : la traduction est encore active) */
+        "  lwz 5,64(4)\n  mtmsr 5\n  isync\n  clrlwi 4,4,2\n"                    /* (de nouveau sans traduction, puis adresse physique) */
+        "  lwz 5,52(4)\n  mtlr 5\n  lwz 5,56(4)\n  mtctr 5\n  lwz 5,60(4)\n  mtxer 5\n"
+        "  lwz 0,4(4)\n  lwz 1,8(4)\n  lwz 6,24(4)\n  lwz 7,28(4)\n  lwz 8,32(4)\n  lwz 9,36(4)\n  lwz 10,40(4)\n  lwz 11,44(4)\n  lwz 12,48(4)\n"
+        "  cmpwi 3,0\n  beq 8f\n"                                                 /* (le choix est fait avant de remettre CR) */
+        "  lwz 5,0(4)\n  mtcrf 0xFF,5\n  lwz 5,20(4)\n  lwz 3,12(4)\n  lwz 4,16(4)\n  rfi\n"
+        "8:\n  lwz 5,0(4)\n  mtcrf 0xFF,5\n  lwz 5,20(4)\n  lwz 3,12(4)\n  lwz 4,16(4)\n"
+        "xv_orig:\n  nop\n  ba 0x504\n.popsection\n");
+#define XV_BR (0x48000002u | ((u32)xv_vec & 0x03FFFFFCu))    /* (ba xv_vec, en adresse physique) */
+static void xv_go(u32 n) { exi[4] = 0xFFFFFFFFu; exi[3] = ((n - 1u) << 4) | 1u; }   /* (n octets, lecture, depart) */
+static void xv_stop(void) { exi[0] = exi[0] & ~0x80Eu; xv_st = 0; }   /* (fin : plus d'interruption de fin de transfert) */
+/* v501 : bloc de 512 octets en DMA dans la suite (comme Swiss) : fin = 0 : depart ; fin = 1 : le bloc est arrive */
+static MEM_OS __attribute__((noinline)) void xv_dmab(int fin) {
+    u32 cs = fin ? xv_cs : exi[0];
+    if (fin) { if (x_dnocs) exi[0] = (cs & 0x405u) | (cs & 0x3F0u); dc_inv512((u8 *)xv_buf); xv_buf += 128; return; }
+    dc_inv512((u8 *)xv_buf);
+    exi[4] = 0xFFFFFFFFu;                                /* (v493 : 0xFF envoye a la carte pendant le bloc) */
+    xv_cs = cs;
+    if (x_dnocs) exi[0] = (cs & 0x405u) | (cs & 0x070u);   /* (v494 : carte pas choisie pendant le bloc) */
+    exi[1] = (u32)xv_buf & 0x1FFFFFE0u; exi[2] = 512; exi[3] = 3;
+}
+static int xv_start(u32 sd, u32 nsec, u32 *dst);
+/* v527 : une suite finie (dans l'interruption) : comptee ici, et la suivante part tout de suite si la lecture continue au
+   secteur suivant de la carte (lecture de la carte encore ouverte : pas de commande). Avant, chaque suite de 32 Ko au plus
+   attendait un aller-retour (reveil du lecteur, crochet de Pulse, rd_pump) ; Swiss enchaine jusqu'a la fin de la lecture.
+   Sinon (fin, autre morceau du disque, reste de moins d'un secteur) : rd_pump comme avant. */
+static u32 xv_rr = 0;                                    /* (secteurs du meme morceau du disque apres la suite en cours) */
+static u32 xv_nod = 0;                                   /* (xv_drain en cours : pas de suite suivante, elle serait lue d'un coup) */
+static MEM_OS __attribute__((noinline)) int xv_more(void) {
+    if (!rd_on || xv_err || !xv_nsec || xv_nod) return 0;
+    rd_adv(xv_cnt << 9);
+    xv_nsec = 0;                                         /* (deja comptee : rd_pump ne la recompte pas) */
+    u32 ns = rd_left >> 9;
+    if (ns > xv_rr) ns = xv_rr;
+    { u32 mx = xv_max(); if (ns > mx) ns = mx; }
+    if (!ns || xv_off) return 0;
+    xv_rr -= ns;
+    return xv_start(st_next, ns, (u32 *)rd_dst) == 0;   /* (meme morceau, a la suite : la carte lit deja la) */
+}
+/* un transfert fini : la suite (appele par l'interruption, ou par xv_drain) */
+/* v443 : un transfert fini : acquitte, interruption de fin reposee (le systeme du jeu reecrit les masques des canaux EXI
+   quand il ouvre ou ferme ses interruptions : la notre disparaissait, la suite attendait pour toujours), mot suivant */
+static MEM_OS void xv_adv(u32 c) {                     /* (v501 : -Os, place) */
+    xv_ptb = tbl();
+    exi[0] = (c & ~0x802u) | 0xCu;
+    u32 d = exi[4];
+    if (xv_st == 1) {
+        if ((d >> 24) == 0xFEu && xv_dm) { xv_st = 2; xv_dmab(0); }   /* v501 : le bloc entier en DMA : une seule interruption a sa fin */
+        else if ((d >> 24) == 0xFEu) { xv_st = 2; xv_n = 128; xv_go(4); }
+        else if (--xv_tok) xv_go(1);
+        else { H.trap_state = 1u << 28 | 1u << 24 | (d >> 24) << 16 | (xv_cnt & 0xFFu) << 8 | (xv_nsec & 0xFFu); xv_err = 1; xv_stop(); }
+                                                        /* (st_next reste invalide : la lecture sera arretee ; v442 : detail, journal) */
+    } else if (xv_st == 2) {
+        if (xv_dm) { xv_dmab(1); xv_st = 3; xv_go(2); return; }   /* v501 : bloc en DMA fini */
+        *xv_buf++ = d;
+        if (--xv_n) xv_go(4); else { xv_st = 3; xv_go(2); }
+    } else {
+        if ((x_fast | xv_dm) && crc16((const u8 *)(xv_buf - 128), 512) != (d >> 16)) {   /* v451 : a 32 MHz, bloc verifie (CRC) comme a l'ancienne (v501 : en DMA aussi) */
+            H.crc_err++; x_crcbad = 1; xv_err = 1; xv_stop(); return;
+        }
+        H.nread++; xv_cnt++;
+        if (xv_cnt < xv_nsec) { xv_st = 1; xv_tok = 400000u; xv_go(1); }
+        else { st_next = xv_sd + xv_cnt; if (xv_more()) return; xv_stop(); if (rd_on && (SELFIRQ_ON || !(DI_REAL[7] & 1))) di_real_kick(); }   /* (v523 : avec le vrai lecteur
+                                                            aussi : la fin de la suite relance la lecture en fond tout de suite) */   /* (la carte continue : la suite pourra reprendre la ;
+                                                            v483 : reveil provoque : la lecture en fond avance a la fin de la suite) */
+    }
+}
+int xv_c(void) {
+    if (!xv_st) return 0;
+    xv_words++;
+    u32 c = exi[0];
+    if ((c & 0xCu) != 0xCu) return 0;                   /* (fin de transfert de ce canal, que l'on a demandee ?) */
+    if (exi[3] & 1u) { exi[0] = (c & ~0x802u) | 8u; return 1; }   /* v441 : fin d'un transfert d'avant : le notre n'est pas fini */
+    xv_row = 0;                                          /* (v444 : une vraie interruption : les interruptions arrivent) */
+    PF_T0(pt_);
+    xv_adv(c);
+    PF_ADD(4, pt_);
+    return 1;
+}
+/* finir la suite sans interruptions (jeu qui les masque, ou autre commande a la carte) */
+static MEM_OS void xv_drain(void) {
+    u32 m = irq_off();                                   /* (sinon l'interruption et cette boucle se disputeraient le meme mot) */
+    xv_nod = 1;
+    for (u32 i = 0; xv_st && i < 50000000u; i++) if (!(exi[3] & 1u)) { xv_words++; xv_adv(exi[0]); }   /* (v443 : transfert arrete = fini) */
+    xv_nod = 0;
+    if (xv_st) { H.trap_state = 2u << 28 | xv_st << 24 | (exi[3] & 0xFFu) << 16 | (xv_cnt & 0xFFu) << 8 | (xv_nsec & 0xFFu); xv_err = 1; xv_stop(); }   /* (v442 : detail) */
+    irq_restore(m);
+}
+/* v439 : journal des etapes de la lecture par interruptions (cases du mode universel, jamais utilise avec : trap_n, trap_pc,
+   trap_bad) : trap_bad = les 8 dernieres etapes (4 bits chacune, la plus recente en bas), trap_pc = etape << 24 | image,
+   trap_n = interruptions vues pendant une suite. Les 24 premieres etapes importantes ecrivent le journal sur la carte
+   aussitot (pas pendant une suite) : apres un blocage, le journal dit jusqu'ou Pulse est alle. */
+static u32 xv_nerr = 0, xv_lost = 0;
+/* v527 : etapes plus notees (place pour l'enchainement des suites dans l'interruption ; la mesure des chargements dit
+   mieux ou passe le temps) : avant, H.trap_pc / trap_bad / trap_n (8 dernieres etapes, interruptions vues) */
+#define xv_mark(step, fl) ((void)0)
+static MEM_OS __attribute__((noinline)) int xv_ok(void) {
+    return !(xv_off || !(H.opt & NRO_XV) || !SD_OWN_CH || hw_d || H.net);   /* (v501 : avec le DMA aussi : blocs en DMA enchaines) */   /* (v488 : slot B aussi, carte virtuelle imposee) */
+}
+/* lancer la lecture de nsec secteurs (carte : sd) vers dst (aligne sur 4) */
+static MEM_OS __attribute__((noinline)) int xv_start(u32 sd, u32 nsec, u32 *dst) {
+    if (!(st_open && sd == st_next)) {
+        u32 r = sd_cmd(18, H.sdhc ? sd : sd << 9, 0x01);
+        if (r != 0) { sd_end(); H.err = NR_ECMD; return -1; }
+        st_open = 1;
+    }
+    volatile u32 *v = (volatile u32 *)0x80000500u;      /* (v438 : vecteur pose seulement au 1er transfert, pas avant) */
+    if (v[0] != XV_BR) { xv_orig[0] = v[0]; trap_sync((u32)xv_orig); v[0] = XV_BR; trap_sync(0x80000500u); }
+    xv_buf = dst; xv_nsec = nsec; xv_cnt = 0; xv_err = 0; xv_sd = sd; xv_tok = 400000u; xv_last = xv_words - 1u; xv_ptb = tbl();
+    xv_dm = x_dma && !((u32)dst & 31u);                  /* v501 : DMA si le DMA est valide et la destination alignee */
+    st_next = 0xFFFFFFFFu;                               /* (pendant la suite : personne ne continue la lecture de la carte) */
+    u32 m = irq_off();
+    /* (v438 : le masque des interruptions du processeur (PI) n'est plus touche : en ouvrant celles du bus EXI, le jeu recevait
+       aussi celles des autres peripheriques qu'il avait fermees et ne s'en sortait plus (ecran noir des la 1re lecture, Mario
+       Kart). S'il les a fermees, les notres n'arrivent pas : la suite est finie a l'ancienne (rd_pump, xv_drain)) */
+    exi[0] = (exi[0] & ~0x802u) | 0xCu;                  /* (fin de transfert de ce canal : interruption ; v441 : l'ancienne fin, laissee
+                                                            par les lectures normales, effacee (1 = efface) : sinon interruption tout de
+                                                            suite, mot pas encore arrive, transfert relance par-dessus : suite decalee) */
+    xv_st = 1; xv_go(1);
+    irq_restore(m);
+    if (xv_runs < 0x7FFFu) xv_runs++;
+    H.xfer = (H.xfer & 0xFFFFu) | 0x80u | (xv_runs | (xv_off ? 0x8000u : 0u)) << 16;   /* (v438 : journal : suites lancees, mode coupe) */
+    return 0;
+}
+#else
+static volatile u32 xv_st = 0;
+static u32 xv_nsec = 0, xv_cnt, xv_err, xv_words, xv_last, xv_off, xv_fall, xv_runs, xv_nerr, xv_lost, xv_row, xv_ptb;
+static void xv_adv(u32 c) { (void)c; }
+static void xv_drain(void) { }
+static void xv_mark(u32 step, int fl) { (void)step; (void)fl; }
+static int xv_ok(void) { return 0; }
+static int xv_start(u32 sd, u32 nsec, u32 *dst) { (void)sd; (void)nsec; (void)dst; return -1; }
+static u32 xv_rr = 0;
+#endif
 /* lecture en fond : les morceaux suivants. 0 = pas finie, 1 = finie (TCINT), -1 = erreur (DEINT) */
-static int rd_pump(void) {
-    u32 t0 = tbl(), bud = wake_tick() ? RD_BUDGET * 2u : RD_BUDGET;   /* (v133 : sans le lecteur, moins souvent : plus par fois) */
+#if !defined(NATRES_COMPACT)
+#if PF_ON
+static int rd_pump_i(void);
+static MEM_OS __attribute__((noinline)) int rd_pump(void) { PF_T0(t); int r = rd_pump_i(); PF_ADD(6, t); return r; }   /* v526 : mesure */
+#else
+#define rd_pump_i rd_pump
+#endif
+static MEM_OS int rd_pump_i(void) {                   /* (v437 : -Os, place) */
+    EV(0x25, rd_off, rd_left);
+    u32 t0 = tbl(), bud = wake_tick() ? RD_BUDGET * 2u : SELFIRQ_ON ? RD_BUDGET / 3u : RD_BUDGET;   /* (v133 : sans le lecteur, moins souvent : plus par fois ;
+                                                            v524 : reveil provoque : 1 ms au plus par interruption du jeu (avant 3 ms : la lecture
+                                                            se fait dans les interruptions du son et de l'image, le jeu saccadait a chaque chargement,
+                                                            Platter et Kirby Air Ride sans lecteur, build 1052 : 48 attentes du son de plus de 12 ms
+                                                            par minute) ; elle y revient plus souvent */
     int err = 0, k = 0;
     if (rd_left && exi_defer()) { H.exi_wait++; rd_vi = H.vi_count; return 0; }   /* v145 : bus EXI pris par le jeu : plus tard */
+    if (rd_left && !xv_st && !sd_free()) { rd_vi = H.vi_count; return 0; }   /* build 1063 : carte SD encore occupee a enregistrer : plus tard */
+    if (xv_ok() || xv_st || xv_nsec) {                   /* v437 : lecture par interruptions */
+        xv_mark(1, 0);                                   /* (v439 : 1 = lecture en fond appelee) */
+        if (xv_st) {
+            u32 m = irq_off(), lost = 0;
+            if (xv_words == xv_last && xv_st && !(exi[3] & 1u)) { xv_words++; xv_adv(exi[0]); lost = 1; }   /* v443 : fin perdue (masque
+                                                            efface par le systeme du jeu) : reprise ici, et l'interruption reposee */
+            irq_restore(m);
+            if (lost && ++xv_row >= 16u) lost = 0;      /* (v444 : 16 reprises de suite sans vraie interruption : ce jeu ne les
+                                                            laisse pas passer : finie a l'ancienne, et plus de suites pour ce jeu) */
+            if (lost) { if (xv_lost < 0xFFFu) xv_lost++; xv_mark(9, 0); xv_last = xv_words; rd_vi = H.vi_count; return 0; }   /* (9) */
+            if (xv_row >= 16u) xv_last = xv_words;
+            int stuck = tbl() - xv_ptb > TB_SEC / 100u;  /* (v518 : 10 ms) */   /* v517 : xv_words compte toutes les interruptions externes (image, son,
+                                                            adaptateur reseau...), pas seulement les fins de la carte : une suite dont la
+                                                            fin se perdait n'etait jamais vue bloquee (Kirby Air Ride, build 1043-1044 :
+                                                            erreur du jeu au chargement des sons). Avant, la reecriture du journal toutes
+                                                            les 2-3 s la finissait au passage (sd_cmd -> xv_drain). Maintenant : 20 ms sans
+                                                            progres = finie ici ; les suites restent permises (16 fois au plus) */
+            if (xv_words == xv_last || stuck) { xv_drain(); xv_fall++; if (!stuck || ++xv_row >= 16u) xv_off = 1; xv_mark(5, 1); }   /* (5 = finie a l'ancienne ;
+                                                            v518 : coupee seulement apres 16 suites bloquees sans une seule vraie interruption entre
+                                                            deux (xv_row, remis a 0 par xv_c) : Kirby en perd une de temps en temps, 16 en 49 s, et repassait aux
+                                                            lectures d'un coup, 18 % du temps dans Pulse, son coupe jusqu'a 0,57 s) */   /* (rien depuis le dernier reveil : les interruptions
+                                                            n'arrivent pas, ce jeu les masque : finie a l'ancienne, et plus pour ce jeu) */
+            else { xv_last = xv_words; rd_vi = H.vi_count; return 0; }
+        }
+        int redo = 0;
+        if (xv_nsec) {                                   /* (suite finie : la lecture en fond avance) */
+            u32 n = xv_cnt << 9;
+            xv_nsec = 0;
+            H.xfer = (H.xfer & 0xFFFFu) | (xv_runs | (xv_off ? 0x8000u : 0u)) << 16;
+            if (xv_err) {                                /* (6 = erreur ; v442 : plus d'erreur donnee au jeu : ce morceau est relu a
+                                                            l'ancienne, juste en dessous ; 3 suites ratees : plus de suites pour ce jeu) */
+                xv_mark(6, 1); redo = 1;
+                if (++xv_nerr >= 3u) xv_off = 1;
+                if (x_fast && x_crcbad) { x_fast_off = 1; x_crcbad = 0; di_ready = nr_init() == 0; }   /* v451 : CRC faux a 32 MHz : 16 MHz */
+            } else {
+                xv_mark(4, 1);                           /* (4 = une suite finie) */
+                rd_adv(n);
+            }
+        }
+        u32 sd;
+        if (!redo && !xv_off && rd_left >= 512u && !(rd_off & 511u) && !(rd_dst & 3u) && !iso_to_sd(rd_off >> 9, &sd) && sd != NATRES_ZERO) {
+            u32 ns = rd_left >> 9;
+            if (ns > iso_run) ns = iso_run;
+            { u32 mx = xv_max(); if (ns > mx) ns = mx; }
+            xv_rr = iso_run - ns;                        /* v527 */
+            xv_mark(2, 1);                               /* (2 = une suite va partir) */
+            if (!xv_start(sd, ns, (u32 *)rd_dst)) { xv_mark(3, 0); rd_vi = H.vi_count; return 0; }   /* (3 = partie) */
+            xv_mark(7, 1);                               /* (7 = depart refuse par la carte) */
+        }
+    }
     if (rd_left) do {                                    /* v88 : des morceaux de 2 Ko tant qu'on reste sous ~1,5 ms (v122 : rien si deja tout lu) */
-        u32 n = rd_left > RD_CHUNK ? RD_CHUNK : rd_left;
+        /* (v430 : morceau taille au temps mesure par secteur : retire en v433, Mario Kart se figeait pendant un chargement :
+           une 1re mesure trop courte (secteur deja en cache) faisait lire jusqu'a 32 Ko d'un coup, interruptions coupees) */
+        u32 n = RD_CHUNK - (rd_off & 511u);             /* v434 : morceaux alignes sur les secteurs (lecture en continu) */
+        if (n > rd_left) n = rd_left;
         H.n_chunks++;
         if (nr_read((void *)rd_dst, rd_off, n)) { err = 1; nr_log_add(di[2], rd_off, n, 1 | (H.err & 0xFF) << 24); break; }
-        cache_flush(rd_dst, n);
-        rd_dst += n; rd_off += n; rd_left -= n;
-        di[5] += n; di[6] -= n;
-    } while (rd_left && ++k < (wk_tick == 1 ? 32 : 8) && tbl() - t0 < bud);   /* (v94 : 16 Ko au plus : la carte est plus rapide en DMA / 32 MHz) */
+        rd_adv(n);
+    } while (rd_left && ++k < (wk_tick == 1 ? 32 : 8) && tbl() - t0 < bud
+             && (rd_off & 511u || !xv_ok()));   /* (v94 : 16 Ko au plus : la carte est plus rapide en DMA / 32 MHz ;
+                                                            v524 : des que la lecture est alignee sur un secteur, la suite par interruptions
+                                                            prend le relais (a la prochaine interruption) : avant, une lecture du jeu pas alignee (Kirby : 6 788 morceaux
+                                                            de 2 Ko contre 717 suites en 1 min) etait lue entiere par morceaux, tout bloque) */
     rd_vi = H.vi_count;
     if (err) { rd_on = 0; di[0] |= 0x04; di[7] &= ~1u; return -1; }   /* DEINT : erreur, le jeu redemande */
     if (rd_left) return 0;                               /* (morceau suivant a la prochaine fin) */
     if ((H.opt & NRO_SPEED) && (int)(sp_until - tbl()) > 0 && ++sp_kicks < 20000u) return 0;   /* v122 : un vrai lecteur n'aurait pas fini */
     rd_on = 0; di[0] |= 0x10; di[7] &= ~1u;              /* TCINT : lecture terminee */
+    PF_LD1();
+    EV(0x24, rd_off0, rd_len0);
+    EVSUM(rd_off0, rd_len0, rd_dst0);
     nx_read_done(rd_dst0, rd_off0, rd_len0);
     return 1;
 }
-static void di_hook(u32 irq, u32 ctx) {
+#else
+static int rd_pump(void) { rd_on = 0; return 1; }   /* (compact : jamais de lecture en fond) */   /* v474 : Pulse compact */
+#endif
+static MEM_OS void di_hook(u32 irq, u32 ctx) {           /* (v501 : -Os, place) */
+    PF_T0(pt_);
     trap_guard();
+    sf_apply();                                          /* v477 : une interruption du lecteur = la fin en attente */
     fd_ctx = ctx;
     int chain = di_game_pending;
+    EVC(0x10, ctx); EV(0x11, DI_REAL[0], (u32)rd_on | (u32)chain << 8 | rd_left << 16);
     if (rd_on) {
         volatile u32 *r = DI_REAL;
+        if (H.opt & NRO_XV) xv_mark(8, 0);               /* (v439 : 8 = reveil du vrai lecteur) */
         u32 dt = (tbl() - kick_tb) / 41u;                /* (us depuis le reveil) */
         H.kick_us += dt; if (dt > H.kick_max_us) H.kick_max_us = dt;
         r[0] = (r[0] & 0x2Au) | 0x54u;                   /* (vraie fin : acquittee ici, le jeu n'en sait rien) */
-        if (rd_pump() == 0) { di_real_kick(); x_dispatch(ctx); return; }
+        if (rd_pump() == 0) { if (!SELFIRQ_ON && !xv_st) di_real_kick(); PF_XD(ctx); PF_ADD(3, pt_); return; }   /* (v523 : suite de la carte
+                                                            par interruptions en cours : pas de relance a chaque fin ; sa fin relance le lecteur
+                                                            (xv_adv), et di_tick relance au plus toutes les 5 ms pour la surveiller. Avant :
+                                                            ~3 500 relances par seconde pendant les lectures (Kirby Air Ride, build 1042-1046)) */   /* (v483 : reveil provoque : la suite avance
+                                                            par les interruptions du jeu (di_tick), plus en boucle : 74 000 par seconde, saccades) */
         chain = 1;
     }
     if (!chain) DI_REAL[0] = (DI_REAL[0] & 0x2Au) | 0x54u;   /* (reveil pour la carte : le jeu n'attend rien du lecteur) */
     di_game_pending = 0; x_kicked = 0;
-    x_dispatch(ctx);
+    PF_XD(ctx);
+    EV(0x12, di_orig, (u32)chain);
+    PF_ADD(3, pt_);
     if (chain && di_orig) ((void (*)(u32, u32))di_orig)(irq, ctx);
+    EVE(0x13, di[0], di[7]);
     alive_tick();
     if (!H.vi_count && !rd_on && !di_game_pending && !wake_tick() && H.n_samp < 2000000u) {   /* v67 : pas encore d'image : on regarde ou en est le jeu */
         nr_sample(ctx);
-        if (!(DI_REAL[7] & 1)) { x_kicked = 1; di_real_kick(); }
+        if (!(DI_REAL[7] & 1) && !SELFIRQ_ON) { x_kicked = 1; di_real_kick(); }   /* (v476 : pas avec le reveil provoque : il se relancerait sans fin) */
     }
 }
 static int nr_game_fn(u32 a) { return a >= 0x80003100u && a < NATRES_AT; }
@@ -3196,12 +4203,42 @@ static int nr_game_fn(u32 a) { return a >= 0x80003100u && a < NATRES_AT; }
    Jamais si le jeu a masque l'interruption du lecteur (masques du SDK : 0x800000C4 global, 0x800000C8 local). */
 #define OS_INT_MASKS (*(volatile u32 *)0x800000C4u | *(volatile u32 *)0x800000C8u)
 static u32 wd_n = 0, busy_vi = 0;
+#if !defined(NATRES_COMPACT)
+static MEM_OS __attribute__((noinline)) void vc_idle(void) {   /* v512 : a une image sans lecture en cours : une ecriture de la carte au plus */
+    if (xv_st) return;
+    if (wq_n) { if (sd_free()) wq_write1(); return; }    /* (build 1063 : un secteur en attente, si la carte SD est libre ; aussi
+                                                            pendant un chargement, entre deux suites de lectures) */
+    if (rd_on) return;
+    for (vcard_t *v = vc; v < vc + 2; v++) {
+        u32 d = H.vi_count - v->lvi;
+        if (v->dirty && d >= 2u) { card_flush(v); return; }
+        if (v->emask && d >= 30u) { card_e1(v); return; }   /* (bloc efface pas reecrit depuis 0,5 s : un secteur en FF) */
+    }
+}
+#else
+#define vc_idle() ((void)0)
+#endif
 static MEM_OS void di_tick(u32 ctx, int vi) {            /* (v410 : -Os) */
+    if (vi) vc_idle();
     if (exec_on) return;
+    if (!SELFIRQ_ON && rd_on && xv_st && !wake_tick() && tbl() - kick_tb > TB_SEC / 200u && !(DI_REAL[7] & 1)) di_real_kick();   /* v523 : suite de la
+                                                            carte en cours : un reveil toutes les 5 ms au plus (surveillance : fin perdue, bloquee) */
+    if (SELFIRQ_ON && rd_on) {                           /* v483 : reveil provoque : la lecture en fond avance ici, au rythme des
+                                                            interruptions du jeu ; sa fin seulement est annoncee par une interruption
+                                                            provoquee (la fonction du jeu tourne alors dans sa vraie interruption) */
+        if (OS_INT_MASKS & (0x80000000u >> 21)) return;
+        if (xv_st && !vi) return;                        /* (suite par interruptions en cours : vue a chaque image, pour la reprise) */
+        if (rd_pump() != 0) { di_game_pending = 1; dp_vi = H.vi_count; di_real_kick(); }
+        return;
+    }
     int rescue = 0;
     if (!wake_tick()) {
         if (!vi) return;
-        if (DI_REAL[7] & 1) {                            /* (vrai lecteur occupe : son reveil arrive... sauf s'il est bloque) */
+        if (!WT_SELF && (DI_REAL[7] & 1)) {              /* (vrai lecteur occupe : son reveil arrive... sauf s'il est bloque) ; v514 : pas avec le
+                                                            reveil provoque, qui ne touche pas au vrai lecteur. Console sans lecteur (Platter) :
+                                                            DICR reste occupe (inquiry de GC Station jamais finie), et 2 s apres, Pulse passait aux
+                                                            fins donnees aux interruptions du jeu ; au redemarrage du SDK (Shrek, tout coupe sauf
+                                                            le lecteur) la fin de la lecture de 0x2440 n'arrivait jamais : redemarrage complet */
             if (!busy_vi) busy_vi = H.vi_count | 1u;
             else if (H.vi_count - busy_vi > 120u) { wk_tick = 1; nr_log_add(0xDE000001u, DI_REAL[2], DI_REAL[0], H.vi_count); nr_log_flush(); }
             return;
@@ -3217,12 +4254,14 @@ static MEM_OS void di_tick(u32 ctx, int vi) {            /* (v410 : -Os) */
         if (r == 0) { if (!wake_tick()) di_real_kick(); return; }
     } else if (!di_game_pending) { if (vc_pending()) x_dispatch(ctx); return; }
     else if (rescue) { nr_log_add(0xDD000003u, H.last_off, H.last_len, H.vi_count); H.n_rescue++; }
-    if (rescue && ++wd_n >= 3 && !wk_tick) { wk_tick = 1; nr_log_add(0xDE000000u, wd_n, 0, H.vi_count); }
+    if (rescue && ++wd_n >= 3 && !wk_tick && !WT_SELF) { wk_tick = 1; nr_log_add(0xDE000000u, wd_n, 0, H.vi_count); }   /* (v514 : idem) */
     if (rescue) nr_log_flush();
     di_game_pending = 0; x_kicked = 0;
+    sf_apply();                                          /* v477 : (secours : la fin en attente aussi) */
     x_dispatch(ctx);
     volatile u32 *t = OS_INT_TABLE;
     u32 f = t[21] == (u32)di_hook ? di_orig : t[21];
+    EV(0x18, f, (u32)rescue | (u32)vi << 8);
     if (nr_game_fn(f)) ((void (*)(u32, u32))f)(21, ctx);
 }
 /* ======================= v139 : Pulse universel (option par jeu, experimental) =======================
@@ -3240,6 +4279,7 @@ static MEM_OS void di_tick(u32 ctx, int vi) {            /* (v410 : -Os) */
    - Vecteur 0x300 : la 1re instruction du SDK est remplacee par un saut vers trap_vec (en adresse physique :
      les exceptions demarrent sans traduction). Ce qui n'est pas pour nous repart dans le vecteur du SDK.
    Refuse (trap_state) si le jeu a deja sa propre table des pages ou un autre BAT dans cette zone. */
+static u32 pef_orig __attribute__((section(".data")));   /* (v529 : dans .data, avant la fin : 32 octets de place au bout de Pulse) */
 static u32 trap_regs[40] __attribute__((aligned(32), used));   /* r0-r31, CR, LR, CTR, XER, SRR0, SRR1, DAR, DSISR */
 #define trap_pteg ((u32 *)(NATRES_HTAB + NATRES_PTEG))              /* 12 groupes de 8 entrees de la table des pages (place laissee par GC Station) */
 #define TRAP_PTEG_LEN 0x300u
@@ -3292,6 +4332,7 @@ static u32 bswap(u32 v, int n) { return n == 4 ? v >> 24 | (v >> 8 & 0xFF00u) | 
 static const unsigned short trap_xo[18] = { 23, 55, 87, 119, 151, 183, 215, 247, 279, 311, 343, 375, 407, 439, 534, 662, 790, 918 };
 static const u8 trap_xf[18] = { 4|8, 4|8|16, 1|8, 1|8|16, 4, 4|16, 1, 1|16, 2|8, 2|8|16, 2|8|32, 2|8|32|16, 2, 2|16, 4|8|64, 4|64, 2|8|64, 2|64 };
 static const u8 trap_df[14] = { 4|8, 4|8|16, 1|8, 1|8|16, 4, 4|16, 1, 1|16, 2|8, 2|8|16, 2|8|32, 2|8|32|16, 2, 2|16 };   /* (lwz ... sthu) */
+#if !defined(NATRES_COMPACT)
 void MEM_OS trap_c(void) {                                /* (v407 : -Os : mode trap seulement) */
     u32 *r = trap_regs, pc = r[36], ins = *(volatile u32 *)pc, ea = r[38];
     u32 op = ins >> 26, rd = (ins >> 21) & 31, ra = (ins >> 16) & 31, f = 0;
@@ -3319,6 +4360,9 @@ void MEM_OS trap_c(void) {                                /* (v407 : -Os : mode 
     }
     if (up && ra) r[ra] = ea;
 }
+#else
+void trap_c(void) { }   /* (v474 : Pulse compact) */
+#endif
 static MEM_OS void trap_pte(u32 page, u32 phys) {               /* page = adresse (0xCC0xx000) -> phys, sans cache, garde */
     u32 pi = (page >> 12) & 0xFFFFu, hash = (trap_vsid ^ pi) & 0x3FFu;
     u32 *g = (u32 *)(NATRES_HTAB + hash * 64u);
@@ -3334,6 +4378,7 @@ static MEM_OS int trap_pteg_clear(u32 hash) {                   /* groupe second
     for (int i = 0; i < 8; i++) if ((g[i * 2] & 0x80000040u) == 0x80000040u && ((g[i * 2] >> 7) & 0xFFFFFFu) == trap_vsid) return 0;   /* (V, H = 1, notre VSID) */
     return 1;
 }
+#if !defined(NATRES_COMPACT)
 static MEM_OS void __attribute__((noinline)) trap_arm(void) {
     u32 msr, m = irq_off();
     __asm__ volatile("mfmsr %0" : "=r"(msr));
@@ -3371,6 +4416,9 @@ static MEM_OS void __attribute__((noinline)) trap_arm(void) {
     H.trap_state = NRT_ON;
     irq_restore(m);
 }
+#else
+static void __attribute__((noinline)) trap_arm(void) { }   /* (v474 : Pulse compact) */
+#endif
 static MEM_OS void __attribute__((noinline)) trap_disarm(void) {                          /* (retour a GC Station ; trap_state reste : journal) */
     if (!hw_d) return;
     u32 m = irq_off();
@@ -3403,12 +4451,12 @@ static void trap_check(void) {
     if (H.trap_state == NRT_OFF) { if (nr_game_fn(OS_INT_TABLE[21])) trap_arm(); return; }
     trap_guard();
 }
-static void hook1(int idx, u32 *orig, u32 fn) {
+static MEM_OS void hook1(int idx, u32 *orig, u32 fn) {   /* (v462 : -Os, place) */
     volatile u32 *t = OS_INT_TABLE;
     u32 v = t[idx];
     if (v && v != fn && nr_game_fn(v)) {
         *orig = v; t[idx] = fn; H.hook_mask |= 1u << idx;
-        if (idx == 21 && (exec_on || exec_a)) { exec_on = exec_a = 0; nr_log_add(0xEF000000u, v, H.tramp_n, 0); nr_log_flush(); }   /* v95 : le nouveau programme a pris la main */
+        if (idx == 21 && (exec_on || exec_a) && v - 0x81300000u >= H.reboot_len) { exec_on = exec_a = 0; nr_log_add(0xEF000000u, v, H.tramp_n, 0); nr_log_flush(); }   /* v95 : le nouveau programme a pris la main */
     }
 }
 static MEM_OS void hooks_check(void) {
@@ -3418,9 +4466,11 @@ static MEM_OS void hooks_check(void) {
     hook1(21, &di_orig, (u32)di_hook);                   /* v61 : DI (lectures en fond) ; v133 : aussi pendant une lecture en fond (avant :
                                                             si le jeu remettait sa fonction pendant ce temps, la lecture ne finissait jamais) */
     hook1(24, &vi_orig, (u32)vi_hook);
-    hook1(5, &ai_orig, (u32)ai_hook);                    /* (DSP_AI : DMA du son) */
-    hook1(7, &dsp_orig, (u32)dsp_hook);
-    hook1(18, &pet_orig, (u32)pet_hook);
+    if (!(H.opt & NRO_MIN)) {                            /* v492 : Pulse minimum : seulement image, manettes, lecteur (et la carte) */
+        hook1(5, &ai_orig, (u32)ai_hook);                /* (DSP_AI : DMA du son) */
+        hook1(7, &dsp_orig, (u32)dsp_hook);
+        hook1(18, &pet_orig, (u32)pet_hook);
+    }
     /* v244 : plus de crochet sur la fin de dessin (19) : LEGO Star Wars II restait sur un ecran noir, son fil principal
        attendant pour toujours cette interruption (GXWaitDrawDone). Le jeton (18) suffit pour les signes de vie. */
     if (H.flags & NRF_IGR) hook1(20, &si_orig, (u32)si_hook);
@@ -3493,7 +4543,7 @@ static MEM_OS int nx_tramp(u32 *c, u32 at, u32 site, u32 ins, u32 reg) {
     n = nx_w(c, n, 0x48000000u | ((back - here) & 0x03FFFFFCu));
     return n;
 }
-static void nx_sync(u32 a, u32 len) {                     /* code ecrit : cache de donnees -> memoire, puis cache d'instructions */
+static MEM_OS void nx_sync(u32 a, u32 len) {                     /* code ecrit : cache de donnees -> memoire, puis cache d'instructions */
     for (u32 x = a & ~31u; x < a + len; x += 32) __asm__ volatile("dcbst 0,%0; sync; icbi 0,%0" :: "r"(x) : "memory");
     __asm__ volatile("sync; isync" ::: "memory");
 }
@@ -3516,8 +4566,9 @@ static MEM_OS void nx_patch2(u32 a, u32 fin, u32 len) {        /* a = ou est le 
             int store = op >= 36 && op != 40;
             if (ra && (known & (1u << ra))) {
                 u32 ea = val[ra] + (u32)simm;
-                if (ea >= 0xCC006000u && ea < 0xCC006040u && !(H.tramp_at && H.tramp_at + 64 * 4 <= end) && H.exec_n < 0xFFFF0000u) H.exec_n += 0x10000u;   /* v253 : pas de place (16 bits hauts) */
-                if (ea >= 0xCC006000u && ea < 0xCC006040u && H.tramp_at && H.tramp_at + 64 * 4 <= end) {
+                int dia = ea - 0xCC006000u < 0x40u && (store || ea != 0xCC006024u);   /* v497 : DICFG lu directement (pas de detour : EXISync le relit a chaque transfert) */
+                if (dia && !(H.tramp_at && H.tramp_at + 64 * 4 <= end) && H.exec_n < 0xFFFF0000u) H.exec_n += 0x10000u;   /* v253 : pas de place (16 bits hauts) */
+                if (dia && H.tramp_at && H.tramp_at + 64 * 4 <= end) {
                     u32 site = fin + o, at = H.tramp_at;
                     int d = (int)(at - site);
                     int n = d < 0x02000000 && d >= -0x02000000 ? nx_tramp((u32 *)at, at, site, ins, ea - 0xCC006000u) : 0;
@@ -3525,7 +4576,7 @@ static MEM_OS void nx_patch2(u32 a, u32 fin, u32 len) {        /* a = ou est le 
                         nx_sync(at, (u32)n * 4);
                         t[o >> 2] = 0x48000000u | ((u32)d & 0x03FFFFFCu);
                         nx_sync(a + o, 4);
-                        H.tramp_at = (at + (u32)n * 4 + 31) & ~31u;
+                        H.tramp_at = at + (u32)n * 4;                        /* v456 : serres (avant : arrondis a 32 octets) */
                         H.tramp_n++;
                     }
                 }
@@ -3548,7 +4599,19 @@ static MEM_OS void nx_patch2(u32 a, u32 fin, u32 len) {        /* a = ou est le 
     }
 }
 static void nx_patch(u32 a, u32 len) { nx_patch2(a, a, len); }
-static u32 vi_orig, si_orig, ai_orig, dsp_orig, pet_orig, pef_orig;
+static u32 vi_orig, si_orig, ai_orig, dsp_orig, pet_orig;   /* (v529 : pef_orig plus haut, avant trap_regs : 32 octets de place) */
+/* v459 : 1re commande du code de redemarrage (OSExec) : l'ancien jeu va disparaitre, plus de chainage vers ses fonctions */
+/* v460 : seulement les fonctions de l'ancien jeu (sous 0x81300000) : celles que le code de redemarrage installe lui-meme
+   (son propre pilote du lecteur, Shrek Extra Large : 0x81308984) restent chainees, il en a besoin */
+static u32 *const nx_origs[] = { &di_orig, &vi_orig, &si_orig, &ai_orig, &dsp_orig, &pet_orig, &pef_orig };
+#if !defined(NATRES_COMPACT)
+static MEM_OS __attribute__((noinline)) void nx_unchain(void) {
+    if (!exec_on) return;
+    for (u32 i = 0; i < 7; i++) if (*nx_origs[i] < 0x81300000u) *nx_origs[i] = 0;
+}
+#else
+static void __attribute__((noinline)) nx_unchain(void) { }   /* (v474 : Pulse compact) */
+#endif
 /* le programme suivant : son en-tete .dol (sections : position dans l'ISO, adresse finale, taille). Ses
    sections peuvent etre lues ailleurs puis recopiees (apploader recent) : on branche avec l'adresse finale. */
 static struct { u32 off, so[18], sa[18], ss[18]; int ok; } xdol;
@@ -3572,7 +4635,7 @@ static MEM_OS int nx_dol(u32 dst, u32 off, u32 len) {   /* (v407 : -Os) */
     return 1;
 }
 /* une lecture du .dol suivi (xdol) : les morceaux de ses sections de code branches a leur adresse finale */
-static void nx_dol_sections(u32 dst, u32 off, u32 len) {
+static MEM_OS void nx_dol_sections(u32 dst, u32 off, u32 len) {   /* (v462 : -Os) */
     for (int i = 0; i < 7; i++) {
         u32 so = xdol.off + xdol.so[i], ss = xdol.ss[i];   /* (position dans l'ISO = debut du .dol + position dans le .dol) */
         if (!ss || off >= so + ss || off + len <= so) continue;
@@ -3604,7 +4667,37 @@ static MEM_OS int nx_whole_dol(u32 dst, u32 off, u32 len) {
     return (int)nt;
 }
 /* une lecture terminee (dst = memoire, off / len = ISO) : le code de redemarrage, puis tout ce qu'il charge */
+/* v463 : le code de redemarrage (ancien apploader, Shrek Extra Large) relache le reset du vrai lecteur juste avant de lancer
+   le nouveau programme (lis rA,0xCC00 ; addi rA,rA,0x3000 ; li rB,7 ; stw rB,0x24(rA) : PI 0xCC003024 = 7). Pulse le garde
+   en reset pendant tout le jeu (c'est le faux lecteur qui repond) : relache, il redemarrait et se melait des commandes du
+   jeu recharge. 7 devient 3 (bit 2, reset du lecteur, laisse a 0). Journal : exec_n bits 8-15 = ecritures changees. */
+static MEM_OS __attribute__((noinline)) void nx_pireset(u32 a, u32 len) {
+    for (u32 p = a + 4; p + 8 <= a + len; p += 4) {
+        u32 i0 = rbe(p - 4), i1 = rbe(p), i2 = rbe(p + 4), ra = (i0 >> 16) & 31, rb = (i1 >> 21) & 31;
+        if ((i0 & 0xFC00FFFFu) == 0x38003000u && ((i0 >> 21) & 31) == ra && (i1 & 0xFC1FFFFFu) == 0x38000007u
+            && i2 == (0x90000024u | rb << 21 | ra << 16)) { *(volatile u32 *)p = i1 - 4u; nx_sync(p, 4); H.exec_n += 0x100u; }   /* (journal : exec_n, bits 8-15) */
+    }
+}
+#if !defined(NATRES_COMPACT)
+/* v482 : OSExec : l'apploader du disque range bi2 et la FST tout en haut de la memoire, d'apres la taille de la memoire
+   (0x80000028 : FST = taille - taille de la FST, bi2 juste dessous). Avec 24 Mo, c'etait dans Pulse : Pulse refusait la
+   lecture (Shrek Extra Large : erreur, retour au menu de la console apres l'introduction). La memoire s'arrete donc pour
+   lui sous ce que GC Station a reserve (0x800000EC, pose au lancement), comme pour le premier programme. */
+static MEM_OS void nx_memtop(void) {
+    u32 fl = *(volatile u32 *)0x800000ECu;
+    if (fl < 0x81000000u || fl > NATRES_AT) fl = NATRES_AT - 0x20000u;
+    *(volatile u32 *)0x80000028u = (fl & ~0x1Fu) - 0x80000000u;
+    nr_log_add(0xEC000000u, fl, 0, 0);
+}
 static MEM_OS void nx_read_done(u32 dst, u32 off, u32 len) {   /* (v407 : -Os : OSExec, rare) */
+    EV(0x60, off, len | (u32)exec_on << 31);
+    if ((exec_on | exec_a) && off <= 0x444u && off + len >= 0x448u) {   /* v498 : bi2 du disque (0x440) relu par l'apploader pendant le
+                                                            redemarrage : sa memoire simulee (0x01800000) depassait la memoire laissee au jeu
+                                                            (nx_memtop, sous Pulse) : l'apploader s'arretait sur une erreur (Shrek Extra Large) */
+        u32 *sm = (u32 *)(dst + 0x444u - off), m = *(volatile u32 *)0x80000028u;
+        if (*sm > m) { *sm = m; cache_flush((u32)sm, 4); }
+    }
+    if (!exec_on && !exec_a && H.exec_last == 0x81300001u) { exec_on = 1; H.exec_last = 0x81300000u; return; }   /* v529 : (la lecture du menu apres le lanceur .tgc) */
     if (!exec_on && !exec_a && nx_whole_dol(dst, off, len)) return;   /* v251 */
     if (!exec_on && !exec_a && nx_dol(dst, off, len)) {   /* v252 : un .dol relu alors qu'il tourne deja (son propre main.dol) : rien a brancher */
         u32 so0 = xdol.so[0], sa0 = xdol.sa[0];
@@ -3621,13 +4714,17 @@ static MEM_OS void nx_read_done(u32 dst, u32 off, u32 len) {   /* (v407 : -Os : 
     if (!exec_on && !exec_a) {
         if (off == 0x2440 && len == 0x20 && H.vi_count) {   /* OSExec commence : le jeu relit l'en-tete de l'apploader */
             H.exec_n++; H.exec_last = off; xdol.ok = 0;
-            if (!H.reboot_len) { exec_a = 1; nr_log_add(0xED000000u, off, len, H.tramp_n); nr_log_flush(); }
+            if (!H.reboot_len) { exec_a = 1; nx_memtop(); nr_log_add(0xED000000u, off, len, H.tramp_n); nr_log_flush(); }
             return;
         }
-        if (!H.reboot_len || off != H.reboot_off || dst != 0x81300000u || len < H.reboot_len) return;
-        exec_on = 1; H.exec_last = 0x81300000u; xdol.ok = 0;   /* ancien apploader : code de redemarrage en 0x81300000 */
-        di_orig = vi_orig = si_orig = ai_orig = dsp_orig = pet_orig = pef_orig = 0;   /* (le jeu va disparaitre : plus de chainage) */
+        if (!H.reboot_len || off != (H.reboot_off & ~3u) || dst != 0x81300000u || len < H.reboot_len) return;
+        exec_on = !(H.reboot_off & 1u);                  /* v529 : lanceur .tgc (bit 0) : le menu fait encore une lecture (la FST du jeu choisi)
+                                                            et attend sa fin : OSExec commence a la fin de celle-ci (plus bas) */ H.exec_last = 0x81300000u | (H.reboot_off & 1u); xdol.ok = 0;   /* ancien apploader : code de redemarrage en 0x81300000 */
+        nx_memtop();                                      /* v482 */
+        /* v459 : le chainage vers le jeu reste en place ici : l'ancien jeu attend encore l'interruption de fin de CETTE lecture
+           (Shrek Extra Large : boucle sur DVDGetCommandBlockStatus, fige). Coupe a la 1re commande du code de redemarrage. */
         nr_log_add(0xEE000000u, off, len, H.tramp_n);
+        nx_pireset(dst, len);                             /* v463 */
         nx_patch(dst, len);
         nr_log_flush();
         return;
@@ -3636,6 +4733,9 @@ static MEM_OS void nx_read_done(u32 dst, u32 off, u32 len) {   /* (v407 : -Os : 
     if (xdol.ok) { nx_dol_sections(dst, off, len); return; }
     if (exec_on) nx_patch(dst & ~3u, len);                /* (ancien apploader : ce qu'il charge arrive a sa place) */
 }
+#else
+static void nx_read_done(u32 dst, u32 off, u32 len) { (void)dst; (void)off; (void)len; }   /* (v474 : Pulse compact) */
+#endif
 /* ======================= v121 : jeux a 2 disques =======================
    Pour changer de disque, la bibliotheque du jeu arrete le moteur (commande E3), active l'interruption du
    couvercle (DICVR, masque) et attend qu'on ouvre puis referme le couvercle. Ici : une fois le masque pose
@@ -3653,19 +4753,24 @@ static MEM_OS void disc_swap(void) {
     nr_log_flush();
     di_game_pending = 1; dp_vi = H.vi_count; di_real_kick();   /* (reveil : la fonction DI du jeu voit le couvercle) */
 }
-static void sw_tick(void) {
+static MEM_OS void sw_tick(void) {   /* (v495 : -Os, place) */
     if (!sw_pending || !(di[1] & 2u) || rd_on || H.vi_count - sw_vi < 60u) return;
     if (DI_REAL[7] & 1) return;                           /* (le vrai lecteur doit pouvoir reveiller le jeu) */
     sw_pending = 0;
     disc_swap();
 }
-static void di_exec(void) {
+static MEM_OS void di_exec(void) {                     /* (v437 : -Os, place ; une fois par commande du jeu) */
     u32 info = 0;
+    int ex0 = exec_on;                                   /* v497 : redemarrage pas encore commence avant cette commande */
     rd_on = 0;                                           /* (nouvelle commande : une lecture en fond oubliee s'arrete) */
+    if (xv_st) xv_drain();                               /* v441 : (sa suite par interruptions aussi : finie, puis pas comptee */
+    xv_nsec = 0;                                         /*  dans la lecture suivante) */
     if (!di_ready) { di_ready = nr_init() == 0; if (!di_ready) info |= 8; }   /* 1er acces du jeu : on demarre la carte SD */
     hooks_check();
     u32 cmd = di[2] >> 24, len = di[6], dst = di[5] | 0x80000000u;
     H.ncmd++; H.last_cmd = di[2]; H.last_off = di[3] << 2; H.last_len = len;
+    EV(0x20, di[2], di[3] << 2); EV(0x21, len, dst);
+    nx_unchain();                                        /* v459 */
     di[8] = 0;
     if (cmd == 0xA8) sw_pending = 0;                     /* (v121 : le jeu relit : ce n'etait pas un changement de disque) */
     if (cmd == 0xE3 && H.n_ext2) { sw_pending = 1; sw_vi = H.vi_count; }   /* v121 : moteur arrete : le jeu va demander l'autre disque */
@@ -3676,22 +4781,37 @@ static void di_exec(void) {
         int slow = (H.opt & NRO_SPEED) != 0;             /* v122 : vitesse d'un vrai lecteur : toutes les lectures en fond */
         int busy = len && exi_defer();         /* v145 : bus EXI pris par le jeu (SD Gecko + BBA...) : en fond, attendre */
         if (busy) H.exi_sync++;
-        if ((len > RD_CHUNK || (slow && len) || busy) && di_orig && !exec_on) {   /* v61 : grosse lecture : en fond */
+        #if defined(NATRES_COMPACT)
+        if (busy) { for (u32 w = 0; w < 40500000u && exi_defer(); w++) ; }   /* v474 : compact : bus pris par le jeu : attendre (au plus ~1 s) puis lire */
+        if (0) {
+#else
+        /* v495 : reveil provoque et le jeu a tout coupe sauf le lecteur (redemarrage du SDK, Shrek Extra Large) : les
+           interruptions qui font avancer la lecture en fond (image, son, manettes) n'arrivent plus : lire d'un coup */
+        int lone = SELFIRQ_ON && (OS_INT_MASKS | 0x51Fu) == 0xFFFFFFFFu;
+        if ((len > RD_CHUNK || (slow && len) || busy) && di_orig && !exec_on && !lone && (!(H.opt & NRO_SYNC) || busy)) {
+#endif   /* (v473 : NRO_SYNC) */   /* v61 : grosse lecture : en fond */
             if (slow) {                                  /* (deplacement de la tete si loin, puis ~3 Mo/s) */
                 u32 d = off > sp_next ? off - sp_next : sp_next - off;
                 sp_until = tbl() + (d > 0x100000u ? TB_SEC / 1000u * 60u : TB_SEC / 1000u * 1u) + (len / 3000u) * (TB_SEC / 1000u);
                 sp_kicks = 0; sp_next = off + len;
             }
             rd_dst = dst; rd_off = off; rd_left = len; rd_on = 1; rd_vi = H.vi_count;
-            rd_dst0 = dst; rd_off0 = off; rd_len0 = len;
+            rd_dst0 = dst; rd_off0 = off; rd_len0 = len; PF_LD0();
             H.n_async++;
             info |= di_real_kick() | 0x10;                 /* (le lecteur reste "occupe" : DICR bit 0) */
             nr_log(off, len, info | (di[0] & 0xFF) << 8);
+            EV(0x23, info, len);
             return;
         }
-        if (len && nr_read((void *)dst, off, len)) { di[0] |= 0x04; info |= 1; goto done; }   /* DEINT : erreur */
+        if (len && nr_read((void *)dst, off, len)) {
+#if defined(NATRES_LITE)
+            if (SELFIRQ_ON) sf_bits = 0x04; else
+#endif
+            di[0] |= 0x04;
+            info |= 1; goto done; }   /* DEINT : erreur (v477 : avec l'interruption) */
         cache_flush(dst, len);
         di[5] += len; di[6] = 0;
+        EVSUM(off, len, dst);
         nx_read_done(dst, off, len);                     /* v95 : OSExec */
     } else if (cmd == 0x12) {                            /* infos du lecteur */
         u8 *o = (u8 *)dst;
@@ -3706,11 +4826,19 @@ static void di_exec(void) {
     else if (cmd == 0xAB) H.n_ab++;
     else if (cmd != 0xE0) H.n_misc++;
     /* AB (chercher), E0 (erreur : 0), E1-E4 (audio), autres : rien a faire */
+#if defined(NATRES_LITE)
+    if (SELFIRQ_ON) sf_bits = 0x10; else                 /* (v477 : avec l'interruption provoquee) */
+#endif
     di[0] |= 0x10;                                       /* TCINT : termine */
 done:
-    di[7] &= ~1u;
-    if (!exec_on) { di_game_pending = 1; dp_vi = H.vi_count; info |= di_real_kick(); }   /* (v95 : pendant OSExec, personne n'attend d'interruption) */
+    if (!sf_bits) di[7] &= ~1u;                          /* (v477 : sinon, encore occupe jusqu'a l'interruption) */
+    if (!exec_on || !ex0 || di_orig - 0x81300000u < H.reboot_len) {   /* (v497 : !ex0 : la lecture du code de redemarrage elle-meme,
+                                                            faite d'un coup (v495) : le jeu attend encore sa fin, Shrek) */ di_game_pending = 1; dp_vi = H.vi_count; info |= di_real_kick(); }   /* (v95 : pendant OSExec,
+                                                            personne n'attend d'interruption ; v465 : sauf le code de redemarrage qui a installe sa propre
+                                                            fonction (Shrek Extra Large, 0x81308984) : il attend la fin de chaque commande) */
     nr_log(H.last_off, H.last_len, info | (di[0] & 0xFF) << 8);
+    EV(0x22, di[0], info);
+    if (exec_on) EVF();
 }
 
 static u32 hk_n = 0;
@@ -3729,18 +4857,27 @@ static void early_note(u32 a, u32 v, u32 st) {
     nr_log_flush();
 }
 static void hooks_lazy(void) { trap_guard(); if (H.trap_state == NRT_OFF && (H.opt & NRO_TRAP)) trap_check(); if (++hk_n <= 64 || (hk_n & 255) == 1) hooks_check(); }   /* v164 : (les 64 premiers acces : le jeu peut se figer tot) */   /* v62 : le jeu installe ses fonctions apres sa 1re commande */
-static u32 di_load(u32 reg) {
+static MEM_OS u32 di_load(u32 reg) {
     u32 i = (reg & 0x3F) >> 2;
     hooks_lazy();
     early_note(reg, 0, 0);
-    if (i == 1) return di[1] & 0x07;                      /* couvercle ferme ; v121 : CVRINT apres un changement de disque */
-    if (i == 9) return DI_REAL[9];                        /* DICFG : celui du vrai lecteur */
-    return i < 10 ? di[i] : 0;
+#if defined(NATRES_LITE)
+    static u32 sf_n = 0;
+    if (sf_bits && (i == 0 || i == 7) && (tbl() - kick_tb > 12150u || ++sf_n > 400u)) { sf_n = 0; sf_apply(); }   /* v477 : ~300 us apres (ou 400 relectures : horloge arretee du banc) : fini meme sans interruption */
+#endif
+    u32 v = i == 1 ? di[1] & 0x07 : i == 9 ? DI_REAL[9] : i < 10 ? di[i] : 0;   /* couvercle ferme (v121 : CVRINT apres un changement
+                                                            de disque) ; DICFG : celui du vrai lecteur */
+    EV(0x29, reg, v);
+    return v;
 }
 
 static MEM_OS void di_store(u32 reg, u32 val) {           /* (v407 : -Os) */
+#if defined(NATRES_LITE) && !defined(NATRES_COMPACT)
+    if ((reg & 0xFF00u) == 0x7F00u) { os_hook(reg & 0xFFu, val); return; }   /* v480 : aiguillage de OSReport / OSPanic */
+#endif
     u32 i = (reg & 0x3F) >> 2;
     hooks_lazy();
+    EV(0x28, reg, val);
     early_note(reg, val, 1);
     if (i == 0) {                                        /* DISR : 1 = effacer l'interruption ; masques */
         di[0] = (di[0] & ~(val & 0x54u) & 0x54u) | (val & 0x2Au);

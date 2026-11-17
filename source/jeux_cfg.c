@@ -175,7 +175,7 @@ static void jeux_cfg_boot(void) {
 
 /* ---------- reglages d'un jeu (Y dans la fiche) : SD:/gc-mp3/jeux/<ID>.txt ---------- */
 #define JC_DIR GCD "/jeux"
-enum { JC_LANG, JC_SOUND, JC_CARD, JC_WS, JC_VIDEO, JC_FLOU, JC_WIDE, JC_CSTICK, JC_TRIG, JC_POLL, JC_SPEED, JC_TRAP, JC_NOCHEAT, JC_N };   /* v121 : JC_WS = 16:9 force ; v122 : video, manette, lecteur (Pulse) */
+enum { JC_LANG, JC_SOUND, JC_CARD, JC_WS, JC_VIDEO, JC_FLOU, JC_WIDE, JC_CSTICK, JC_TRIG, JC_POLL, JC_SPEED, JC_TRAP, JC_NOCHEAT, JC_PMODE, JC_N };   /* v121 : JC_WS = 16:9 force ; v122 : video, manette, lecteur (Pulse) */
 static char jc_id[8], jc_title[96];
 static int jc_lang = -1, jc_sound = -1, jc_sel = 0, jc_changed = 0;   /* -1 = comme la console */
 static int jc_ws = 0;                                        /* v121 : 16:9 force avec Pulse */
@@ -183,13 +183,13 @@ static int nat_ws;                                           /* (natif.c) */
 /* v122 : jc_v[] = reglages Pulse du jeu (0 = comme le jeu), dans l'ordre JC_VIDEO ... JC_SPEED */
 #define JC_V0 JC_VIDEO
 static int jc_v[JC_N - JC_VIDEO];
-static const int jc_vmax[JC_N - JC_VIDEO] = { 4, 2, 2, 4, 4, 3, 3, 2, 2 };   /* (v133 : vitesse : auto / vrai lecteur / rapide) */
-static const char *const jc_vkey[JC_N - JC_VIDEO] = { "video", "sans_flou", "image_large", "stick_c", "gachettes", "frequence_manette", "vitesse_lecteur", "acces_exception", "cheats_coupes" };
-static int nat_vmode, nat_deflick, nat_wide, nat_cstick, nat_trig, nat_poll, nat_speed, nat_trap, nat_nocard, nat_owncard, nat_nocheat;   /* (natif.c) */
+static const int jc_vmax[JC_N - JC_VIDEO] = { 4, 2, 2, 4, 4, 3, 3, 2, 2, 3 };   /* (v133 : vitesse : auto / vrai lecteur / rapide) */
+static const char *const jc_vkey[JC_N - JC_VIDEO] = { "video", "sans_flou", "image_large", "stick_c", "gachettes", "frequence_manette", "vitesse_lecteur", "acces_exception", "cheats_coupes", "mode_pulse" };
+static int nat_vmode, nat_deflick, nat_wide, nat_cstick, nat_trig, nat_poll, nat_speed, nat_trap, nat_nocard, nat_owncard, nat_nocheat, nat_pmode_jeu;   /* (natif.c) */
 static void rep_apply(const char *id);                       /* v140 : reparation automatique (repair.c) */
 static void rep_pre(const char *id);
 static void rep_diag_set(const char *id, int crashed, int noimg, int stuck, int skipped, int cheats, int ws, int card, int vmode, int slow, int trap);
-static char rep_msg[120];                                     /* (essai en cours, pour le journal du lancement) */
+static char rep_msg[170];                                     /* (essai en cours, pour le journal du lancement) */
 static int nat_cheats_prep(const char *id);                  /* (natif.c) */
 /* v133 : jeux qui se bloquent quand le disque repond trop vite (une lecture finie avant que le jeu soit pret) :
    ceux que Swiss corrige pour cette raison (rappel du lecteur, transfert vers l'ARAM). Reglage "Auto" :
@@ -241,11 +241,20 @@ static void jc_save(void) {
 }
 /* v250 : "patchs de secours" choisis sur le telephone pour CE lancement (lettres des essais de repair.c :
    S vitesse d'un vrai lecteur, F lecteur rapide, T Pulse universel, C sans carte virtuelle, H sans cheats,
-   W sans 16:9 force, V video d'origine). Remplacent l'essai de la reparation automatique, puis sont oublies. */
-static char jc_fx[12] = "";
+   W sans 16:9 force, V video d'origine). Remplacent l'essai de la reparation automatique, puis sont oublies.
+   v512 : L Pulse leger, K Pulse compact, J sans journaux, R reveil provoque, I lectures immediates, D journal complet
+   (natif.c : nat_fx, pour ce lancement seulement). */
+static char jc_fx[16] = "";
+#define NFX_COMPACT 2
+#define NFX_NOLOG   4
+#define NFX_SELF    8
+#define NFX_SYNC    16
+#define NFX_DIAG    32
+static int nat_fx = 0;
 /* juste avant de lancer un jeu : ses reglages (resident = lance avec Resident) */
 static void jeux_cfg_apply(const char *id, int resident) {
     jc_load(id);
+    nat_fx = 0;                                               /* v512 */
     nat_ws = jc_ws;                                           /* v121 : 16:9 force (Pulse) */
     nat_vmode = jc_v[JC_VIDEO - JC_V0]; nat_deflick = jc_v[JC_FLOU - JC_V0]; nat_wide = jc_v[JC_WIDE - JC_V0];   /* v122 */
     /* v392 : Pac-Man vs. PAL (PRJP) : "Comme le jeu" = PAL 60 Hz. Le jeu passe l'image en NTSC 60 Hz ; selon ce que la
@@ -263,10 +272,11 @@ static void jeux_cfg_apply(const char *id, int resident) {
        au lancement, et reste seulement si le programme corrige ne tient plus a sa place. */
     if (!nat_trap && (!strncmp(id, "GLR", 3) || !strncmp(id, "GWXJ13", 6))) nat_trap = 1;
     nat_nocheat = jc_v[JC_NOCHEAT - JC_V0] == 1;             /* v140 */
+    nat_pmode_jeu = jc_v[JC_PMODE - JC_V0];                  /* v503 : 0 reglage general, 1 leger, 2 avec le telephone */
     nat_nocard = !strcmp(jc_card, "-");
     nat_owncard = !strcmp(jc_card, "+");                      /* v239 */
     if (resident && jc_fx[0]) {                                /* v250 : patchs de secours choisis sur le telephone */
-        char m[100] = "choisi sur le telephone :";
+        char m[170] = "choisi sur le telephone :";
         for (const char *c = jc_fx; *c; c++) {
             const char *nm = "";
             switch (*c) {
@@ -277,6 +287,12 @@ static void jeux_cfg_apply(const char *id, int resident) {
             case 'H': nat_nocheat = 1; nm = " sans cheats"; break;
             case 'W': nat_ws = 0; nm = " sans 16:9"; break;
             case 'V': nat_vmode = 0; nat_deflick = 0; nat_wide = 0; nm = " video d'origine"; break;
+            case 'L': nat_pmode_jeu = 1; nm = " Pulse leger"; break;                     /* v512 */
+            case 'K': nat_fx |= NFX_COMPACT; nm = " Pulse compact"; break;
+            case 'J': nat_fx |= NFX_NOLOG; nm = " sans journaux"; break;
+            case 'R': nat_fx |= NFX_SELF; nm = " reveil provoque"; break;
+            case 'I': nat_fx |= NFX_SYNC; nm = " lectures immediates"; break;
+            case 'D': nat_fx |= NFX_DIAG; nm = " journal complet"; break;
             }
             if (strlen(m) + strlen(nm) + 2 < sizeof(m)) { if (c != jc_fx) strcat(m, ","); strcat(m, nm); }
         }
@@ -378,7 +394,7 @@ static void indigo_cfg_input(u32 down, u32 nav, int fire) {
 }
 static const char *const jc_lab[JC_N] = { "Langue du jeu", "Son", "Carte m\xC3\xA9moire (Pulse)", "16:9 forc\xC3\xA9 (Pulse)",
     "Mode vid\xC3\xA9o (Pulse)", "Sans flou (Pulse)", "Image plus large (Pulse)", "Stick C (Pulse)", "G\xC3\xA2" "chettes L / R (Pulse)",
-    "Lecture des manettes (Pulse)", "Vitesse du lecteur (Pulse)", "Pulse universel (exp\xC3\xA9rimental)", "Cheats (Pulse)" };
+    "Lecture des manettes (Pulse)", "Vitesse du lecteur (Pulse)", "Pulse universel (exp\xC3\xA9rimental)", "Cheats (Pulse)", "Mode de Pulse" };
 static const char *const jc_help[JC_N] = {
     "Langue des jeux multilingues (PAL), pour ce jeu seulement. La console revient \xC3\xA0 la sienne apr\xC3\xA8s.",
     "St\xC3\xA9r\xC3\xA9o ou mono pour ce jeu seulement.",
@@ -392,12 +408,14 @@ static const char *const jc_help[JC_N] = {
     "Manettes lues plus souvent : moins de d\xC3\xA9lai (jeux de combat, de rythme).",
     "Auto : vitesse d'un vrai lecteur pour les jeux connus pour bloquer, rapide sinon.",
     "Jeu qui ne marche pas : les acc\xC3\xA8s au lecteur oubli\xC3\xA9s sont attrap\xC3\xA9s par le processeur.",
-    "Coup\xC3\xA9s : le jeu est lanc\xC3\xA9 sans ses cheats (ils restent choisis)." };
+    "Coup\xC3\xA9s : le jeu est lanc\xC3\xA9 sans ses cheats (ils restent choisis).",
+    "L\xC3\xA9ger : sans le t\xC3\xA9l\xC3\xA9phone pendant ce jeu, le plus compatible. Avec le t\xC3\xA9l\xC3\xA9phone : jamais forc\xC3\xA9 en l\xC3\xA9ger." };
 static const char *const jc_vv[JC_N - JC_V0][4] = {
     { "Comme le jeu", "480p forc\xC3\xA9", "PAL 60 Hz", "240p" }, { "Non", "Oui" }, { "Non", "Oui (704)" },
     { "Normal", "Invers\xC3\xA9 haut / bas", "Invers\xC3\xA9 (tout)", "\xC3\x89" "chang\xC3\xA9 avec le stick" },
     { "Comme le jeu", "Seuil bas (30 %)", "Seuil moyen (50 %)", "Seuil haut (75 %)" }, { "Normale", "2 fois plus", "4 fois plus" },
-    { "Auto", "Comme un vrai lecteur", "Rapide (carte SD)" }, { "Non", "Oui" }, { "Comme choisis", "Coup\xC3\xA9s" } };
+    { "Auto", "Comme un vrai lecteur", "Rapide (carte SD)" }, { "Non", "Oui" }, { "Comme choisis", "Coup\xC3\xA9s" },
+    { "R\xC3\xA9glage g\xC3\xA9n\xC3\xA9ral", "L\xC3\xA9ger", "Avec le t\xC3\xA9l\xC3\xA9phone" } };
 /* texte de la valeur de la ligne i (v242 : aussi pour le telephone) */
 static void jc_value_text(int i, char *buf, int cap) {
     if (i == JC_LANG) snprintf(buf, cap, "%s", jc_lang < 0 ? TR("Comme la console") : gc_lang_names[jc_lang]);

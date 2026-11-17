@@ -90,7 +90,8 @@ private val TOUTES get() = listOf(
     Tuile("Mini-jeux", "Duels, jeu de cartes", Ic.Cartes, C.Cyan) { St.sous = "Mini-jeux" },
     Tuile("Recherche", "Musique, radios, jeux, globe", Ic.Chercher, C.Rose) { St.sous = "Recherche" },
     Tuile("Salon", "Les autres consoles", Ic.Salon, C.Cyan) { St.sous = "Salon" },
-    Tuile("Outils", "Mémoire, capture, rapport", Ic.Outils, C.Violet) { St.sous = "Outils" }).filter { Prive.ACTIF || it.nom !in TUILES_PRIVEES }
+    Tuile("Outils", "Mémoire, capture, rapport", Ic.Outils, C.Violet) { St.sous = "Outils" },
+    Tuile("Journaux", "De la console, à lire ou envoyer", Ic.Copies, C.Cyan) { St.sous = "Journaux" }).filter { Prive.ACTIF || it.nom !in TUILES_PRIVEES }
 
 // Build 504 (appli privee) : cet onglet s'appelle « Console » et ne garde que ce qui touche a la console (fichiers, photos,
 // reglages, cartes memoire, outils, extraction). Ce qui sert pendant une partie et ce qui se fait entre amis passe dans
@@ -188,7 +189,9 @@ fun EcranPulse() {
                     Bouton("Écran de la partie", Modifier.fillMaxWidth(), plein = true, hauteur = 40.dp) { St.jeuMasque = false }
                 }
                 if (Prive.ACTIF && g != null) RetourMenu(act)   // (build 548, console v418 : comme A+Z+START, appli privee)
-                if (g != null) ExtrasRA.Touches()               // (build 554, appli privee : touches de la manette 1 vues par Pulse)
+                if (Prive.ACTIF && g != null && St.etat?.optString("plat") == "switch") SauvegardesInstant(act)   // (build 582 : GC Station Switch)
+                if (g != null) ExtrasRA.Touches()               // (build 554, appli privee : touches de la manette 1 vues par Pulse ; vide dans la publique)
+                if (g == null && St.connecte) ExtrasRA.MajConsole(act)   // (build 563, console v429, appli privee : mise a jour par le telephone)
                 if (g == null && St.connecte) ExtrasRA.Redemarrer(act)   // (build 554, console v420, appli privee)
                 // build 509 (console v397) : le bandeau des succes sur la tele : essai, et succes RetroAchievements oui / non
                 // (build 521 : aussi dans la version publique : la console v397+ publique a le bandeau)
@@ -263,6 +266,7 @@ fun EcranPlus() {
                 "Cartes virtuelles" -> Ancien(sous) { CardsTab(it) }
                 "Salon" -> Ancien(sous) { SalonTab(it) }
                 "Outils" -> Ancien(sous) { ToolsTab(it) }
+                "Journaux" -> EcranJournaux()   // (build 565 : journaux de la console ; build 566 : aussi dans l'appli publique)
                 "Rechercher" -> Ancien(sous) { SearchTab(it) }
                 "Copies" -> Ancien(sous) { CopiesTab(it) }
                 else -> Prive.Ecran(sous)                                  // (build 457 : ecrans de la variante privee)
@@ -494,6 +498,40 @@ private fun Vignette(x: JSONArray, dire: (String) -> Unit) {
     }
 }
 
+
+/** build 582 (GC Station Switch build 7, appli privee) : sauvegardes instantanées du moteur GameCube de la Switch,
+ *  emplacements 1 à 9 (les mêmes que − + L / R sur la Switch) */
+@Composable
+private fun SauvegardesInstant(act: StationActivity) {
+    var slot by remember { mutableStateOf(1) }
+    var occupe by remember { mutableStateOf(false) }
+    var confirmer by remember { mutableStateOf(false) }
+    fun lancer(op: Char) {
+        occupe = true
+        Api.pool { val m = MemoireJeu.instantane(op, slot); act.runOnUiThread { occupe = false; Lang.toast(act, m, android.widget.Toast.LENGTH_LONG).show() } }
+    }
+    Spacer(Modifier.height(10.dp))
+    Doux("Sauvegarde instantanée (Switch)", taille = 12)
+    Spacer(Modifier.height(4.dp))
+    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+        Bouton("−", Modifier.weight(1f), hauteur = 40.dp) { slot = (slot + 7) % 9 + 1 }
+        Text(Lang.t("Emplacement") + " " + slot, color = C.Texte, fontSize = 15.sp, fontWeight = FontWeight.Bold,
+             modifier = Modifier.weight(2f), textAlign = androidx.compose.ui.text.style.TextAlign.Center)
+        Bouton("+", Modifier.weight(1f), hauteur = 40.dp) { slot = slot % 9 + 1 }
+    }
+    Spacer(Modifier.height(6.dp))
+    Row(Modifier.fillMaxWidth()) {
+        Bouton(if (occupe) "…" else "Sauver", Modifier.weight(1f), plein = true, hauteur = 40.dp) { if (!occupe) lancer('E') }
+        Spacer(Modifier.padding(start = 8.dp))
+        Bouton("Reprendre", Modifier.weight(1f), hauteur = 40.dp) { if (!occupe) confirmer = true }
+    }
+    if (confirmer) androidx.compose.material3.AlertDialog(
+        onDismissRequest = { confirmer = false },
+        title = { Text(Lang.t("Reprendre l'emplacement") + " " + slot + " ?") },
+        text = { Text(Lang.t("La partie revient au moment de cette sauvegarde : ce qui s'est passé depuis est perdu.") ?: "") },
+        confirmButton = { androidx.compose.material3.TextButton(onClick = { confirmer = false; lancer('C') }) { Text(Lang.t("Reprendre") ?: "") } },
+        dismissButton = { androidx.compose.material3.TextButton(onClick = { confirmer = false }) { Text(Lang.t("Annuler") ?: "") } })
+}
 
 /** build 548 (console v418, appli privee) : retour au menu de GC Station, comme A+Z+START tenus 1 s (Pulse : demande « Q ») */
 @Composable

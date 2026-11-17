@@ -110,6 +110,7 @@ final class UiKit {
         return p;
     }
     static void download(Activity a, String path, String name) {
+        if (BuildConfig.PRIVE) { dlDirect(a, path, name); return; }   // (appli 571 : sans le gestionnaire d'Android)
         try {
             DownloadManager.Request r = new DownloadManager.Request(Uri.parse("http://" + Api.host + path));
             r.setTitle(name);
@@ -118,6 +119,82 @@ final class UiKit {
             ((DownloadManager) a.getSystemService(Context.DOWNLOAD_SERVICE)).enqueue(r);
             Lang.toast(a, "Téléchargement : " + name, Toast.LENGTH_SHORT).show();
         } catch (Exception e) { Lang.toast(a, "Téléchargement impossible", Toast.LENGTH_LONG).show(); }
+    }
+    // Appli 571 (privee) : le gestionnaire de telechargements d'Android n'arrive pas toujours a joindre la console sur le
+    // reseau local (rien n'arrive). L'appli lit le fichier elle-meme (comme pour les .txt) et l'ecrit dans Telechargements.
+    private static volatile boolean dlBusy;
+    static void dlDirect(final Activity a, final String path, final String name) {
+        if (dlBusy) { Lang.toast(a, "Un téléchargement est déjà en cours", Toast.LENGTH_SHORT).show(); return; }
+        dlBusy = true;
+        Lang.toast(a, "Téléchargement : " + name, Toast.LENGTH_SHORT).show();
+        final Context c = a.getApplicationContext();
+        new Thread(() -> {
+            String err = null;
+            java.net.HttpURLConnection hc = null;
+            Uri item = null;
+            java.io.File file = null;
+            try {
+                hc = (java.net.HttpURLConnection) new java.net.URL("http://" + Api.host + path).openConnection();
+                hc.setConnectTimeout(8000);
+                hc.setReadTimeout(30000);
+                if (hc.getResponseCode() != 200) throw new java.io.IOException("console : réponse " + hc.getResponseCode());
+                long total = hc.getContentLengthLong();
+                java.io.OutputStream out;
+                if (android.os.Build.VERSION.SDK_INT >= 29) {
+                    ContentValues cv = new ContentValues();
+                    cv.put(MediaStore.Downloads.DISPLAY_NAME, name);
+                    cv.put(MediaStore.Downloads.MIME_TYPE, "application/octet-stream");
+                    cv.put(MediaStore.Downloads.IS_PENDING, 1);
+                    item = c.getContentResolver().insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, cv);
+                    if (item == null) throw new java.io.IOException("dossier Téléchargements");
+                    out = c.getContentResolver().openOutputStream(item);
+                } else {
+                    java.io.File d = c.getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS);
+                    if (d == null) throw new java.io.IOException("stockage");
+                    d.mkdirs();
+                    file = new java.io.File(d, name);
+                    out = new java.io.FileOutputStream(file);
+                }
+                try (java.io.InputStream in = hc.getInputStream(); java.io.OutputStream o = out) {
+                    byte[] buf = new byte[32768];
+                    long got = 0, last = 0;
+                    int n;
+                    while ((n = in.read(buf)) > 0) {
+                        o.write(buf, 0, n);
+                        got += n;
+                        long now = System.currentTimeMillis();
+                        if (total > 1024 * 1024 && now - last > 500) { last = now; dlNotify(c, name, (int) (got * 100 / total), false, null); }
+                    }
+                    if (total > 0 && got != total) throw new java.io.IOException("fichier incomplet");
+                }
+                if (item != null) {
+                    ContentValues cv = new ContentValues();
+                    cv.put(MediaStore.Downloads.IS_PENDING, 0);
+                    c.getContentResolver().update(item, cv, null, null);
+                }
+            } catch (Exception e) {
+                err = e.getMessage() != null ? e.getMessage() : "pas de réponse de la console";
+                try { if (item != null) c.getContentResolver().delete(item, null, null); } catch (Exception x) { }
+                if (file != null) file.delete();
+            } finally {
+                if (hc != null) hc.disconnect();
+                dlBusy = false;
+            }
+            final String fe = err;
+            final String where = file != null ? file.getAbsolutePath() : "Téléchargements";
+            dlNotify(c, name, 100, true, fe);
+            a.runOnUiThread(() -> Lang.toast(a, fe == null ? "Enregistré dans " + where + " : " + name : "Téléchargement impossible (" + fe + ")", Toast.LENGTH_LONG).show());
+        }).start();
+    }
+    private static void dlNotify(Context c, String name, int pct, boolean end, String err) {
+        try {
+            PlaybackService.channels(c);
+            android.app.Notification.Builder b = android.os.Build.VERSION.SDK_INT >= 26 ? new android.app.Notification.Builder(c, PlaybackService.CH_INFO) : new android.app.Notification.Builder(c);
+            b.setSmallIcon(R.drawable.ic_stat).setContentTitle(Lang.t(end ? (err == null ? "Téléchargé : " : "Échec : ") + name : "Téléchargement : " + name))
+             .setContentText(Lang.t(end ? (err == null ? "Dans Téléchargements" : err) : pct + " %")).setColor(Neon.PINK).setOnlyAlertOnce(true).setShowWhen(false);
+            if (!end) b.setOngoing(true).setProgress(100, pct, false); else b.setAutoCancel(true);
+            c.getSystemService(android.app.NotificationManager.class).notify(PlaybackService.ID_DL, b.build());
+        } catch (Exception e) { }
     }
     static int cols(Activity a, int minDp) { return Math.max(2, (int) (a.getResources().getDisplayMetrics().widthPixels / a.getResources().getDisplayMetrics().density / minDp)); }
 }

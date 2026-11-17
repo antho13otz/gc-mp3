@@ -121,6 +121,7 @@ object Jaquettes {
         val w = withContext(web) {
             mem.get(id)?.let { return@withContext it }
             val f = JaquettesHQ.fichier(dir, "coverHQ", id) ?: JaquettesHQ.fichier(dir, "cover", id)
+                ?: File(dir, "jaquettes/$id.png").takeIf { it.exists() && it.length() > 0 }   // (build 565 : celle de la console deja gardee : tout de suite, sans attendre la file de la console)
             f?.let { lire(it) }?.asImageBitmap()?.also { mem.put(id, it) }
         }
         if (w != null) return w
@@ -245,7 +246,7 @@ fun EcranJeux() {
                 }
                 if (St.connecte && l != null && l.isNotEmpty()) Bouton("Envoyer jaquettes et disques à la console", Modifier.fillMaxWidth().padding(top = 8.dp), hauteur = 40.dp) { choixEnvoi = true }
               }
-                if (Prive.ACTIF && filtre == 3 && St.connecte && l != null && l.isNotEmpty()) {
+                if (filtre == 3 && St.connecte && l != null && l.isNotEmpty()) {
                     // (build 553 : regarder chaque jeu sur RetroAchievements : la console donne son empreinte (quelques s la 1re fois))
                     val pasVus = l.count { FicheRA.connu(act, it.id) == null }
                     Bouton(if (pasVus > 0) "Chercher les succès de mes jeux ($pasVus pas encore regardés)" else "Mettre à jour ma progression", Modifier.fillMaxWidth().padding(top = 8.dp), hauteur = 40.dp) {
@@ -324,7 +325,7 @@ private fun CelluleJeu(act: Activity, g: Jeu, cp: Int, onClick: () -> Unit) {
             if (cp in 1..4) Box(Modifier.align(Alignment.TopEnd).padding(7.dp).size(16.dp).clip(CircleShape).background(CP_COL[cp]).border(2.dp, Color(0xFF0C0418), CircleShape))
             if (g.favori) Icon(Ic.Etoile, null, tint = C.Rose, modifier = Modifier.align(Alignment.TopStart).padding(6.dp).size(18.dp))
             // (build 553, appli privee : succes RetroAchievements obtenus / total, en bas a droite)
-            if (Prive.ACTIF) FicheRA.connu(act, g.id)?.takeIf { it.first > 0 }?.let { (t, o) ->
+            if (true) FicheRA.connu(act, g.id)?.takeIf { it.first > 0 }?.let { (t, o) ->
                 Box(Modifier.align(Alignment.BottomEnd).padding(6.dp).clip(RoundedCornerShape(6.dp)).background(Color(0xCC000000)).padding(horizontal = 5.dp, vertical = 1.dp)) {
                     Text("🏆 $o/$t", color = if (o == t) C.Orange else C.Texte, fontSize = 11.sp, fontWeight = FontWeight.Bold)
                 }
@@ -354,6 +355,17 @@ private val FX = listOf(
     Triple("H", "Sans cheats", "Le jeu démarre sans ses cheats (ils restent choisis)"),
     Triple("W", "Sans 16:9 forcé", "Image d'origine du jeu"),
     Triple("V", "Vidéo d'origine", "Sans 480p / 60 Hz / sans flou / image large"))
+/** (build 1040) patchs de secours en test : appli privée seulement */
+private val FX_PRIVE = listOf(
+    Triple("R", "Réveil provoqué", "Le jeu ne dépend plus du vrai lecteur : pour les vidéos qui saccadent ou se figent (a réglé Simpsons, Shrek, Sonic)"),
+    Triple("L", "Pulse léger", "Le téléphone n'est pas écouté pendant la partie : un peu plus de mémoire pour le jeu"),
+    Triple("K", "Pulse compact", "Le plus de mémoire pour le jeu : ni carte virtuelle, ni cheats, ni téléphone (carte SD pas dans un slot de carte mémoire)"),
+    Triple("J", "Sans journaux", "Pulse normal sans comptes rendus de plantage : 5 Ko de plus pour le jeu"),
+    Triple("I", "Lectures immédiates", "Chaque lecture du disque est finie d'un coup, jamais en fond"),
+    Triple("D", "Journal complet", "Diagnostic : tout ce qui se passe est noté (jeu un peu ralenti, sans téléphone)"))
+private val FX_LISTE = if (Prive.ACTIF) FX.map { if (it.first == "T") Triple("T", it.second, it.third + " ; ignoré pour Sonic Adventure 2, Simpsons et Shrek") else it } + FX_PRIVE else FX
+/** patchs qui s'excluent : en cocher un décoche les autres */
+private val FX_EXCLUS = mapOf("S" to "F", "F" to "S", "K" to "LJD", "L" to "K", "J" to "K", "D" to "K", "R" to "T", "T" to "R")
 
 private class Cheat(val nom: String, val actif: Boolean, val lignes: Int, val codes: String)
 
@@ -503,6 +515,7 @@ private fun FicheJeu(act: StationActivity, g: Jeu, compat: MutableMap<String, In
             val ouEnregistrer = androidx.activity.compose.rememberLauncherForActivityResult(androidx.activity.result.contract.ActivityResultContracts.CreateDocument("application/octet-stream")) { u ->
                 if (u != null) Prive.extraireVersUri(act, g.id, cheminChoisi, u)                   // (build 199 : dans tes fichiers)
             }
+            // (build 561 : garde, appli privee seulement : l'extraction se fait seulement sur demande du telephone ; la console n'a aucune option pour le faire elle-meme)
             if (Prive.ACTIF) Bouton("Extraire un fichier du jeu (main.dol…)", Modifier.fillMaxWidth()) { extraire = true }   // (build 457 : pas dans la version publique)
             if (extraire) {
                 var chemin by remember { mutableStateOf("/main.dol") }
@@ -640,12 +653,12 @@ private fun FicheJeu(act: StationActivity, g: Jeu, compat: MutableMap<String, In
             text = {
                 Column(Modifier.verticalScroll(rememberScrollState())) {
                     Doux("Pour ce lancement seulement : les réglages du jeu ne changent pas.", taille = 12)
-                    FX.forEachIndexed { k, f ->
+                    FX_LISTE.forEachIndexed { k, f ->
                         Spacer(Modifier.height(8.dp))
                         Row(Modifier.fillMaxWidth().verre(RoundedCornerShape(14.dp)).appui {
                                 val on = !(choix[k] ?: false)
                                 choix[k] = on
-                                if (on && (k == 1 || k == 2)) choix[if (k == 1) 2 else 1] = false
+                                if (on) FX_EXCLUS[f.first]?.forEach { c -> FX_LISTE.indexOfFirst { it.first == c.toString() }.takeIf { it >= 0 }?.let { choix[it] = false } }
                             }.padding(10.dp), verticalAlignment = Alignment.CenterVertically) {
                             Column(Modifier.weight(1f)) {
                                 Text(f.second, color = C.Texte, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
@@ -656,7 +669,7 @@ private fun FicheJeu(act: StationActivity, g: Jeu, compat: MutableMap<String, In
                     }
                 }
             },
-            confirmButton = { TextButton({ patchs = false; lancer(1, FX.indices.filter { choix[it] == true }.joinToString("") { FX[it].first }) }) { Text("Lancer avec Pulse", color = C.Rose) } },
+            confirmButton = { TextButton({ patchs = false; lancer(1, FX_LISTE.indices.filter { choix[it] == true }.joinToString("") { FX_LISTE[it].first }) }) { Text("Lancer avec Pulse", color = C.Rose) } },
             dismissButton = { TextButton({ patchs = false }) { Text("Annuler", color = C.Doux) } })
     }
 

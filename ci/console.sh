@@ -66,7 +66,7 @@ echo "e82df4bff37d18b5863b9e7486fe6bda1b6cda8c3b9ecebfec473907265cb589  source/q
   get libogc.tar.gz "https://github.com/devkitPro/libogc/archive/refs/tags/v$V.tar.gz"
   python3 tools/fast_net.py libogc.tar.gz
 ) || echo "ATTENTION : reseau rapide non prepare"
-if [ -f netfast/libbba_fast.a ]; then echo "Reseau rapide inclus (fenetre TCP 16 paquets) + adaptateurs W5500"; else echo "ATTENTION : reseau rapide absent : Broadband Adapter seulement, pas de W5500"; fi
+if [ -f netfast/libbba_fast.a ]; then echo "Reseau rapide inclus (fenetre TCP 16 paquets) + adaptateurs W5500, W6100/W6300, ENC28J60"; else echo "ATTENTION : reseau rapide absent : Broadband Adapter seulement, pas de W5500"; fi
 
 # Certificats racines (liste Mozilla)
 get cacert.pem https://curl.se/ca/cacert.pem || cp /etc/ssl/certs/ca-certificates.crt cacert.pem

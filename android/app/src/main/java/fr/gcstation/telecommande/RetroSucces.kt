@@ -623,7 +623,8 @@ fun EcranRetro() {
                 }
             }
         }
-        if (Prive.ACTIF && RetroSucces.classements.isNotEmpty()) item {      // (build 553 : classements de la partie)
+        if (RetroSucces.classements.isNotEmpty()) item {   // (build 566 : aussi publique)
+             // (build 553 : classements de la partie)
             Carte(Modifier.fillMaxWidth(), androidx.compose.foundation.layout.PaddingValues(12.dp)) {
                 Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                     Titre("Classements de la partie")
@@ -643,7 +644,7 @@ fun EcranRetro() {
         //  plus besoin de faire defiler des centaines de succes pour l'atteindre)
         if (ExtrasRA.ACTIF) item { ExtrasRA.Rapports() }                  // (build 554, appli privee : rapport de fin de partie)
         item { BlocJournal() }
-        if (ExtrasRA.ACTIF) item { ExtrasRA.Historique() }                // (build 554, appli privee : succes debloques, avec la date)
+        item { ExtrasRA.Historique() }                // (build 554 ; build 566 : aussi dans l'appli publique)
         if (RetroSucces.jeu.isNotEmpty()) item {
             val l = RetroSucces.liste
             val cx = androidx.compose.ui.platform.LocalContext.current

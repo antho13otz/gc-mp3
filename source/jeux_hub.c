@@ -327,7 +327,8 @@ static int jh_input(u32 down, u32 nav, int fire) {
     if (down & PAD_BUTTON_A) {
         if (z == 0) { if (gm_last_path[0]) gclib_open_recent(gm_last_path); else gclib_open(); }
         else if (z == 1) gclib_open();
-        else if (z == 2) ap_open();
+        else if (z == 2) { gs_filter = GSF_APPS; gs_dirty = 1; settings_dirty = 1; gclib_open(); }   /* v447 : la vitrine des jeux, filtre Applis
+                                                            (avant : l'ancien ecran des applis, avec ses onglets Jeux / Applis / Cartes) */
         else if (z == 3) mc_open();
         else if (z == 4) rcp_open();
         else games_tab_launch(z - 100);

@@ -10,7 +10,8 @@ from unicorn import *
 from unicorn.ppc_const import *
 BIN, ELF, HDR = sys.argv[1], sys.argv[2], sys.argv[3]
 hs = open(HDR, encoding='latin-1').read()
-AT = int(re.search(r'#define NATRES_AT\s+(0x[0-9A-Fa-f]+)', hs).group(1), 16)
+AT = int(re.search(r'#define NATRES_AT(?:_FULL)?\s+(0x[0-9A-Fa-f]+)', hs).group(1), 16)
+if __import__('os').environ.get('EMU_AT'): AT = int(__import__('os').environ['EMU_AT'], 16)   # (v509 : Pulse sans journaux)
 def fields(name_start, name_end):
     b = hs[hs.index(name_start):hs.index(name_end)]
     names = []
@@ -120,17 +121,12 @@ def check(what, cond, extra=''):
     global ok
     print(('OK   ' if cond else 'FAUX ') + what + (' ' + extra if extra else ''))
     ok = ok and cond
-# SISR : port 2 (canal 1) sans erreur, donnees neuves ; port 1 (canal 0) tel quel
+# v457 : avant le 1er paquet du telephone, le port 2 n'existe pas pour le jeu (rien de faux, rien d'aiguille vers le port 1)
 si[0x438] = 0x08080808                                 # (NOREP partout : aucune manette branchee)
 v = call(SL, 0xCC006438)
-check('SISR : port 2 = donnees neuves, sans erreur ; port 1 inchange', v == 0x08200808, '%08X' % v)
-# commande "type" (00) vers le port 2 : reponse 0900
+check('v457 : avant le 1er paquet, SISR tel quel (port 2 vide)', v == 0x08080808, '%08X' % v)
 call(SS, 0xCC006480, 0x00000000); call(SS, 0xCC006434, 0x80000000 | (1 << 1) | 1)
-v = call(SL, 0xCC006480)
-check('type du port 2 : manette standard', v == 0x09000000, '%08X' % v)
-call(SS, 0xCC006480, 0x41000000); call(SS, 0xCC006434, (1 << 1) | 1)
-v0, v1 = call(SL, 0xCC006480), call(SL, 0xCC006484)
-check('origine du port 2 : sticks au centre', v0 == 0x00808080 and v1 == 0x80801F1F, '%08X %08X' % (v0, v1))
+check('v457 : avant le 1er paquet, transfert vers le port 2 pas aiguille', (si[0x434] >> 1) & 3 == 1, '%08X' % si[0x434])
 call(SS, 0xCC006480, 0x00000000); call(SS, 0xCC006434, (0 << 1) | 1); si[0x480] = 0x12345678
 v = call(SL, 0xCC006480)
 check('transfert vers le port 1 : pas touche', v == 0x12345678, '%08X' % v)
@@ -151,6 +147,17 @@ h, l = call(SL, 0xCC006404 + 12), call(SL, 0xCC006408 + 12)
 check('port 2 : A, stick (20, E0), stick C, gachettes', h == 0x018020E0 and l == 0x9070C010, '%08X %08X' % (h, l))
 si[0x404] = 0x00808080 | 0x10000000; v = call(SL, 0xCC006404)
 check('port 1 : la vraie manette', v == 0x10808080, '%08X' % v)
+# SISR : port 2 (canal 1) sans erreur, donnees neuves ; port 1 (canal 0) tel quel
+si[0x438] = 0x08080808                                 # (NOREP partout : aucune manette branchee)
+v = call(SL, 0xCC006438)
+check('SISR : port 2 = donnees neuves, sans erreur ; port 1 inchange', v == 0x08200808, '%08X' % v)
+# commande "type" (00) vers le port 2 : reponse 0900
+call(SS, 0xCC006480, 0x00000000); call(SS, 0xCC006434, 0x80000000 | (1 << 1) | 1)
+v = call(SL, 0xCC006480)
+check('type du port 2 : manette standard', v == 0x09000000, '%08X' % v)
+call(SS, 0xCC006480, 0x41000000); call(SS, 0xCC006434, (1 << 1) | 1)
+v0, v1 = call(SL, 0xCC006480), call(SL, 0xCC006484)
+check('origine du port 2 : sticks au centre', v0 == 0x00808080 and v1 == 0x80801F1F, '%08X %08X' % (v0, v1))
 bba.deliver(gcpd(2, 5, 0x10000000, 0)); call(POLL)
 check('paquet pour un port pas donne au telephone : refuse', padw('bad') == 1 and padw('rx') == 1, 'bad %d rx %d' % (padw('bad'), padw('rx')))
 bba.deliver(gcpd(1, 1, 0x02000000, 0)); call(POLL)

@@ -9,7 +9,7 @@
 
 #define CRASH_FILE  GCD_LOG "/gc-mp3-crash.txt"
 #define CRASH_OLD   GCD_LOG "/gc-mp3-crash-ancien.txt"
-#define GCMP3_VERSION "v410"
+#define GCMP3_VERSION "v534"   /* (v422 : le numero affiche suit de nouveau les versions ; il etait reste a v410 depuis le build 939) */
 
 #if defined(__has_include)
 #if __has_include(<tuxedo/ppc/exception.h>) && __has_include(<tuxedo/thread.h>)
@@ -44,6 +44,9 @@ static void crumb(const char *fmt, ...) {
     crumb_t[i] = (u32)(now_ms() - crash_boot_ms);
     crumb_n++;
 }
+
+/* v422 : la derniere action notee (mesure de fluidite : moments lents) */
+static const char *crumb_last(void) { return crumb_n ? crumbs[(crumb_n - 1) % NCRUMB] : ""; }
 
 /* v234 : les dernieres actions, en texte (rapport de bug du telephone) */
 static int crash_recent(char *out, int cap) {

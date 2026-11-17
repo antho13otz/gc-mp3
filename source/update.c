@@ -47,6 +47,8 @@ static int up_auto_done = 0;
 static u8 *up_acc = NULL;
 static long up_acc_len = 0, up_total = 0;
 static int up_tries = 0;
+static int up_nrep = 0;                                  /* build 1048 : reprises de ce telechargement, et pourquoi la derniere */
+static char up_why[64];
 static int up_acc_add(const u8 *d, long n) {
     if (n <= 0) return 1;
     u8 *nb = (u8 *)realloc(up_acc, up_acc_len + n);
@@ -57,7 +59,16 @@ static int up_acc_add(const u8 *d, long n) {
     return 1;
 }
 static u64 up_notice_until = 0;
-static hfetch_t up_hf = { .c = { -1, 0, 0 } };
+static hfetch_t up_hf = { .c = { -1, 0, 0 }, .stall_ms = 4000 };   /* (build 1050 : flux bloque 4 s = reprise ; avant 20 s) */
+static void up_note_why(void) {
+    static const char *const w[8] = { "?", "rien recu 4 s", "serveur a ferme", "erreur", "pas de reponse", "coupe", "TLS rate", "connexion ratee" };
+    int k = up_hf.why >= 0 && up_hf.why < 8 ? up_hf.why : 0;
+    up_nrep++;
+    if (up_hf.werr) snprintf(up_why, sizeof(up_why), "%d : %s %d, %ld Ko", up_nrep, w[k], up_hf.werr, (long)(up_hf.len / 1024));
+    else snprintf(up_why, sizeof(up_why), "%d : %s, %ld Ko", up_nrep, w[k], (long)(up_hf.len / 1024));
+    crumb("mise a jour : reprise %s", up_why);
+    up_hf.why = 0; up_hf.werr = 0;
+}
 static const char *up_argv0 = NULL;
 
 static void up_fail(const char *m) {
@@ -79,6 +90,7 @@ static void update_check(void) {
     up_hf.maxbytes = 512 * 1024;
     up_hf.image = 0;
     up_hf.accept = upd_is_gitlab() ? "application/json,*/*" : "application/vnd.github+json";
+    up_hf.frame_cap = 256 * 1024;                         /* v450 : mise a jour : pleine vitesse (les autres : 64 Ko par image) */
     hf_start(&up_hf, url, NULL);
     up_state = UP_CHECK;
     crumb("mise a jour : verification");
@@ -401,6 +413,7 @@ static int up_copy_file(const char *from, const char *to) {
     if (rename(part, to) != 0) { remove(part); return 0; }
     return 1;
 }
+static void up_part_install(long size);
 static void up_stream_finish(void) {
     long got = (up_hf.code == 206 ? up_hf.range : 0) + up_hf.len;
     hf_drop(&up_hf);
@@ -413,11 +426,16 @@ static void up_stream_finish(void) {
         crumb("mise a jour : %ld octets sur la carte, %ld recus, %ld attendus", (long)st.st_size, got, up_total);
         remove(up_part); up_fail("Fichier re\xC3\xA7u incomplet"); return;
     }
+    up_part_install((long)st.st_size);
+}
+/* v429 : (fin commune) le .part complet sur la carte : verifie, mis a la place de l'ancien, copies, relance */
+static void up_part_install(long size) {
+    struct stat st;
     u8 hd[0x100];
     FILE *f = fopen(up_part, "rb");
     int hok = f && fread(hd, 1, sizeof(hd), f) == sizeof(hd);
     if (f) fclose(f);
-    if (!hok || !up_dol_valid(hd, (long)st.st_size)) { remove(up_part); up_fail("Fichier re\xC3\xA7u invalide"); return; }
+    if (!hok || !up_dol_valid(hd, size)) { remove(up_part); up_fail("Fichier re\xC3\xA7u invalide"); return; }
     char old[NAME_LEN + 8];
     snprintf(old, sizeof(old), "%s.ancien", up_target);
     remove(old);
@@ -447,6 +465,27 @@ static void up_stream_finish(void) {
     crumb("mise a jour installee (carte SD) : build %d -> %s (+%d copies)", up_build, up_target, nok);
 }
 
+/* v429 : mise a jour envoyee par le telephone (il la telecharge en quelques secondes ; la console, en HTTPS, mettait des
+   dizaines de minutes) : SD:/gc-mp3/maj/nouveau.dol devient le .part, puis la meme installation qu'un telechargement */
+static void up_from_phone(int build) {
+    if (up_state == UP_WRITE) return;
+    if (up_state == UP_DL || up_state == UP_CHECK) {          /* (le telechargement de la console s'arrete : le telephone a ete plus rapide) */
+        hf_drop(&up_hf); up_hf.st = HF_IDLE;
+        up_sink_abort();
+        free(up_acc); up_acc = NULL; up_acc_len = 0;
+    }
+    if (!sd_ok || sd_virtual) { up_fail("Pas de carte SD"); return; }
+    up_pick_target();
+    snprintf(up_part, sizeof(up_part), "%s.part", up_target);
+    remove(up_part);
+    struct stat st;
+    if (rename(GCD "/maj/nouveau.dol", up_part) != 0 || stat(up_part, &st) != 0) { up_fail("Fichier du t\xC3\xA9l\xC3\xA9phone introuvable"); return; }
+    up_build = build; up_total = 0;
+    crumb("mise a jour envoyee par le telephone : build %d, %ld octets", build, (long)st.st_size);
+    ui_status("Installation de la mise \xC3\xA0 jour envoy\xC3\xA9" "e par le t\xC3\xA9l\xC3\xA9phone...");
+    up_part_install((long)st.st_size);
+}
+
 static void update_relaunch(void);
 static const char *gl_relaunch_self(const char *path);   /* v219 : gclib.c */
 static void update_pump(void) {
@@ -468,6 +507,7 @@ static void update_pump(void) {
         }
         long before = up_hf.range;
         int code = up_hf.code;
+        up_note_why();                                    /* (build 1048) */
         hf_drop(&up_hf);
         up_hf.st = HF_IDLE;
         if (up_acc_len > before) up_tries = 0;
@@ -476,7 +516,7 @@ static void update_pump(void) {
             fflush(up_sink);
             fseek(up_sink, up_acc_len, SEEK_SET);
             up_hf.range = up_acc_len;
-            hf_start(&up_hf, up_url, NULL);
+            up_hf.frame_cap = 256 * 1024; hf_start(&up_hf, up_url, NULL);
             return;
         }
         up_sink_abort();
@@ -494,13 +534,14 @@ static void update_pump(void) {
             if (!up_acc_add(up_hf.buf, up_hf.len)) { hf_drop(&up_hf); up_hf.st = HF_IDLE; up_fail("M\xC3\xA9moire insuffisante"); return; }
         }
         long before = up_hf.range;
+        up_note_why();                                    /* (build 1048) */
         hf_drop(&up_hf);
         up_hf.st = HF_IDLE;
         if (up_acc_len > before) up_tries = 0;                    /* (ca avance : on continue tant qu'il faut) */
         if (++up_tries <= 6 && net_ok) {
             crumb("mise a jour : reprise a %ld octets (essai %d)", up_acc_len, up_tries);
             up_hf.range = up_acc_len;
-            hf_start(&up_hf, up_url, NULL);
+            up_hf.frame_cap = 256 * 1024; hf_start(&up_hf, up_url, NULL);
             return;
         }
         free(up_acc); up_acc = NULL; up_acc_len = 0; up_hf.range = 0; up_hf.keep = 0;
@@ -515,7 +556,7 @@ static void update_pump(void) {
                 char url[512];
                 up_via_api = 1;
                 upd_rel_url(url, sizeof(url), 1);
-                hf_start(&up_hf, url, NULL);
+                up_hf.frame_cap = 256 * 1024; hf_start(&up_hf, url, NULL);
                 return;
             }
             if (up_hf.code == 404) { up_state = UP_NONE; snprintf(up_msg, sizeof(up_msg), "Aucune version publi\xC3\xA9" "e"); }
@@ -617,11 +658,11 @@ static void update_start_download(void) {
     up_hf.maxbytes = 16 * 1024 * 1024;
     up_hf.image = 0;
     up_hf.accept = "application/octet-stream";
-    free(up_acc); up_acc = NULL; up_acc_len = 0; up_total = 0; up_tries = 0;
+    free(up_acc); up_acc = NULL; up_acc_len = 0; up_total = 0; up_tries = 0; up_nrep = 0; up_why[0] = 0;
     up_hf.range = 0; up_hf.keep = 1;                      /* v133 : reprise possible */
     up_hf.sink = NULL; up_hf.sink_err = 0;
     if (up_stream_open()) up_hf.sink = up_sink;           /* v212 : directement sur la carte SD (pas 6 Mo en memoire) */
-    hf_start(&up_hf, up_url, NULL);
+    up_hf.frame_cap = 256 * 1024; hf_start(&up_hf, up_url, NULL);
     up_state = UP_DL;
     crumb("mise a jour : telechargement build %d", up_build);
 }
@@ -661,6 +702,7 @@ static void reset_pump(void) {
     { static int fired = 0; const char *e = getenv("PCSIM_RESET_AT");   /* (simulateur : bouton Reset a N ms) */
       if (e && !fired && now_ms() > (u64)atol(e)) { fired = 1; reset_pressed = 1; } }
 #endif
+    if (tp_maj_req) { int b = tp_maj_req; tp_maj_req = 0; up_from_phone(b); }   /* v429 */
     if (tp_reboot_req) { tp_reboot_req = 0; reset_pressed = 1; crumb("telephone : redemarrage de GC Station demande"); }   /* v420 */
     if (!reset_pressed) return;
     reset_pressed = 0;
@@ -722,8 +764,10 @@ static void update_value(char *out, int cap) {
     case UP_DL:
         if (up_hf.st == HF_BODY && (up_total > 0 || up_hf.expect > 0)) {
             long tot = up_total > 0 ? up_total : up_hf.expect + up_acc_len;
-            snprintf(out, cap, "T\xC3\xA9l\xC3\xA9" "chargement %ld %%%s", (long)((long long)(up_acc_len + up_hf.len) * 100 / tot), up_tries ? " (reprise)" : "");
+            if (up_nrep) snprintf(out, cap, "T\xC3\xA9l\xC3\xA9" "chargement %ld %% (reprise %s)", (long)((long long)(up_acc_len + up_hf.len) * 100 / tot), up_why);   /* build 1048 */
+            else snprintf(out, cap, "T\xC3\xA9l\xC3\xA9" "chargement %ld %%", (long)((long long)(up_acc_len + up_hf.len) * 100 / tot));
         }
+        else if (up_nrep) snprintf(out, cap, "T\xC3\xA9l\xC3\xA9" "chargement... (reprise %s)", up_why);   /* build 1048 */
         else snprintf(out, cap, "T\xC3\xA9l\xC3\xA9" "chargement...");
         break;
     case UP_WRITE: snprintf(out, cap, "Installation %ld %%", uw_len ? (long)((long long)uw_pos * 100 / uw_len) : 0L); break;

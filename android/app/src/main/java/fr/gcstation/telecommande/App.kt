@@ -200,6 +200,7 @@ private fun EnTete(act: StationActivity) {
                 val (couleur, txt) = when {
                     St.jeu != null -> C.Rose to "En jeu · " + (St.jeu?.name ?: "")
                     St.horsLigne -> C.Rouge to "Console injoignable · nouvel essai…"
+                    St.essai -> C.Pale to "Connexion à la console…"
                     St.connecte -> C.Cyan to "Connecté · " + (Api.host ?: "") + if (Live.pushing()) " · en direct" else ""
                     else -> C.Pale to "Pas connecté"
                 }
@@ -513,6 +514,15 @@ private fun PartieEnCours(act: StationActivity) {
                 Spacer(Modifier.height(14.dp))
                 Doux("Pour revenir à GC Station : A + Z + START sur la manette. L'appli se reconnecte toute seule au retour.", taille = 12, centre = true)
                 Spacer(Modifier.height(16.dp))
+                if (g.pulse == 2) {                                   // (appli 565 : Pulse leger, GC Station v453)
+                    Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp)).background(C.Orange.copy(alpha = 0.14f)).padding(14.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                        Text("Téléphone coupé pour cette partie", color = C.Orange, fontSize = 15.sp, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center)
+                        Spacer(Modifier.height(6.dp))
+                        Doux("Le jeu tourne avec le Pulse léger (18 Ko de mémoire en plus pour le jeu). Manette du téléphone, chercheur de codes et compagnon ne marchent pas pendant cette partie. Pour les avoir la prochaine fois, active-les sur la console avant de lancer le jeu : START > Réglages > Chercheur de codes (ou Manettes du téléphone).", taille = 12, centre = true)
+                    }
+                    Spacer(Modifier.height(14.dp))
+                }
+                if (g.mem && Prive.ACTIF) { ImagesParSeconde(); Spacer(Modifier.height(14.dp)) }   // (appli 570, console v495)
                 if (g.mem) {
                     val sc = rememberCoroutineScope()
                     Bouton(if (tacheChercheur().isEmpty()) "Capture de l'écran du jeu" else tacheChercheur(), Modifier.fillMaxWidth(), plein = true, icone = Ic.Photo) { capturerJeu(act, sc) }
@@ -535,6 +545,49 @@ private fun PartieEnCours(act: StationActivity) {
                 }
                 Bouton("Masquer", Modifier.fillMaxWidth()) { St.jeuMasque = true }
             }
+        }
+    }
+}
+
+
+/** appli 570 (console v495) : images par seconde du jeu en direct, d'après Pulse (une mesure par seconde) */
+@Composable
+fun ImagesParSeconde() {
+    var fps by remember { mutableStateOf(-1.0) }
+    var pct by remember { mutableStateOf(-1) }
+    var histo by remember { mutableStateOf(listOf<Float>()) }
+    LaunchedEffect(Unit) {
+        while (true) {
+            kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { try { MemoireJeu.ecouterImages(1000) } catch (e: Exception) { } }
+            val frais = System.nanoTime() - MemoireJeu.fpsT < 3_000_000_000L
+            fps = if (frais) MemoireJeu.fps else -1.0
+            pct = if (frais) MemoireJeu.fpsPct else -1
+            if (fps >= 0) histo = (histo + fps.toFloat()).takeLast(60)
+        }
+    }
+    Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp)).background(C.Cyan.copy(alpha = 0.10f)).padding(14.dp),
+           horizontalAlignment = Alignment.CenterHorizontally) {
+        if (fps < 0) {
+            Doux("Images par seconde du jeu : pas encore mesurées (il faut GC Station v495 ou plus)", taille = 12, centre = true)
+            return@Column
+        }
+        val coul = when { pct >= 95 -> C.Vert; pct >= 80 -> C.Orange; else -> C.Rouge }
+        Text(String.format(Locale.FRANCE, "%.0f images/s", fps), color = coul, fontSize = 22.sp, fontWeight = FontWeight.Black)
+        Doux(if (pct >= 95) "le jeu tourne à pleine vitesse" else "le jeu ralentit ($pct % de sa vitesse)", taille = 12, couleur = C.Pale)
+        if (histo.size >= 2) {
+            Spacer(Modifier.height(8.dp))
+            val maxv = (histo.maxOrNull() ?: 60f).coerceAtLeast(30f)
+            androidx.compose.foundation.Canvas(Modifier.fillMaxWidth().height(48.dp)) {
+                val w = size.width; val h = size.height
+                val pas = w / 59f
+                var prev: androidx.compose.ui.geometry.Offset? = null
+                histo.forEachIndexed { i, v ->
+                    val p = androidx.compose.ui.geometry.Offset(w - (histo.size - 1 - i) * pas, h - (v / maxv) * h)
+                    prev?.let { drawLine(coul, it, p, strokeWidth = 4f) }
+                    prev = p
+                }
+            }
+            Doux("dernière minute", taille = 10, couleur = C.Pale)
         }
     }
 }

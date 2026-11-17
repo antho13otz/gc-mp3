@@ -31,7 +31,7 @@ import org.json.JSONObject;
 public class PlaybackService extends Service {
     static final String CH_PLAY = "lecture", CH_INFO = "infos";
     static final String ACT_TOGGLE = "toggle", ACT_NEXT = "next", ACT_PREV = "prev", ACT_STOP = "fermer";
-    static final int ID_PLAY = 1, ID_BUILD = 2, ID_SEND = 3, ID_COPY = 4, ID_LIMIT = 7, ID_GAMEEND = 8;
+    static final int ID_PLAY = 1, ID_BUILD = 2, ID_SEND = 3, ID_COPY = 4, ID_LIMIT = 7, ID_GAMEEND = 8, ID_DL = 9;
     static volatile JSONObject last;                         // (dernier etat : le widget s'en sert)
     static volatile Bitmap lastCover;
 
@@ -55,10 +55,11 @@ public class PlaybackService extends Service {
     static void channels(Context c) {
         if (Build.VERSION.SDK_INT < 26) return;
         NotificationManager nm = c.getSystemService(NotificationManager.class);
-        NotificationChannel a = new NotificationChannel(CH_PLAY, "Lecture sur la console", NotificationManager.IMPORTANCE_LOW);
+        Lang.init(c);                                       // (build 579 : noms des categories dans la langue choisie ; recrees = renommes)
+        NotificationChannel a = new NotificationChannel(CH_PLAY, Lang.t("Lecture sur la console"), NotificationManager.IMPORTANCE_LOW);
         a.setShowBadge(false);
         nm.createNotificationChannel(a);
-        nm.createNotificationChannel(new NotificationChannel(CH_INFO, "Nouveautés et envois", NotificationManager.IMPORTANCE_DEFAULT));
+        nm.createNotificationChannel(new NotificationChannel(CH_INFO, Lang.t("Nouveautés et envois"), NotificationManager.IMPORTANCE_DEFAULT));
     }
 
     static void start(Context c) {

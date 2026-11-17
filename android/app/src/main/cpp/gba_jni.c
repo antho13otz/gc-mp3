@@ -281,6 +281,33 @@ JNIEXPORT jboolean JNICALL Java_fr_gcstation_telecommande_GbaNatif_cartouche(JNI
 	return JNI_TRUE;
 }
 
+/* build 562 : GBA allumee avec la cartouche seule, sans programme envoye par le cable : elle demarre sur le jeu de la
+   cartouche (Pokemon Rubis, Saphir, Emeraude, Rouge Feu, Vert Feuille), comme une vraie GBA qu'on allume. C'est le jeu de la
+   cartouche qui ecoute alors le cable (Pokemon Colosseum, XD : a l'ecran du copyright, juste apres l'allumage) */
+JNIEXPORT jboolean JNICALL Java_fr_gcstation_telecommande_GbaNatif_demarrerCartouche(JNIEnv* env, jclass cls) {
+	(void) env; (void) cls;
+	fin();
+	if (!cart_rom) return JNI_FALSE;
+	core = GBACoreCreate();
+	if (!core || !core->init(core)) { core = NULL; return JNI_FALSE; }
+	mCoreInitConfig(core, NULL);
+	ecran = calloc(W * H, BYTES_PER_PIXEL);
+	if (!ecran) { fin(); return JNI_FALSE; }
+	core->setVideoBuffer(core, ecran, W);
+	core->setAudioBufferSize(core, 2048);
+	blip_set_rates(core->getAudioChannel(core, 0), core->frequency(core), SON_HZ);
+	blip_set_rates(core->getAudioChannel(core, 1), core->frequency(core), SON_HZ);
+	struct GBA* gba = core->board;
+	struct VFile* vr = VFileMemChunk(cart_rom, cart_nrom);
+	if (!vr || !GBALoadROM(gba, vr)) { if (vr) vr->close(vr); fin(); return JNI_FALSE; }
+	struct VFile* vs = VFileMemChunk(cart_sav, cart_nsav);
+	if (vs) GBALoadSave(gba, vs);
+	GBASIOJOYCreate(&joy);
+	GBASIOSetDriver(&gba->sio, &joy, SIO_JOYBUS);
+	core->reset(core);                                  /* (sans BIOS : mGBA entre directement dans la cartouche, 0x08000000) */
+	return JNI_TRUE;
+}
+
 /* build 556 : la sauvegarde de la cartouche telle qu'elle est maintenant (null : pas de GBA ou pas de sauvegarde) */
 JNIEXPORT jbyteArray JNICALL Java_fr_gcstation_telecommande_GbaNatif_sauvegarde(JNIEnv* env, jclass cls) {
 	(void) cls;

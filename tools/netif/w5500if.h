@@ -24,7 +24,7 @@ must not be misrepresented as being the original software.
 distribution.
 
 -------------------------------------------------------------*/
-/* GC Station v326 : copie sans changement (libogc2, lwip/include/netif/w5500if.h). */
+/* GC Station : copie sans changement (libogc2, lwip/include/netif/w5500if.h). */
 
 
 #ifndef __NETIF_W5500IF_H__

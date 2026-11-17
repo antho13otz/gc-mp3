@@ -33,6 +33,32 @@ object JeuTTYD : ModuleJeu("Paper Mario : La Porte Millénaire", "G8MP01", "G8ME
         else -> Fn(0x800D6CAC, 0x8005E1F8, 0x80086A98)
     }
 
+    /** appli 572 (version europeenne) : ce qui a ete trouve, d'apres les drapeaux de la partie (notes de code publiques de
+     *  RetroAchievements, Paper Mario TTYD, adresses [EU]) : soleils et eclats d'etoile ramasses (meme ceux deja depenses),
+     *  ennemis analyses par Goombella, etage le plus profond du Puits, Piantas, nuits a l'auberge */
+    private val SOLEILS_EU = listOf(0x803E70A0L to 0xFF, 0x803E70A1L to 0xE0, 0x803E70A4L to 0x7F, 0x803E70A5L to 0xFF, 0x803E70A6L to 0xFF, 0x803E70A7L to 0xFF)
+    private val ECLATS_EU = listOf(0x803E70A4L to 0x80) + (0x803E70A8L..0x803E70B1L).map { it to 0xFF } +
+        listOf(0x803E70B2L to 0x5F, 0x803E70B3L to 0xFF, 0x803E70B7L to 0x07)
+    private fun collectionEU(l: Lecteur): Bloc? {
+        fun compte(t: List<Pair<Long, Int>>): Int? { var n = 0; for ((a, m) in t) n += Integer.bitCount((l.u8(a) ?: return null) and m); return n }
+        val sol = compte(SOLEILS_EU) ?: return null; val ecl = compte(ECLATS_EU) ?: return null
+        var analyses = 0
+        for (a in 0x803E7021L..0x803E7037L) analyses += Integer.bitCount(l.u8(a) ?: 0)
+        val puits = l.u8(0x803E7211L)?.takeIf { it in 0..100 } ?: 0
+        val piantas = l.u32(0x803F3CE8L)?.let { (it and 0xFFFFFFL).toInt() }?.takeIf { it in 0..9_999_999 } ?: -1
+        val nuits = l.u8(0x803E71F1L) ?: 0
+        val histoire = l.s16(0x803E6DEEL)?.takeIf { it in 0..1000 } ?: -1
+        val lignes = arrayListOf(
+            Ligne("Soleils trouvés", "${sol.coerceAtMost(40)} / 40", pct(sol, 40), 0xFFFFB300),
+            Ligne("Éclats d'étoile trouvés", "${ecl.coerceAtMost(100)} / 100", pct(ecl, 100), 0xFF9AD0FF),
+            Ligne("Ennemis analysés (drapeaux)", analyses.toString()),
+            Ligne("Étage le plus profond du Puits", if (puits > 0) "$puits / 100" else "–", if (puits > 0) pct(puits, 100) else -1f, 0xFF7A6CA8))
+        if (piantas >= 0) lignes.add(Ligne("Piantas (jetons du casino)", piantas.toString()))
+        lignes.add(Ligne("Nuits à l'auberge", nuits.toString()))
+        if (histoire >= 0) lignes.add(Ligne("Séquence de l'histoire", histoire.toString()))
+        return Bloc("Collection (toute la partie)", lignes, texte = "Compte tout ce qui a été ramassé, même les soleils et éclats déjà échangés.")
+    }
+
     private fun r13(l: Lecteur): Long? {
         var a = 0x80003100L
         while (a < 0x80005000L) {
@@ -243,6 +269,7 @@ object JeuTTYD : ModuleJeu("Paper Mario : La Porte Millénaire", "G8MP01", "G8ME
                     "Éclats d'étoile et soleils : seulement ceux en poche (les dépensés ne se voient pas)."))
         }
         if (equipes.isNotEmpty()) blocs.add(Bloc("Badges équipés", pastilles = equipes.map { nomBadge(it) to true }))
+        if (Prive.ACTIF && id == "G8MP01") collectionEU(l)?.let { blocs.add(it) }   // (appli 572)
         val lignesPartie = ArrayList<Ligne>()
         if (z != null) lignesPartie.add(Ligne("Chapitre", when (z.first) { 0 -> "Port / prologue"; -1 -> "–"; else -> z.first.toString() + " / 8" }))
         if (carte.isNotEmpty()) lignesPartie.add(Ligne("Carte", carte))

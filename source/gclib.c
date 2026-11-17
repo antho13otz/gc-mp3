@@ -32,6 +32,8 @@ typedef struct {
 /* v28 : 6 facons d'afficher les jeux (R / L pour changer) */
 enum { GLV_GRID, GLV_CAROUSEL, GLV_LIST, GLV_WALL, GLV_SHOW, GLV_SHELF, GLV_COUNT };
 static void tl_recent_add(const char *path);            /* v35 : derniers jeux lances (tools.c) */
+static int na_pm_jeu(const char *id);                              /* v503 : mode de Pulse prevu (natif.c) */
+static int na_pm_preview(const char *id, int pj, char *why, int cap);
 static void indigo_game_open(const char *id, const char *title);   /* v35 : reglages du jeu (indigo_cfg.c) */
 static int gl_view = GLV_GRID;
 static const char *const gl_view_names[GLV_COUNT] = { "Grille", "Carrousel", "Liste", "Mur de jaquettes", "Vitrine", "\xC3\x89tag\xC3\xA8re" };
@@ -81,8 +83,7 @@ static int gs_dirty;
 #define GL_POST_DL 30000                                 /* (gl[k].post : jaquette ajoutee, pas dans posters.pak) */
 static const char *game_boot(int k, int resident);         /* v75 : lancement avec les reglages du jeu (jeux_cfg.c) */
 static const char *game_boot_auto(int k);                  /* v90 : Resident, ou le lanceur de secours si des cheats sont actives */
-static void nat_run(int k);                                /* v50 : lanceur natif, analyse (natif.c) */
-static void nat_bench_all(void);                           /* v171 : banc d'essai : export de tous les jeux (natif.c) */
+static void nat_run(int k) __attribute__((unused));        /* v50 : analyse (natif.c) ; v427 : plus appelee (manette) */
 static const char *nat_boot(int k);                        /* v51 : lanceur maison, demarrage natif (natif.c), en test */
 static const char *nat_boot_disc(int k);                   /* v97 : disque du vrai lecteur (natif.c) */
 static const char *nat_boot_lan(int k);                    /* v359 : jeu en reseau local par Internet (Pulse LAN, natif.c) */
@@ -108,9 +109,10 @@ static int fm_geo(void) {
     if (fm_geo_st) return fm_geo_st > 0;
     static u8 b[512] ATTRIBUTE_ALIGN(32);
     fm_geo_st = -1;
-    if (sd_virtual || fm_rs(0, b)) return 0;
-    u32 part = 0;
-    if (!fm_is_fat(b)) {
+    u32 part = sd_part_set ? sd_part : 0;                  /* (v454 : la partition montee, la plus grande) */
+    if (sd_virtual || fm_rs(part, b)) return 0;
+    if (part && !fm_is_fat(b)) return 0;
+    if (!part && !fm_is_fat(b)) {
         u8 mbr[64]; memcpy(mbr, b + 0x1BE, 64);
         int found = 0;
         for (int i = 0; i < 4 && !found; i++) { u32 lba = fm_le32(mbr + i * 16 + 8); if (lba && !fm_rs(lba, b) && fm_is_fat(b)) { part = lba; found = 1; } }
@@ -769,7 +771,7 @@ static void gl_dl_save(const char *id, const u16 *t) {
     gl_dl_path(id, "tex", p, sizeof(p));
     FILE *f = fopen(p, "wb");
     if (!f) return;
-    int ok = fwrite(t, 1, GL_DLW * GL_DLW * 2, f) == GL_DLW * GL_DLW * 2;
+    int ok = fwrite_m(t, GL_DLW * GL_DLW * 2, f) == GL_DLW * GL_DLW * 2;   /* (v422 : par morceaux) */
     if (fclose(f) || !ok) remove(p);
 }
 /* la texture d'une jaquette ajoutee (prete pour GX) ; NULL : pas lisible */
@@ -779,7 +781,7 @@ static u16 *gl_dl_tex(const char *id) {
     FILE *f = fopen(p, "rb");
     if (f) {
         u16 *t = (u16 *)memalign(32, GL_DLW * GL_DLW * 2);
-        int ok = t && fread(t, 1, GL_DLW * GL_DLW * 2, f) == GL_DLW * GL_DLW * 2;
+        int ok = t && fread_m(t, GL_DLW * GL_DLW * 2, f) == GL_DLW * GL_DLW * 2;
         fclose(f);
         if (ok) { DCFlushRange(t, GL_DLW * GL_DLW * 2); return t; }
         free(t);
@@ -999,7 +1001,7 @@ static void gl_fc_save(const char *id, const u16 *t) {
     gl_fc_path(id, "tex", p, sizeof(p));
     FILE *f = fopen(p, "wb");
     if (!f) return;
-    int ok = fwrite(t, 1, GL_FCSZ, f) == GL_FCSZ;
+    int ok = fwrite_m(t, GL_FCSZ, f) == GL_FCSZ;   /* (v422 : par morceaux) */
     if (fclose(f) || !ok) remove(p);
 }
 static void gl_fc_set(u16 *t) {
@@ -1249,7 +1251,7 @@ static void gl_fh_save(const char *id, const u8 *t) {
     gl_fh_path(id, p, sizeof(p));
     FILE *f = fopen(p, "wb");
     if (!f) return;
-    int ok = fwrite(t, 1, GL_FHSZ, f) == GL_FHSZ;
+    int ok = fwrite_m(t, GL_FHSZ, f) == GL_FHSZ;   /* (v422) */
     if (fclose(f) || !ok) remove(p);
 }
 static void gl_fh_set(u8 *t) {
@@ -1389,7 +1391,7 @@ static void gl_dk_save(const char *id, const u16 *t) {
     snprintf(p, sizeof(p), GL_DKDIR "/%.6s.tex", id);
     FILE *f = fopen(p, "wb");
     if (!f) return;
-    int ok = fwrite(t, 1, GL_DKSZ, f) == GL_DKSZ;
+    int ok = fwrite_m(t, GL_DKSZ, f) == GL_DKSZ;   /* (v422) */
     if (fclose(f) || !ok) remove(p);
 }
 static void gl_dk_set(u16 *t) {
@@ -1407,7 +1409,7 @@ static void gl_dk_read(void) {                            /* (thread de fond) */
     FILE *f = fopen(p, "rb");
     if (f) {
         u16 *t = (u16 *)memalign(32, GL_DKSZ);
-        int ok = t && fread(t, 1, GL_DKSZ, f) == GL_DKSZ;
+        int ok = t && fread_m(t, GL_DKSZ, f) == GL_DKSZ;   /* (v422) */
         fclose(f);
         if (ok) { gl_dk_rbuf = t; return; }
         free(t);
@@ -1597,7 +1599,7 @@ static GXTexObj *gl_cover(int k, int load) {                 /* jaquette 128x256
         static u64 vi = 0; static u32 n = 0;           /* (par tranche de 15 ms : environ une image) */
         u64 r = now_ms();
         if (r - vi >= 15u) { vi = r; n = 0; }
-        if (n >= 2) return NULL;
+        if (n >= (gj_state != 0 ? 1u : 2u)) return NULL;   /* (v422 : 1 seule pendant un travail en fond : il se sert aussi de la carte) */
         n++;
     }
     if (gl[k].post == GL_POST_DL) {                       /* v280 : jaquette ajoutee (telechargee ou deposee) */
@@ -2010,7 +2012,7 @@ static void gq_step(void) {                             /* (une fois par image :
 /* ---------- entree ---------- */
 static void gclib_open(void) {
     gl_on = 1; gl_detail = 0;
-    if (!gl_scanned) gl_scan_full(0);                      /* (liste gardee : tout de suite) */
+    if (!gl_scanned) SLOW("mes jeux : lecture de la carte", gl_scan_full(0));                      /* (liste gardee : tout de suite) */
     static u64 qc_t = 0;                                   /* v356 : le tour de la carte SD (0,3 s et plus a chaque entree) : au plus une fois par 2 min */
     u64 qn = now_ms();
     int qc = gl_auto && (!qc_t || qn - qc_t > 120000u);
@@ -2043,8 +2045,8 @@ static int gl_opt = -1;                                    /* v45 : fenetre Opti
 static f32 gl_slide = 0;                                   /* v45 : fiche : glissement vers le jeu suivant */
 static void gclib_input(u32 down, u32 nav, int fire) {
     if (gl_opt >= 0) {                                     /* v45 : Options : tri, jeu au hasard, animations, actualiser */
-        if (fire && (nav & PAD_BUTTON_DOWN)) gl_opt = (gl_opt + 1) % 5;
-        if (fire && (nav & PAD_BUTTON_UP)) gl_opt = (gl_opt + 4) % 5;
+        if (fire && (nav & PAD_BUTTON_DOWN)) gl_opt = (gl_opt + 1) % 4;   /* (v425 : 4 entrees : plus de « Banc d'essai rapide ») */
+        if (fire && (nav & PAD_BUTTON_UP)) gl_opt = (gl_opt + 3) % 4;
         int ch = (fire && (nav & PAD_BUTTON_RIGHT)) ? 1 : (fire && (nav & PAD_BUTTON_LEFT)) ? -1 : (down & PAD_BUTTON_A) ? 1 : 0;
         if (gl_opt == 0 && ch) { gl_sort = (gl_sort + ch + 5) % 5; gl_apply_sort(); settings_dirty = 1; }
         else if (gl_opt == 1 && (down & PAD_BUTTON_A) && gl_n) {
@@ -2057,7 +2059,7 @@ static void gclib_input(u32 down, u32 nav, int fire) {
             gl_note(gl_n ? "Liste actualis\xC3\xA9" "e" : "Aucun jeu trouv\xC3\xA9");
             return;
         }
-        else if (gl_opt == 4 && (down & PAD_BUTTON_A)) { gl_opt = -1; nat_bench_all(); return; }   /* v171 */
+        /* (v425 : « Banc d'essai rapide (tous) » retire : la console ne copie plus rien des jeux sur la carte SD) */
         if (down & (PAD_BUTTON_B | PAD_BUTTON_Y)) gl_opt = -1;
         return;
     }
@@ -2102,7 +2104,8 @@ static void gclib_input(u32 down, u32 nav, int fire) {
         if (gl_n && gl[gl_sel].dvd) { if (down & PAD_BUTTON_B) gl_detail = 0; return; }   /* v97 : (case du vrai lecteur) */
         if (down & PAD_BUTTON_X && gl_n) gl_open_cheats(gl_sel);
         if ((down & PAD_BUTTON_Y) && gl_n) indigo_game_open(gl[gl_sel].id, gl[gl_sel].title);   /* v35 : reglages du jeu */
-        if (cs_ex > 0 && gl_n) nat_run(gl_sel);                       /* v50 : analyse native (natif.c) ; v386 : stick C droite (avant R) */
+        /* v427 : plus d'analyse native a la manette (stick C droite, v386 ; avant R) : demande du proprietaire, rien d'un jeu
+           ne se lit ou ne sort de la console par la manette ; seule l'appli privee extrait un fichier d'un jeu (/api/discfile) */
         if ((down & PAD_BUTTON_DOWN) && gl_n) { jb_open_game(gl_sel); return; }   /* v207 : musiques du jeu (jukebox.c) */
         if (((down & PAD_BUTTON_UP) || cs_ex < 0) && gl_n) {          /* v76 : favori ; v386 : croix haut (avant L) ; v390 : aussi stick C
                                                                          gauche (dans la vue des jaquettes, la croix haut ouvre la boite) */
@@ -2140,10 +2143,9 @@ static void gclib_input(u32 down, u32 nav, int fire) {
         settings_dirty = 1;
         gl_note(gl_view_name());
     }
-    if ((down & PAD_BUTTON_A) && gl_n) { gl_detail = 1; if (gl[gl_sel].dvd) gl_launch_sel = gl_sel; }   /* v97 : disque : tout de suite "Lancer ?" */
+    if ((down & PAD_BUTTON_A) && gl_n) { gl_detail = 1; crumb("fiche du jeu : %.40s", gl[gl_sel].title);   /* (v422) */ if (gl[gl_sel].dvd) gl_launch_sel = gl_sel; }   /* v97 : disque : tout de suite "Lancer ?" */
     if ((down & PAD_BUTTON_X) && gl_n && !gl[gl_sel].dvd) gl_open_cheats(gl_sel);
     if (down & PAD_BUTTON_Y) gl_opt = 0;                      /* v45 : options (tri, hasard, animations, actualiser) */
-    if (gm_hub_input()) return;                               /* v84 : stick C : applis / cartes memoire */
     if (down & PAD_BUTTON_B) { gl_on = 0; if (gl_list_dirty) { gl_list_dirty = 0; gl_list_save(); } }
 }
 
@@ -2637,17 +2639,17 @@ static void draw_gclib(void) {
     }
 }
 static void draw_gclib_main(void) {
-    gq_step();                                             /* v356 : (tour de la carte en fond) */
+    SLOW("mes jeux : tour de la carte", gq_step());       /* v356 : (tour de la carte en fond) */
     gl_loaded_frame = 0;
-    if (gs_view()) { if (gl_detail) gs_draw_fiche(); else gs_draw(); return; }   /* v196 : espace Jeux GameCube (gspace.c) ; v197 : + la fiche */
+    if (gs_view()) { if (gl_detail) SLOW("mes jeux : fiche", gs_draw_fiche()); else SLOW("mes jeux : vitrine", gs_draw()); return; }   /* v196 : espace Jeux GameCube (gspace.c) ; v197 : + la fiche */
     char buf[NAME_LEN], d[NAME_LEN];
     draw_panel(11, 73, 618, 338);
     int tx = draw_tabs(NULL);
     f32 hub_end = 0;
-    if (!gl_detail && tab == TAB_GAMES) hub_end = gm_hub_bar(tx + 6, 85);   /* v84 : jeux / applis / cartes (stick C) */
-    else {
+    {                                                        /* v451 : (barre Jeux / Applis / Cartes retiree : le titre, toujours) */
         snprintf(buf, sizeof(buf), gl_detail ? "Mes jeux GameCube (%d)  >  fiche" : "Mes jeux GameCube (%d)", gl_n - gl_has_dvd());
         gx_text1(F_SMALL, tx + 6, 99, buf, RGBA(200, 190, 240, 255));
+        hub_end = tx + 6 + text_width(F_SMALL, buf, 1);
     }
     if (!gl_post.fp) {                                       /* v139 : a gauche de "R : affichage" (se chevauchaient) */
         f32 rx = 590;
@@ -2726,13 +2728,21 @@ static void draw_gclib_main(void) {
         f32 dy = y + 46, dy0 = dy;
         f32 di = gl_fx_draw(g->id, rx, dy + 10, rw);    /* v281 : genre, joueurs, annee, editeur */
         if (di > dy0 + 10) dy = di - 4;
-        int maxl = has_st ? (int)((396 - 132 - 14 - dy) / 17) : (int)((372 - dy) / 17);
+        int maxl = has_st ? (int)((396 - 132 - 14 - dy) / 17) : (int)((354 - dy) / 17);   /* (v503 : une ligne de moins : mode de Pulse) */
         if (maxl < 2) maxl = 2; if (maxl > 11) maxl = 11;
         const char *syn = gl_fx_syn(g->id);
         if (syn) gl_wrap(F_SMALL, syn, rx, dy, rw, 17, maxl, RGBA(215, 205, 245, 255));
         else if (g->desc) gl_wrap(F_SMALL, g->desc, rx, dy, rw, 17, maxl, RGBA(215, 205, 245, 255));
         else gx_text1(F_SMALL, rx, dy, g->bstate == 0 ? "Lecture de la banni\xC3\xA8re..." : "Pas de description pour ce jeu.", RGBA(170, 155, 225, 255));
         if (has_st) { f32 sw = 176, sh = 132; draw_tex_fit(&gl_bigst.obj, 320, 240, 320, 240, rx, 396 - sh - 6, sw, sh); }
+        if (!g->dvd) {                                         /* v503 : mode de Pulse prevu pour ce jeu, et pourquoi */
+            char w[100];
+            int lite = na_pm_preview(g->id, na_pm_jeu(g->id), w, sizeof(w));
+            snprintf(buf, sizeof(buf), "Pulse : %s", w);
+            char fv2[160];
+            fit_text(F_SMALL, buf, has_st ? rw - 186 : rw, fv2, sizeof(fv2));
+            gx_text1(F_SMALL, has_st ? rx + 186 : rx, g->runs ? 344 : 362, fv2, lite ? RGBA(150, 210, 255, 255) : RGBA(255, 200, 130, 255));
+        }
         {                                                      /* v46 : cheats du jeu, actives d'ici (X) */
             int cn = now_ms() - last_input_ms > 150 || !gl_anim ? gl_cheats_on(gl_sel) : -2;
             if (cn >= 0 || cn == -1) {
@@ -2756,9 +2766,9 @@ static void draw_gclib_main(void) {
         }
         scr_viewport();
         if (now_ms() - gl_msg_t < 6000) { char m[200]; fit_text(F_SMALL, gl_msg, 586, m, sizeof(m)); gx_text1(F_SMALL, 30, 404, m, RGBA(255, 210, 120, 255)); }
-        static const char *const k[] = { "A", "X", "Y", "R", "\xE2\x86\x93", "B" };
-        static const char *const l[] = { "LANCER", "CHEATS", "R\xC3\x89GLAGES", "ANALYSE", "MUSIQUES", "RETOUR" };
-        draw_legend_keys(k, l, 6);
+        static const char *const k[] = { "A", "X", "Y", "\xE2\x86\x93", "B" };   /* (v427 : sans l'analyse) */
+        static const char *const l[] = { "LANCER", "CHEATS", "R\xC3\x89GLAGES", "MUSIQUES", "RETOUR" };
+        draw_legend_keys(k, l, 5);
         if (gl_launch_sel >= 0) gl_draw_launch_box();          /* confirmation (v196 : une fonction) */
         snprintf(buf, sizeof(buf), "%d / %d   (gauche / droite)", gl_sel + 1, gl_n);
         gx_text_r(F_SMALL, 614, 396, buf, RGBA(150, 135, 210, 255));
@@ -2788,13 +2798,13 @@ static void draw_gclib_main(void) {
     static const char *const l[] = { "FICHE", "CHEATS", "OPTIONS", "AFFICHAGE", "RETOUR" };
     draw_legend_keys(k, l, 5);
     if (gl_opt >= 0) {                                         /* v45 : fenetre Options */
-        static const char *const nm[5] = { "Trier par", "Jeu au hasard", "Animations", "Actualiser la liste", "Banc d'essai rapide (tous)" };
-        const f32 w = 400, rh = 30, h = 74 + 5 * rh, x = 120, y = 240 - h / 2;
+        static const char *const nm[4] = { "Trier par", "Jeu au hasard", "Animations", "Actualiser la liste" };   /* (v425) */
+        const f32 w = 400, rh = 30, h = 74 + 4 * rh, x = 120, y = 240 - h / 2;
         gx_quad4(0, 0, 640, 480, RGBA(0, 0, 0, 130), RGBA(0, 0, 0, 130), RGBA(0, 0, 0, 130), RGBA(0, 0, 0, 130));
         gx_rrect_fill(x, y, w, h, 12, RGBA(14, 8, 44, 250), RGBA(8, 5, 26, 250));
         draw_panel(x, y, w, h);
         gx_text1(F_LARGE, x + 20, y + 32, "Options", RGBA(255, 255, 255, 255));
-        for (int i = 0; i < 5; i++) {
+        for (int i = 0; i < 4; i++) {
             f32 ry = y + 44 + i * rh;
             int on = i == gl_opt;
             gp_zone(x + 12, ry, w - 24, rh - 3, &gl_opt, i, GPZ_SEL);

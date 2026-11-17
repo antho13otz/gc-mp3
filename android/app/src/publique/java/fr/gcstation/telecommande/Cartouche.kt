@@ -8,5 +8,7 @@ import androidx.compose.runtime.Composable
 object Cartouche {
     fun preparer() { }
     fun garder() { }
+    fun allumer(): Boolean = false
+    fun inseree(): Boolean = false
     @Composable fun Choix() { }
 }

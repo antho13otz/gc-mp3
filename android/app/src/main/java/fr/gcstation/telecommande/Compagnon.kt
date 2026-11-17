@@ -815,7 +815,8 @@ object JeuWW {
                // la copie du lieu en cours en +0x778, a jour ; mClearCount, mReturnPlace)
                val donjons: IntArray = IntArray(0),                 // 7 donjons (FF, DRC, FW, TOTG, ET, WT, GT) : bits carte, boussole, grande cle, boss, receptacle
                val coffres: Int = -1, val coffresIci: Int = -1, val salles: Int = -1,
-               val quete2: Int = 0, val retour: String = "")
+               val quete2: Int = 0, val retour: String = "",
+               val figurines: Int = -1, val tingle: Int = -1)   // (appli 572 : figurines de la Galerie Nintendo /134, statues de Tingle /5)
 
     /** null : rien de lisible (pas ce jeu, ou Pulse muet) */
     fun lire(l: Lecteur): Etat? {
@@ -866,7 +867,22 @@ object JeuWW {
             donjons = donjonsBits(l, scene), coffres = coffresTotal(l), coffresIci = l.u32(G + 0x778)?.let { java.lang.Long.bitCount(it) } ?: -1,
             salles = run { val a = l.u32(G + 0x778 + 0x18); val b = l.u32(G + 0x778 + 0x1C); if (a != null && b != null) java.lang.Long.bitCount(a) + java.lang.Long.bitCount(b) else -1 },
             quete2 = l.u8(G + 0x148 + 0x58)?.takeIf { it < 100 } ?: 0,
-            retour = (l.texte(G + 0x30, 8) ?: "").takeWhile { it.code in 33..126 })
+            retour = (l.texte(G + 0x30, 8) ?: "").takeWhile { it.code in 33..126 },
+            figurines = if (Prive.ACTIF) figurines(l) else -1, tingle = if (Prive.ACTIF) statuesTingle(l) else -1)
+    }
+
+    /** appli 572 : figurines de la Galerie Nintendo (notes de code publiques de RetroAchievements, The Wind Waker : 134 bits
+     *  documentes, octets G + 0x6A4 .. 0x6D5) et statues de Tingle (bit 7 du 1er octet de tresors de chaque donjon) */
+    private val FIG = intArrayOf(0x6A4, 0x6A5, 0x6A6, 0x6A7, 0x6A8, 0x6B0, 0x6B1, 0x6B2, 0x6B3, 0x6B4, 0x6B5, 0x6B6, 0x6B7, 0x6B8, 0x6B9, 0x6C0, 0x6D5)
+    private fun figurines(l: Lecteur): Int {
+        var n = 0
+        for (o in FIG) { val b = l.u8(G + o) ?: return -1; n += Integer.bitCount(if (o == 0x6A4) b and 0x3F else b) }
+        return n.takeIf { it <= 134 } ?: -1
+    }
+    private fun statuesTingle(l: Lecteur): Int {
+        var n = 0
+        for (o in intArrayOf(0x3EE, 0x412, 0x436, 0x45A, 0x47E)) { val b = l.u8(G + o) ?: return -1; if (b and 0x80 != 0) n++ }
+        return n
     }
 
     /** build 443 : les donjons dans l'ordre du jeu : case de dSv_save_c.mMemory (STAGE_FF 2, DRC 3, FW 4, TOTG 5, ET 6, WT 7, GT 8) */
@@ -1069,7 +1085,9 @@ object JeuSMS {
                val zones: List<ZoneSoleils> = emptyList(), val delfino: ZoneSoleils? = null, val achats: ZoneSoleils? = null, val corona: ZoneSoleils? = null,
                val buse: Int = -1, val buse2: Int = -1, val yoshi: Int = -1, val yoshiDebloque: Boolean = false,
                val fusee: Boolean = false, val turbo: Boolean = false, val rouges: Int = -1,
-               val x: Float = 0f, val y: Float = 0f, val z: Float = 0f, val cap: Double = 0.0, val vitesse: Float = 0f, val aPos: Boolean = false)
+               val x: Float = 0f, val y: Float = 0f, val z: Float = 0f, val cap: Double = 0.0, val vitesse: Float = 0f, val aPos: Boolean = false,
+               val sauvegardes: Int = -1, val piantas: Int = -1, val ballons: Int = -1,
+               val plan: Bloc? = null)                                 // (appli 573 : plan vu de dessus, Jeux4.kt Traces)   // (appli 572 : notes de code publiques de RetroAchievements)
 
     private fun bit(d: IntArray, n: Int): Boolean = n >= 0 && n / 8 < d.size && (d[n / 8] shr (n and 7)) and 1 != 0
 
@@ -1124,7 +1142,11 @@ object JeuSMS {
         val zone = if (scene < ZONE_DE.size) ZONE_DE[scene] else 1
         return Etat(etat == 5, soleils, bleues, pieces, vies, sante, eau, scene, zone, ep, scene in 0x15..0x34,
             zones, delf, ach, cor, buse, buse2, yo, yd, fusee, turbo, (l.s32(f + 0xF4) ?: -1).takeIf { it in 0..8 } ?: -1,   // (MSF_RED_COIN_COUNT : mStageInts[0])
-            x, y, z, cap, vit, aPos)
+            x, y, z, cap, vit, aPos,
+            sauvegardes = if (Prive.ACTIF) l.s32(f + 0x78)?.takeIf { it in 0..99999 } ?: -1 else -1,
+            piantas = if (Prive.ACTIF) l.s32(f + 0xFC)?.takeIf { it in 1..99 } ?: -1 else -1,
+            ballons = if (Prive.ACTIF) l.s32(f + 0xF8)?.takeIf { it in 1..99 } ?: -1 else -1,
+            plan = if (aPos) Traces.bloc("sms:$scene:$ep", "Plan de la zone", x, z, "M", 0xFFFF3B3B, saut = 20000f) else null)
     }
 }
 
@@ -1957,7 +1979,7 @@ object Compagnon {
                     idLu = SystemClock.elapsedRealtime()
                     if (e == null) {
                         muet++
-                        statut = if (St.jeu?.mem == false) "Ce jeu a été lancé sans le chercheur de codes. Sur la console : START > Réglages > Chercheur de codes (appli) = Oui, puis relance le jeu."
+                        statut = if (St.jeu?.pulse == 2) "Ce jeu tourne avec le Pulse léger : le téléphone n'est pas écouté pendant cette partie. Sur la console : START > Réglages > Chercheur de codes, puis relance le jeu." else if (St.jeu?.mem == false) "Ce jeu a été lancé sans le chercheur de codes. Sur la console : START > Réglages > Chercheur de codes (appli) = Oui, puis relance le jeu."
                                  else "Pulse ne répond pas. Sur la console : START > Réglages > Chercheur de codes (appli) = Oui, puis relance le jeu (Broadband Adapter branché)."
                         if (muet > 20 && !Chrono.enCours) break
                         delay(1500); continue
@@ -2145,6 +2167,10 @@ object Chrono {
 }
 
 // ---------------------------------------------------------------- l'ecran
+/** build 568 : jeux qui se servent d'une GBA par le câble (3 premières lettres du code du jeu) : Four Swords Adventures,
+ *  Final Fantasy Crystal Chronicles, Rayman 3, Pac-Man Vs., Metroid Prime, Animal Crossing, Pokémon Colosseum, XD, Box,
+ *  Sonic Adventure 2 Battle, Sonic Adventure DX, Mario Golf Toadstool Tour (Wind Waker a sa propre carte) */
+val JEUX_GBA = setOf("G4S", "GCC", "GRH", "PRJ", "GM8", "GAF", "GC6", "GXX", "GPX", "GSN", "GXS", "GFT")
 fun dureeChrono(ms: Long, signe: Boolean = false): String {
     val neg = ms < 0
     val a = Math.abs(ms)
@@ -2181,7 +2207,7 @@ fun EcranCompagnon() {
             id.startsWith("GZL") -> { c, u -> CartesWW.installer(c, u) }
             id.startsWith("GM4") -> { c, u -> CartesMK.installer(c, u) }
             id.startsWith("GRH") -> { c, u -> CartesR3.installer(c, u) }
-            else -> null }
+            else -> Prive.packCompagnon(id) }                                 // (appli 581 : Ocarina of Time, appli privee)
         if (packJeu != null) {
             val portee = androidx.compose.runtime.rememberCoroutineScope()
             var msgPack by remember { mutableStateOf("") }
@@ -2202,12 +2228,15 @@ fun EcranCompagnon() {
             if (!occupe && msgPack.isNotEmpty()) Doux(msgPack, taille = 11)
         }
         // build 558 : les accessoires du telephone, sous un titre
-        val avecMicro = MicTel.VISIBLE && (id.isEmpty() || id.startsWith("GP6") || id.startsWith("GP7") || MicTel.etat.marche)
-        if (avecMicro || !id.startsWith("GZL")) TitreSection("Accessoires du téléphone")
+        // (appli 581 : plus quand le jeu est inconnu, Pulse leger par exemple : seulement les jeux qui s'en servent, ou deja allume)
+        val avecMicro = MicTel.VISIBLE && (id.startsWith("GP6") || id.startsWith("GP7") || MicTel.etat.marche)
+        // build 568 : la GBA du telephone seulement pour les jeux qui s'en servent (ou deja allumee)
+        val avecGba = !id.startsWith("GZL") && (id.take(3) in JEUX_GBA || GbaEmu.marche)
+        if (avecMicro || avecGba) TitreSection("Accessoires du téléphone")
         // build 373 : le micro du telephone (slot B, essai ; MicroTel.kt) : jeux a micro, ou jeu pas encore lu
-        if (MicTel.VISIBLE && (id.isEmpty() || id.startsWith("GP6") || id.startsWith("GP7") || MicTel.etat.marche)) MicroTelephone()   // (build 458 : cache)
+        if (avecMicro) MicroTelephone()   // (build 458 : cache)
         // build 373 : la GBA du telephone ailleurs que dans Wind Waker ; build 376 : pour tous les jeux (Rayman 3, Pac-Man Vs....)
-        if (!id.startsWith("GZL")) TingleTunerWW(ww = false)
+        if (avecGba) TingleTunerWW(ww = false)
         RangeeDePuces {
             Puce("En jeu", vue == 0) { vue = 0 }
             Puce("Chrono", vue == 1) { vue = 1 }
@@ -2219,6 +2248,7 @@ fun EcranCompagnon() {
             is Fiche -> CompagnonFiche(e)
             else -> {}
         } else EcranChrono()
+        if (vue == 0 && id.isNotEmpty()) Prive.CompagnonJeu(id)           // (appli 581 : Ocarina of Time en 3D, appli privee)
         if (vue == 0 && id.isNotEmpty()) GererEpingles(id)              // (v314 : valeurs epinglees : les retirer)
         Spacer(Modifier.height(20.dp))
     }
@@ -2551,6 +2581,8 @@ private fun CentWW(e: JeuWW.Etat) {
         if (c[0] < 49) manque.add("Cartes" to ("${c[0]} / 49 obtenues"))
         if (c[2] < c[0]) manque.add("Trésors à repêcher" to ((c[0] - c[2]).toString() + " carte(s) obtenue(s) dont le trésor n'est pas encore remonté"))
     }
+    if (e.figurines in 0..133) manque.add("Figurines (Galerie Nintendo)" to ("${e.figurines} / 134"))   // (appli 572)
+    if (e.tingle in 0..4) manque.add("Statues de Tingle" to ("${e.tingle} / 5"))
     val iles = if (e.cartes.size >= 49) (0 until 49).filter { e.cartes[it] and 1 == 0 }.map { JeuWW.ile(it) + " (" + JeuWW.nomCase(it) + ")" } else emptyList()
     Carte(Modifier.fillMaxWidth()) {
         Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -2564,7 +2596,7 @@ private fun CentWW(e: JeuWW.Etat) {
                 Text("Îles jamais visitées (" + iles.size + ")", color = C.Texte, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
                 Doux(iles.joinToString(" · "), taille = 11)
             }
-            Doux("Pas encore lus : figurines, quêtes annexes, quarts de cœur île par île.", taille = 10)
+            Doux(if (e.figurines >= 0) "Pas encore lus : quêtes annexes, quarts de cœur île par île." else "Pas encore lus : figurines, quêtes annexes, quarts de cœur île par île.", taille = 10)
         }
     }
 }
@@ -2650,6 +2682,8 @@ private fun CompagnonSMS(e: JeuSMS.Etat) {
                 Doux(" pièces rouges " + e.rouges + " / 8", taille = 11, couleur = Color(0xCCFFFFFF))
             }
             if (!e.enJeu) Doux("Menu ou cinématique.", taille = 11, couleur = Color(0xCCFFFFFF))
+            if (e.sauvegardes >= 0 || e.piantas > 0 || e.ballons > 0) Doux(listOfNotNull(e.sauvegardes.takeIf { it >= 0 }?.let { "$it sauvegarde(s)" },
+                e.piantas.takeIf { it > 0 }?.let { "Piantas secourus : $it" }, e.ballons.takeIf { it > 0 }?.let { "ballons : $it" }).joinToString(" · "), taille = 11, couleur = Color(0xCCFFFFFF))
         }
     }
     // JET : le reservoir, les buses, Yoshi
@@ -2685,6 +2719,9 @@ private fun CompagnonSMS(e: JeuSMS.Etat) {
             }
         }
     }
+    e.plan?.let { b -> b.plan?.let { p -> Carte(Modifier.fillMaxWidth()) {   // (appli 573)
+        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) { Titre(b.titre, couleur = Color(0xFFFFD54A)); DessinPlan(p); Doux(b.texte, taille = 10) }
+    } } }
     // les soleils de chaque zone
     if (e.zones.isNotEmpty()) Carte(Modifier.fillMaxWidth()) {
         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {

@@ -33,7 +33,7 @@ static const char *const retro_xmp_ext[] = { ".mod", ".m15", ".nst", ".wow", ".s
     ".sym", ".umx", ".amf", ".abk", ".xmf", ".ice", ".flt", ".hmn", ".mus", NULL };
 static int retro_ext_fmt(const char *path) {
     static const char *const g[] = { ".spc", ".nsf", ".nsfe", ".gbs", ".vgm", ".vgz", ".gym", ".hes", ".kss", ".ay", ".sap" };
-    static const char *const c[] = { ".dsp", ".hps", ".adp", ".ast" };
+    static const char *const c[] = { ".dsp", ".hps", ".adp", ".ast", ".adx" };   /* (v422 : .adx) */
     static const char *const mid[] = { ".mid", ".midi", ".kar", ".rmi" };      /* v203 */
     const char *dot = strrchr(path, '.');
     const char *base = strrchr(path, '/');
@@ -55,7 +55,7 @@ static int retro_ext_fmt(const char *path) {
 }
 
 /* --- DSP / HPS / ADP / AST (GameCube) --- */
-enum { GC_DSP, GC_HPS, GC_ADP, GC_AST };
+enum { GC_DSP, GC_HPS, GC_ADP, GC_AST, GC_ADX };
 typedef struct { s16 coef[16]; int h1, h2; } dspch_t;
 /* v207 : un fichier de musique, sur la carte SD ou DANS une image de jeu ("jeu.iso#/dossier/musique.hps") */
 #define GCF_BUF 32768
@@ -148,6 +148,10 @@ static long ast_loop_s = -1, ast_end_s = 0, ast_s = 0;     /* debut de boucle, f
 static long ast_lb = -1, ast_lb_s = 0;      /* bloc qui contient le debut de boucle (et son 1er echantillon) */
 static int ast_lh[2][2];                    /* historique a ce bloc */
 static int ast_h[2][2];
+/* v422 : ADX (CRI : jeux Sega et d'autres : F-Zero GX, Super Monkey Ball, Sonic...) : blocs de 18 octets par voie
+   (echelle 16 bits + 32 echantillons de 4 bits), prediction a deux coefficients tires de la frequence de coupure.
+   Ecrit d'apres la description publique du format (pas de code repris). Les ADX chiffres ne sont pas lus. */
+static int adx_c1 = 0, adx_c2 = 0, adx_h[2][2];
 
 static const char *retro_system(const char *path) {
     const char *dot = strrchr(path, '.');
@@ -161,7 +165,7 @@ static const char *retro_system(const char *path) {
     if (!strcasecmp(dot, ".kss")) return "MSX";
     if (!strcasecmp(dot, ".ay")) return "ZX Spectrum";
     if (!strcasecmp(dot, ".sap")) return "Atari";
-    if (!strcasecmp(dot, ".dsp") || !strcasecmp(dot, ".hps") || !strcasecmp(dot, ".adp") || !strcasecmp(dot, ".ast")) return "GameCube";
+    if (!strcasecmp(dot, ".dsp") || !strcasecmp(dot, ".hps") || !strcasecmp(dot, ".adp") || !strcasecmp(dot, ".ast") || !strcasecmp(dot, ".adx")) return "GameCube";
     return "Module";
 }
 
@@ -348,6 +352,39 @@ static int gc_open(const char *path, tags_t *tg, const char **err) {
         snprintf(tg->title, sizeof(tg->title), "%s", display_name(base_of(path)));
         return 1;
     }
+    if (!strcasecmp(dot, ".adx")) {                             /* v422 */
+        u8 h[0x40];
+        long fsz = gcf_size(&gc_f[0]);
+        if (gcf_read(&gc_f[0], h, 0x40) != 0x40 || h[0] != 0x80 || h[1] != 0) { gc_close(); *err = "ADX illisible"; return 0; }
+        long data = (long)rb16(h + 2) + 4;
+        int ch = h[7], ver = h[0x12];
+        u32 sr = rb32(h + 8), ns = rb32(h + 0x0C), hp = rb16(h + 0x10);
+        if (h[0x13]) { gc_close(); *err = "ADX chiffr\xC3\xA9 (pas lisible)"; return 0; }
+        if (h[4] != 3 || h[5] != 18 || h[6] != 4 || ch < 1 || ch > 2 || sr < 4000 || sr > 96000 || ns == 0 || data < 0x14 || data >= fsz) {
+            gc_close(); *err = "ADX non pris en charge"; return 0; }
+        double a = 1.41421356237 - cos(2.0 * 3.14159265359 * (double)hp / (double)sr), b = 1.41421356237 - 1.0;
+        double c = (a - sqrt((a + b) * (a - b))) / b;
+        adx_c1 = (int)(c * 2.0 * 4096.0); adx_c2 = (int)(-(c * c) * 4096.0);
+        memset(adx_h, 0, sizeof(adx_h));
+        gc_ch = ch;
+        retro_rate = sr;
+        gc_kind = GC_ADX;
+        gc_data = data;
+        gc_end = data + (long)((ns + 31) / 32) * 18 * ch;
+        if (gc_end > fsz) gc_end = fsz;
+        gc_loop = -1;
+        u32 on = 0, lb = 0, le = 0;                                 /* boucle (versions 3 et 4 de l'en-tete) */
+        if (ver == 3 && data >= 0x2C) { on = rb32(h + 0x18); lb = rb32(h + 0x20); le = rb32(h + 0x28); }
+        else if (ver == 4 && data >= 0x3C) { on = rb32(h + 0x28); lb = rb32(h + 0x30); le = rb32(h + 0x38); }
+        if (on && (long)lb >= data && le > lb && (long)le <= fsz) { gc_loop = (long)lb; gc_end = (long)le; }
+        gc_samples_total = (long)ns;
+        gcf_seek(&gc_f[0], data);
+        double ms = (double)ns * 1000 / sr;
+        if (ms > 30 * 60 * 1000) ms = 30 * 60 * 1000;
+        retro_len_ms = (int)(gc_loop >= 0 ? ms * 2 + RETRO_FADE_MS : ms);
+        snprintf(tg->title, sizeof(tg->title), "%s", display_name(base_of(path)));
+        return 1;
+    }
     /* ADP : blocs de 32 octets, stereo, 48 kHz */
     long size = gcf_size(&gc_f[0]);
     gcf_seek(&gc_f[0], 0);
@@ -412,6 +449,32 @@ static int gc_decode(s16 *L, s16 *R, int max) {
                 R[n + i] = adp_sample(f[4 + i] >> 4, f[1], adp_h[1]);
             }
             n += 28;
+            continue;
+        }
+        if (gc_kind == GC_ADX) {                                  /* v422 : 32 echantillons par bloc */
+            if (n + 32 > max) break;
+            long pos = gcf_tell(&gc_f[0]);
+            if (pos + 18 * gc_ch > gc_end) {
+                if (gc_loop >= 0 && gc_loops_done < 20) { gc_loops_done++; gcf_seek(&gc_f[0], gc_loop); continue; }
+                break;
+            }
+            u8 f[2][18];
+            if (gcf_read(&gc_f[0], f[0], 18) != 18 || (gc_ch == 2 && gcf_read(&gc_f[0], f[1], 18) != 18)) break;
+            for (int c = 0; c < gc_ch; c++) {
+                int sc = rb16(f[c]), *hh = adx_h[c];
+                s16 *o = c ? R : L;
+                for (int i = 0; i < 32; i++) {
+                    int v = f[c][2 + i / 2];
+                    v = (i & 1) ? (v & 15) : (v >> 4);
+                    if (v >= 8) v -= 16;
+                    int s = v * sc + ((adx_c1 * hh[0] + adx_c2 * hh[1]) >> 12);
+                    if (s > 32767) s = 32767; else if (s < -32768) s = -32768;
+                    hh[1] = hh[0]; hh[0] = s;
+                    o[n + i] = (s16)s;
+                }
+            }
+            if (gc_ch == 1) memcpy(R + n, L + n, 32 * sizeof(s16));
+            n += 32;
             continue;
         }
         if (gc_kind == GC_DSP) {
@@ -712,7 +775,7 @@ static int retro_open(const char *path, int fmt, tags_t *tg, const char **err) {
         return 1;
     }
     if (!gc_open(path, tg, err)) return 0;
-    snprintf(tg->artist, sizeof(tg->artist), "GameCube (%s)", gc_kind == GC_DSP ? "DSP" : gc_kind == GC_HPS ? "HPS" : gc_kind == GC_AST ? "AST" : "ADP");
+    snprintf(tg->artist, sizeof(tg->artist), "GameCube (%s)", gc_kind == GC_DSP ? "DSP" : gc_kind == GC_HPS ? "HPS" : gc_kind == GC_AST ? "AST" : gc_kind == GC_ADX ? "ADX" : "ADP");
     jb_tags(path, tg);                                        /* v207 : musique d'un jeu : le jeu en album */
     return 1;
 }

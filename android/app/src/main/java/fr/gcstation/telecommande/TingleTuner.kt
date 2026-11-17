@@ -95,6 +95,19 @@ object GbaTel {
     /** build 375 : relancer l'emulateur avec le dernier programme recu */
     fun relancerEmu() { image?.let { emuLance = true; GbaEmu.demarrer(it); note("GBA relancée") } }
     val aProgramme get() = image != null
+    /** build 562 : allumer la GBA sur sa cartouche (Pokémon Colosseum, XD) : pas de programme envoye par le jeu ; c'est le jeu
+        de la cartouche qui ecoute le cable, et Pulse relaie tout des le debut (console v427) */
+    @Volatile private var demandeAllumer = false
+    fun allumerCartouche(ctx: Context) { demandeAllumer = true; if (!marche) brancher(ctx) }
+    private fun allumerIci() {                             // (fil reseau : les mots ne sont touches que par lui)
+        demandeAllumer = false
+        GbaEmu.arreter()
+        mots.clear(); suite = 0; relaisVu = 0; decode = false; programme = null; image = null; lu = false
+        emuLance = true
+        GbaEmu.demarrer(null)
+        note("GBA allumée sur la cartouche")
+    }
+    private val surCartouche get() = emuLance && GbaEmu.modeCartouche
     /** Pulse remet sa « GBA » en attente (le jeu pourra renvoyer le programme) */
     fun recommencer() { demandeReprise = true; note("Recommencer demandé") }
 
@@ -110,6 +123,7 @@ object GbaTel {
         var tPub = 0L
         try {
             while (marche) {
+                if (demandeAllumer) allumerIci()
                 val h = hote()
                 if (h == null) { Thread.sleep(500); continue }
                 // notre paquet (toutes les ~30 ms) : accuse, lecture du drapeau 0x02 (relais), recommencer
@@ -162,6 +176,9 @@ object GbaTel {
         GbaEmu.tidLuPulse = b[5].toInt() and 255           // (console v333 : dernier JOY_TRANS de la GBA lu par le jeu)
         n00 = g32(b, 28); n14 = g32(b, 32); n15 = g32(b, 36)
         if (cnt < 0 || 40 + cnt * 4 > n) return
+        // build 562 : GBA allumee sur sa cartouche : Pulse passe en relais des notre 1er paquet et recommence alors ses
+        // compteurs de mots a 0 ; tant qu'il n'y est pas (le jeu l'a remis a zero avant), rien a relayer, la GBA continue
+        if (surCartouche && st != 4) { mots.clear(); suite = 0; relaisVu = 0; etape = st; joy = js; return }
         if (k != cle && st in 1..3) {                      // (nouvelle remise a zero du jeu : nouvelle cle de session)
             if (cle != -1L) note("Nouvelle remise à zéro par le jeu")
             cle = k; raz()
@@ -177,7 +194,7 @@ object GbaTel {
         if (n >= 40 + cnt * 4 + 60) GbaEmu.resetIdx = g32(b, 40 + cnt * 4 + 56)                 // (console v351 : mots d'avant la remise a zero)
         if (n >= 40 + cnt * 4 + 52) GbaEmu.resetsPulse = g32(b, 40 + cnt * 4 + 48).toInt()      // (console v347 : remises a zero)
         while (mots.containsKey(suite)) suite++
-        val total = 1 + gl / 4                             // (cle B, puis programme et CRC)
+        val total = if (surCartouche) 0L else 1 + gl / 4  // (cle B, puis programme et CRC ; build 562 : sur la cartouche, rien avant le relais)
         if (!decode && st >= 3 && gl > 0 && suite >= total) { decode = true; dechiffrer(gl) }
         val img = image
         if (st == 4 && img != null && !emuLance) { emuLance = true; GbaEmu.demarrer(img); note("Programme lancé dans l'émulateur GBA") }
@@ -350,9 +367,16 @@ fun TingleTunerWW(ww: Boolean = true) {
                 }
                 Bouton("Recommencer", Modifier.weight(1f), actif = e.marche) { if (e.marche) GbaTel.recommencer() }
             }
+            // build 562 (appli privee) : Pokemon Colosseum, XD : la GBA s'allume sur le jeu de la cartouche, a l'ecran du jeu
+            // « Connect a Game Boy Advance… and turn on the power »
+            if (!ww && Cartouche.inseree() && !GbaEmu.marche) {
+                Bouton("⏻ Allumer la GBA (cartouche)", Modifier.fillMaxWidth(), plein = true) { GbaTel.allumerCartouche(ctx) }
+                Doux("Pokémon Colosseum / XD : touche ce bouton quand le jeu affiche « turn on the power ». Le jeu de la cartouche écoute le câble pendant l'écran du copyright, juste après l'allumage.", taille = 11, lignes = 3)
+            }
+            if (!ww && GbaEmu.marche && GbaEmu.modeCartouche) Bouton("⏻ Éteindre et rallumer", Modifier.fillMaxWidth()) { GbaTel.allumerCartouche(ctx) }
             if (e.marche) {
                 val et = when (e.etape) { 0 -> "en attente du jeu"; 1 -> "clé de session lue par le jeu"; 2 -> "le jeu envoie son programme"
-                                          3 -> "programme reçu"; 4 -> "programme lancé (relais)"; else -> "?" }
+                                          3 -> "programme reçu"; 4 -> if (GbaEmu.modeCartouche) "relais (GBA sur la cartouche)" else "programme lancé (relais)"; else -> "?" }
                 Doux("Pulse : " + (if (e.vuPulse) "répond" else "pas de réponse (réglage activé ? jeu lancé par Pulse ?)") + " · " + et + " · JOYSTAT %02X".format(e.joy), taille = 12, couleur = C.Texte)
                 if (e.etape == 2 && e.annonce > 0) {
                     LinearProgressIndicator(progress = { (e.recus.toFloat() / e.annonce).coerceIn(0f, 1f) }, modifier = Modifier.fillMaxWidth().height(6.dp), color = C.Rose)

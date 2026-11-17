@@ -5,9 +5,28 @@
 #ifndef NATRES_H
 #define NATRES_H
 
-#define NATRES_AT     0x817EE000u        /* adresse fixe (liee par tools/natres.ld) ; (v273 : 8 Ko plus bas que 0x817F0000,
+#define NATRES_AT_FULL 0x817EE000u       /* adresse fixe (liee par tools/natres.ld) ; (v273 : 8 Ko plus bas que 0x817F0000,
                                             pour les manettes du telephone : le resident etait plein) */
-#define NATRES_SIZE   0x00011F00u        /* place reservee (le haut, 817FFF00+, est laisse a la console) */
+#define NATRES_AT_LITE 0x817F1F00u       /* (v527 : 256 octets plus bas : mesure des chargements) v452 : Pulse leger (sans telephone ni reseau : tools/natres_lite.ld), plus haut : la
+                                            place gagnee va au jeu ; GC Station le prend quand rien du telephone ne sert */
+#define NATRES_AT_COMPACT 0x817FA800u    /* v474 : Pulse compact (tools/natres_compact.ld) : le faux lecteur, la carte SD, les succes, A+Z+START ;
+                                            rien d'autre (jeux qui ont besoin de toute leur memoire : The Simpsons Hit & Run US) */
+#define NATRES_AT_NOLOG 0x817EF300u     /* (v527 : 256 octets plus bas : enchainement des suites) v509 : Pulse normal sans journaux (tools/natres_nolog.ld) : sans les comptes rendus de plantage
+                                            (pile, fils, photo, canal EXI) : 5 Ko plus haut, pour le jeu (Sonic Adventure 2 Battle avec le telephone) */
+#ifdef NATRES_COMPACT
+#ifndef NATRES_LITE
+#define NATRES_LITE                              /* (le compact part du Pulse leger) */
+#endif
+#define NATRES_AT     NATRES_AT_COMPACT
+#elif defined(NATRES_LITE)
+#define NATRES_AT     NATRES_AT_LITE
+#elif defined(NATRES_NOLOG)
+#define NATRES_AT     NATRES_AT_NOLOG
+#else
+#define NATRES_AT     NATRES_AT_FULL
+#endif
+#define NATRES_END    0x817FFF00u        /* fin de la place reservee (le haut, 817FFF00+, est laisse a la console) */
+#define NATRES_SIZE   (NATRES_END - NATRES_AT)
 #define NATRES_HTAB   0x817F0000u        /* (NRO_TRAP) table des pages : alignee sur 64 Ko, quelques groupes en haut du resident */
 #define NATRES_MAGIC  0x4743534Eu        /* "GCSN" */
 #define NATRES_VER    19
@@ -248,6 +267,9 @@ typedef struct {
    section "PPAD"} (40 octets) */
 #define NATRES_MIC_MAGIC 0x4743564Fu                    /* "GCVO" */
 #define NRF_PADLOG 1024u                                /* 7e secteur du journal : la section "PPAD" au retour */
+#define NRF_NOLOG  2048u                                /* v509 : Pulse sans journaux (en-tete seul : pas de comptes rendus) */
+#define NRF_PERF   4096u                                /* v513 : 8e secteur du journal : temps passe dans Pulse (GCSI) */
+#define NATRES_PERF_MAGIC 0x47435349u                   /* "GCSI" */
 #define NATRES_PADLOG_MAGIC 0x47435350u                 /* "GCSP" */
 #define NRO_PHONE  0x04000000u              /* manettes du telephone (registres SI branches, section "PPAD") */
 /* v306 : chercheur de codes de l'appli : la section "PPAD" et le BBA aussi sans manette du telephone. Paquets UDP sur le
@@ -271,6 +293,11 @@ enum { NRN_OFF = 0, NRN_ON = 1, NRN_NOBBA = 2, NRN_NOLINK = 3, NRN_NOARP = 4, NR
 /* v122 : opt : bit 0 stick C haut/bas inverses, 1 gauche/droite inverses, 2 sticks echanges, bits 8-15 seuil des
    gachettes (0 = rien), bits 16-19 manettes lues N fois plus souvent, bit 24 vitesse d'un vrai lecteur */
 #define NRO_SPEED  0x01000000u
+#define NRO_LOGALL 0x10000000u              /* v462 : diagnostic : journal ecrit au debut de chaque image, avant la fonction du jeu */
+#define NRO_XV     0x00100000u              /* v437 : carte SD (port serie 2) lue par interruptions pendant les lectures en fond (essai) */
+#define NRO_SELFIRQ 0x40000000u             /* v476 : fins de commande par une interruption provoquee par Pulse (erreur de bus voulue), pas par le vrai lecteur */
+#define NRO_SYNC   0x20000000u              /* v473 : lectures toujours finies tout de suite (jamais en fond) : The Simpsons Hit & Run US */
+#define NRO_MIN    0x80000000u              /* v492 : Pulse minimum : pas de crochet sur le son, le DSP, le jeton de dessin (Shrek, comme Swiss) */
 #define NRO_TRAP   0x02000000u              /* v139 : acces au lecteur pris par exception (experimental) */
 #define NATRES_PTEG 0xFC00u                 /* v139 : (NRO_TRAP) groupes de la table des pages (NATRES_HTAB + ...) : GC Station laisse 0x817FFC00-0x817FFEFF libre */
 /* v139 : trap_state : pourquoi l'option n'a pas pu etre activee */
@@ -278,6 +305,7 @@ enum { NRT_OFF = 0, NRT_ON = 1, NRT_BAT = 2, NRT_BAT2 = 3, NRT_MMU = 4, NRT_VEC 
 #define NRF_CARDB  64u                    /* v122 : carte memoire virtuelle du slot B active */
 #define NATRES_ZERO 0xFFFFFFFFu           /* v121 : morceau sans donnees (bloc absent d'un .ciso) : lu comme des zeros */
 #define NATRES_CARDMAX 64                 /* morceaux du fichier de la carte virtuelle */
+#define NATRES_CARD2MAX 56                /* v459 : celle du slot B (place dans Pulse ; un fichier neuf tient en 1 ou 2 morceaux) */
 #define NRF_CARD      4u                  /* v65 : carte memoire virtuelle active */
 #define NATRES_RETMAX 64                  /* morceaux du .dol de GC Station */
 
@@ -326,6 +354,9 @@ enum { NRT_OFF = 0, NRT_ON = 1, NRT_BAT = 2, NRT_BAT2 = 3, NRT_MMU = 4, NRT_VEC 
    2e mot, mot +0x10, mot +0x14 (les mots du DMA sont relus a la fin, quand le jeu deselectionne) */
 #define NRF_EXILOG    256u
 #define NATRES_EXI_MAGIC 0x47435358u        /* "GCSX" */
+#define NATRES_REP_MAGIC 0x47435352u        /* v480 : "GCSR" (5e secteur) : 0x04 nombre de messages, 0x08 1 = arret d'urgence, 0x0C images ;
+                                               0x10 + k * 0x3C (k = 0..7, le plus ancien en premier) : retour, adresse du texte, 52 premiers octets */
+#define NATRES_REP_STR 52
 #define NATRES_EXI_MAX   15
 /* v268 : succes (section "ACH1" a la suite des cheats, voir natres.c) ; 6e secteur du journal : le debut de la
    section : 0x00 "ACH1" 0x04 n  0x08 + 8 * i (63 au plus) : etat (1 arme, 2 obtenu), image (VI) du deblocage */

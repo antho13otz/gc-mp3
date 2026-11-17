@@ -121,12 +121,12 @@ build/natres.elf: source/natres/natres.c source/natres/natres.h tools/natres.ld
 # v399 : les memes en -Os, pour le mode Pulse universel (trap) : doivent finir sous 817FFC00 (sinon la compilation echoue)
 build/natres_os.elf: source/natres/natres.c source/natres/natres.h tools/natres.ld
 > @mkdir -p build
-> $(CC) $(subst -O2,-Os,$(NATRESFLAGS)) -DPULSE_NET=1 -Wl,-T,tools/natres.ld -Wl,--no-gc-sections $< -o $@ -lgcc
+> $(CC) $(subst -O2,-Os,$(NATRESFLAGS)) -DNATRES_NO_XV -DPULSE_NET=1 -Wl,-T,tools/natres.ld -Wl,--no-gc-sections $< -o $@ -lgcc
 > @e=$$(powerpc-eabi-nm $@ | awk '/__natres_end/{print $$1}'); echo "::notice::resident Pulse BBA -Os (mode trap) : fin a $$e (max 817FFC00)"; \
 >   [ $$((0x$$e)) -le $$((0x817FFC00)) ] || { echo "::error::resident Pulse BBA -Os : fin a $$e, au-dessus de 817FFC00"; exit 1; }
 build/natres_wz_os.elf: source/natres/natres.c source/natres/natres.h tools/natres.ld
 > @mkdir -p build
-> $(CC) $(subst -O2,-Os,$(NATRESFLAGS)) -DPULSE_NET=2 -Wl,-T,tools/natres.ld -Wl,--no-gc-sections $< -o $@ -lgcc
+> $(CC) $(subst -O2,-Os,$(NATRESFLAGS)) -DNATRES_NO_XV -DPULSE_NET=2 -Wl,-T,tools/natres.ld -Wl,--no-gc-sections $< -o $@ -lgcc
 > @e=$$(powerpc-eabi-nm $@ | awk '/__natres_end/{print $$1}'); echo "::notice::resident Pulse W5500 -Os (mode trap) : fin a $$e (max 817FFC00)"; \
 >   [ $$((0x$$e)) -le $$((0x817FFC00)) ] || { echo "::error::resident Pulse W5500 -Os : fin a $$e, au-dessus de 817FFC00"; exit 1; }
 build/natres_os_bin.h: build/natres_os.elf tools/bin2h.py
@@ -150,6 +150,65 @@ build/natres_wz_bin.h: build/natres_wz.elf tools/bin2h.py
 > $(OBJCOPY) -O binary build/natres_wz.elf build/natres_wz.bin
 > python3 tools/bin2h.py build/natres_wz.bin $@ natres_wz_bin
 
+# v455 : Pulse W6100 / W6300 (PULSE_NET=3, natres_w6_bin) et Pulse ENC28J60 (PULSE_NET=4, natres_enc_bin)
+build/natres_w6.elf: source/natres/natres.c source/natres/natres.h tools/natres.ld
+> @mkdir -p build
+> $(CC) $(NATRESFLAGS) -DPULSE_NET=3 -Wl,-T,tools/natres.ld -Wl,--no-gc-sections $< -o $@ -lgcc || { \
+>   echo "::error::resident Pulse W6100/W6300 trop gros (max 817FFF00)"; exit 1; }
+> @echo "::notice::resident Pulse W6100/W6300 : fin a $$(powerpc-eabi-nm $@ | grep __natres_end) (max 817FFF00)"
+
+build/natres_w6_bin.h: build/natres_w6.elf tools/bin2h.py
+> $(OBJCOPY) -O binary build/natres_w6.elf build/natres_w6.bin
+> python3 tools/bin2h.py build/natres_w6.bin $@ natres_w6_bin
+
+build/natres_enc.elf: source/natres/natres.c source/natres/natres.h tools/natres.ld
+> @mkdir -p build
+> $(CC) $(NATRESFLAGS) -DPULSE_NET=4 -Wl,-T,tools/natres.ld -Wl,--no-gc-sections $< -o $@ -lgcc || { \
+>   echo "::error::resident Pulse ENC28J60 trop gros (max 817FFF00)"; exit 1; }
+> @echo "::notice::resident Pulse ENC28J60 : fin a $$(powerpc-eabi-nm $@ | grep __natres_end) (max 817FFF00)"
+
+build/natres_enc_bin.h: build/natres_enc.elf tools/bin2h.py
+> $(OBJCOPY) -O binary build/natres_enc.elf build/natres_enc.bin
+> python3 tools/bin2h.py build/natres_enc.bin $@ natres_enc_bin
+
+# v509 : Pulse normal sans journaux (reglage "Journaux de Pulse", ou Sonic Adventure 2 Battle avec le telephone) : sans les
+# comptes rendus de plantage, lie plus haut (tools/natres_nolog.ld), un par adaptateur reseau (natif.c, na_nolog)
+NOLOG_ELF := build/natres_nl.elf build/natres_nl_wz.elf build/natres_nl_w6.elf build/natres_nl_enc.elf
+build/natres_nl.elf: PNET := 1
+build/natres_nl_wz.elf: PNET := 2
+build/natres_nl_w6.elf: PNET := 3
+build/natres_nl_enc.elf: PNET := 4
+$(NOLOG_ELF): build/%.elf: source/natres/natres.c source/natres/natres.h tools/natres_nolog.ld
+> @mkdir -p build
+> $(CC) $(NATRESFLAGS) -DNATRES_NOLOG -DPULSE_NET=$(PNET) -Wl,-T,tools/natres_nolog.ld -Wl,--no-gc-sections $< -o $@ -lgcc || { \
+>   echo "::error::resident Pulse sans journaux (reseau $(PNET)) trop gros (max 817FFF00)"; exit 1; }
+> @echo "::notice::resident Pulse sans journaux (reseau $(PNET)) : fin a $$(powerpc-eabi-nm $@ | grep __natres_end) (max 817FFF00)"
+$(NOLOG_ELF:.elf=_bin.h): build/%_bin.h: build/%.elf tools/bin2h.py
+> $(OBJCOPY) -O binary $< build/$*.bin
+> python3 tools/bin2h.py build/$*.bin $@ $*_bin
+
+# v452 : Pulse leger : sans telephone ni reseau (ni BBA ni W5500), lie plus haut (tools/natres_lite.ld) : la place gagnee
+# va au jeu ; GC Station le prend quand rien du telephone ne sert (natif.c, na_lite)
+build/natres_lite.elf: source/natres/natres.c source/natres/natres.h tools/natres_lite.ld
+> @mkdir -p build
+> $(CC) $(NATRESFLAGS) -DNATRES_LITE -Wl,-T,tools/natres_lite.ld -Wl,--no-gc-sections $< -o $@ -lgcc || { \
+>   echo "::error::Pulse leger trop gros (max 817FFF00 depuis NATRES_AT_LITE)"; exit 1; }
+> @echo "::notice::Pulse leger : fin a $$(powerpc-eabi-nm $@ | grep __natres_end) (max 817FFF00)"
+build/natres_lite_bin.h: build/natres_lite.elf tools/bin2h.py
+> $(OBJCOPY) -O binary build/natres_lite.elf build/natres_lite.bin
+> python3 tools/bin2h.py build/natres_lite.bin $@ natres_lite_bin
+
+# v474 : Pulse compact : le faux lecteur, la carte SD, les succes, A+Z+START, rien d'autre (tools/natres_compact.ld, encore plus
+# haut) : pour les jeux qui ont besoin de toute leur memoire (natif.c, na_compact)
+build/natres_compact.elf: source/natres/natres.c source/natres/natres.h tools/natres_compact.ld
+> @mkdir -p build
+> $(CC) $(NATRESFLAGS) -DNATRES_COMPACT -Wl,-T,tools/natres_compact.ld -Wl,--no-gc-sections $< -o $@ -lgcc || { \
+>   echo "::error::Pulse compact trop gros (max 817FFF00 depuis NATRES_AT_COMPACT)"; exit 1; }
+> @echo "::notice::Pulse compact : fin a $$(powerpc-eabi-nm $@ | grep __natres_end) (max 817FFF00)"
+build/natres_compact_bin.h: build/natres_compact.elf tools/bin2h.py
+> $(OBJCOPY) -O binary build/natres_compact.elf build/natres_compact.bin
+> python3 tools/bin2h.py build/natres_compact.bin $@ natres_compact_bin
+
 # v359 : Pulse LAN (jeu en reseau local par Internet) : le meme resident, sans telephone ni chercheur de codes, avec le pont
 build/natres_lan.elf: source/natres/natres.c source/natres/natres.h tools/natres.ld
 > $(CC) $(NATRESFLAGS) -DNATRES_LAN -Wl,-T,tools/natres.ld -Wl,--no-gc-sections $< -o $@ -lgcc
@@ -161,7 +220,7 @@ build/natres_lan_bin.h: build/natres_lan.elf tools/bin2h.py
 # v187 : retour a GC Station en quittant une appli (source/natres/natret.c), en 0x80001800 (-Os : place comptee)
 build/natret.elf: source/natres/natret.c tools/natret.ld
 > @mkdir -p build
-> $(CC) $(subst -O2,-Os,$(NATRESFLAGS)) -Wl,-T,tools/natret.ld -Wl,--no-gc-sections $< -o $@ -lgcc
+> $(CC) $(subst -O2,-Os,$(NATRESFLAGS)) -DNATRES_NO_XV -Wl,-T,tools/natret.ld -Wl,--no-gc-sections $< -o $@ -lgcc
 
 build/natret_bin.h: build/natret.elf tools/bin2h.py
 > $(OBJCOPY) -O binary build/natret.elf build/natret.bin
@@ -172,14 +231,14 @@ build/natret_bin.h: build/natret.elf tools/bin2h.py
 # (-lgcc : en -Os, gcc appelle _savegpr / _restgpr, du code seul a branchements relatifs)
 build/bandeau.elf: source/natres/bandeau.c source/natres/bandeau.h tools/bandeau.ld
 > @mkdir -p build
-> $(CC) $(subst -O2,-Os,$(NATRESFLAGS)) -fno-jump-tables -fno-tree-loop-distribute-patterns -fno-tree-switch-conversion -Wl,-T,tools/bandeau.ld -Wl,--no-gc-sections $< -o $@ -lgcc
+> $(CC) $(subst -O2,-Os,$(NATRESFLAGS)) -DNATRES_NO_XV -fno-jump-tables -fno-tree-loop-distribute-patterns -fno-tree-switch-conversion -Wl,-T,tools/bandeau.ld -Wl,--no-gc-sections $< -o $@ -lgcc
 > @echo "::notice::bandeau des succes : $$(powerpc-eabi-nm $@ | grep __ban_fin) octets de code"
 
 build/bandeau_bin.h: build/bandeau.elf tools/bin2h.py
 > $(OBJCOPY) -O binary build/bandeau.elf build/bandeau.bin
 > python3 tools/bin2h.py build/bandeau.bin $@ bandeau_bin
 
-build/main.o: $(MAINDEPS) build/natres_bin.h build/natres_wz_bin.h build/natres_os_bin.h build/natres_wz_os_bin.h build/natres_lan_bin.h build/natret_bin.h build/bandeau_bin.h
+build/main.o: $(MAINDEPS) build/natres_bin.h build/natres_lite_bin.h build/natres_compact_bin.h build/natres_wz_bin.h build/natres_w6_bin.h build/natres_enc_bin.h $(NOLOG_ELF:.elf=_bin.h) build/natres_os_bin.h build/natres_wz_os_bin.h build/natres_lan_bin.h build/natret_bin.h build/bandeau_bin.h
 > @mkdir -p build
 > $(CC) $(CFLAGS) -Ibuild -DUSE_DEFAULT_STDLIB -c source/main.c -o $@
 

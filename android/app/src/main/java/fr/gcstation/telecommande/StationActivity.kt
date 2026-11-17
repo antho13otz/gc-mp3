@@ -47,6 +47,7 @@ object St {
     var panneau by mutableStateOf(true)                     // (ecran de connexion par-dessus tout)
     var panneauMsg by mutableStateOf("")
     var cherche by mutableStateOf(false)
+    var essai by mutableStateOf(false)                       // (build 565 : la console connue est essayee, l'appli reste utilisable)
     var etat by mutableStateOf<JSONObject?>(null)
     var horsLigne by mutableStateOf(false)
     var horsLigneMode by mutableStateOf(false)             // (« Utiliser hors-ligne » : sans la console, ce qui est garde sur le telephone)
@@ -131,7 +132,7 @@ class StationActivity : ComponentActivity(), Host {
                     online()
                     try { val j = JSONObject(r); lastStateAt = SystemClock.uptimeMillis(); St.etat = j } catch (e: Exception) { }
                 } else offlineStep(++fails)
-                ui.postDelayed(this, if (r == null) 3000L else if (St.etat?.optInt("kb", 0) == 1) 600L else if (Live.pushing()) 5000L else 1000L)   // (clavier ouvert : plus souvent)
+                ui.postDelayed(this, if (r == null) (if (Live.game != null) 1500L else 3000L) else if (St.etat?.optInt("kb", 0) == 1) 600L else if (Live.pushing()) 5000L else 1000L)   // (clavier ouvert : plus souvent)
             }
         }
     }
@@ -160,11 +161,22 @@ class StationActivity : ComponentActivity(), Host {
     }
 
     private fun offlineStep(n: Int) {
-        if (Live.game != null) { St.jeu = Live.game; St.horsLigne = false; return }   // (en jeu : la console ne repond pas, normal)
+        val g = Live.game
+        if (g != null) {                                          // (en jeu : la console ne repond pas, normal)
+            St.jeu = g; St.horsLigne = false
+            // build 565 : apres une longue partie, la console revient peut-etre a une autre adresse (box redemarree...) :
+            // on la cherche aussi sur le Wi-Fi de temps en temps (toutes les ~30 s), sans terminer la partie
+            if (g.playedSec() > 60 && n % 20 == 19) retrouver()
+            return
+        }
         if (n < 3) return
         wasOffline = true
         St.horsLigne = true
-        if (n % 6 == 3 && !rediscovering) {
+        if (n % 6 == 3) retrouver()
+    }
+
+    private fun retrouver() {
+        if (!rediscovering) {
             rediscovering = true
             val old = Api.host
             Thread {
@@ -189,7 +201,7 @@ class StationActivity : ComponentActivity(), Host {
     private var attenteVue = false
     private fun online() {
         val g = Live.consoleBack()
-        if (g != null) Lang.toast(this, "Partie terminée : " + g.name + " · " + Live.dur(g.playedSec()), Toast.LENGTH_LONG).show()
+        if (g != null) { Lang.toast(this, "Partie terminée : " + g.name + " · " + Live.dur(g.playedSec()), Toast.LENGTH_LONG).show(); Live.resubscribe(); St.listes++ }   // (build 565 : direct et listes repris tout de suite)
         else if (wasOffline) Lang.toast(this, "Console de retour", Toast.LENGTH_SHORT).show()
         if (g != null || wasOffline || !attenteVue) Thread {      // (v306 : chercheur de codes : ce qui attendait le retour ; titres des succes)
             val n = Attente.envoyer(this)
@@ -221,10 +233,12 @@ class StationActivity : ComponentActivity(), Host {
     fun start() {
         val h = Api.host
         if (h == null) { search(); return }
-        panneau("Connexion à la console ($h)…", true)
+        // build 565 : plus d'ecran « Connexion… » devant tout : l'appli s'ouvre tout de suite sur ce qui est garde (liste des
+        // jeux, jaquettes) pendant que la console connue est essayee ; l'ecran de recherche ne vient que si elle ne repond pas
+        St.essai = true
         Thread {
-            val ok = Api.isConsole(h, 1500)
-            ui.post { if (ok || Live.game != null) connect(h) else search() }
+            val ok = Api.isConsole(h, 1200) || Api.isConsole(h, 1500)   // (un 2e essai : le Wi-Fi du telephone se reveille)
+            ui.post { St.essai = false; if (ok || Live.game != null) connect(h) else search() }
         }.start()
     }
 

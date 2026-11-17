@@ -33,6 +33,7 @@ class Card:
     def __init__(s): s.cmd = []; s.out = []; s.idle = True; s.app = False; s.acmd41 = 0; s.log = []; s.wr = None; s.wbuf = None; s.writes = []; s.multi = None
     def deselect(s): s.cmd = []; s.out = []; s.wr = None; s.wbuf = None; s.multi = None
     def xfer_in(s, b):
+        if getattr(s, 'busy', 0): s.lost = getattr(s, 'lost', 0) + 1; return   # (build 1062 : carte occupee a ecrire : commande perdue)
         if s.wr is not None:                        # ecriture (CMD24) : jeton FE, 512 octets, CRC
             if s.wbuf is None:
                 if b == 0xFE: s.wbuf = bytearray()
@@ -40,13 +41,14 @@ class Card:
             s.wbuf.append(b)
             if len(s.wbuf) == 514:
                 disk[s.wr * 512:(s.wr + 1) * 512] = s.wbuf[:512]; s.writes.append(s.wr)
-                s.out = [0xFF, 0x05, 0x00, 0x00, 0xFF]; s.wr = None; s.wbuf = None
+                s.out = [0xFF, 0x05, 0xFF]; s.wr = None; s.wbuf = None; s.busy = 3
             return
         if s.out and b == 0xFF: return
         if not s.cmd and (b & 0xC0) != 0x40: return
         s.cmd.append(b)
         if len(s.cmd) == 6: s.exec_cmd(); s.cmd = []
     def xfer_out(s):
+        if getattr(s, 'busy', 0) and not s.out: s.busy -= 1; return 0x00   # (build 1062 : occupee a ecrire (00), meme apres CS relache)
         if not s.out and s.multi is not None:          # v88 : CMD18 : les secteurs suivants, jusqu'a CMD12
             sec = s.multi; s.multi += 1
             s.out = [0xFF, 0xFE] + blk(sec)
@@ -242,6 +244,9 @@ elif os.environ.get('EMU_BANDEAU') == '1':             # v397 : le bandeau ecrit
 else: mu.mem_map(0x80000000, 0x01800000)
 mu.mmio_map(0xCC006000, 0x1000, io_read, None, io_write, None)
 mu.mmio_map(0xCC003000, 0x1000, pi_read, None, pi_write, None)
+selfirq = [0]                                          # v476 : erreur de bus voulue (Pulse : reveil sans le vrai lecteur, NRO_SELFIRQ)
+def c4_read(uc, off, size, data): selfirq[0] += 1; return 0
+mu.mmio_map(0xC4000000, 0x1000, c4_read, None, lambda *a: None, None)
 mu.mmio_map(0xCC000000, 0x1000, pi_read, None, lambda *a: None, None)      # (CP : ecritures ignorees)
 mu.mmio_map(0xCC001000, 0x1000, lambda *a: 0, None, lambda *a: None, None)   # (build 918 : PE, lu par le journal d'un plantage depuis v257)
 def dsp_write(uc, off, size, value, data):
@@ -368,7 +373,8 @@ if MODE in ('swap', 'cheat', 'ws', 'cardb', 'pad', 'video', 'tick', 'trap', 'lan
         nk = (len(kicks) == 0) if nodrive else True
         print(('OK   ' if nk else 'FAUX ') + 'vrai lecteur : %d commande(s)%s' % (len(kicks), ' (attendu : aucune)' if nodrive else '')); ok &= nk
         if not nodrive:
-            jb = bytes(disk[card.writes[-1] * 512:card.writes[-1] * 512 + 512]) if card.writes else bytes(512)
+            jw_ = [w for w in card.writes if bytes(disk[w * 512:w * 512 + 4]) == b'GCSN']   # (v513 : le 8e secteur (GCSI) est ecrit apres l'en-tete)
+            jb = bytes(disk[jw_[-1] * 512:jw_[-1] * 512 + 512]) if jw_ else bytes(512)
             dd = [1] * struct.unpack_from('>I', jb, 0x1DC)[0]   # (v143 : compteur n_rescue ; l'anneau n'a plus que 2 entrees)
             print(('OK   ' if dd else 'FAUX ') + 'journal : secours note (%d entree(s) DD)' % len(dd)); ok &= bool(dd)
     if MODE == 'lan':                                   # v153 : le jeu et Pulse sur le meme canal EXI
@@ -464,6 +470,10 @@ H = 0x817EE000
 rd = lambda o: struct.unpack('>I', mu.mem_read(H + o, 4))[0]
 print('resident : commandes=%d derniere=%08X err=%d sdhc=%d secteurs lus=%d' % (rd(0x4C), rd(0x50), rd(0x2C), rd(0x28), rd(0x38)))
 print('vrai lecteur : %d commandes inquiry' % len(kicks))
+if os.environ.get('EMU_SELFIRQ'):                      # v476 : aucun vrai reveil, des erreurs voulues, err_hook pose (table du SDK, 23)
+    t23 = struct.unpack('>I', mu.mem_read(0x80003040 + 23 * 4, 4))[0]
+    good = selfirq[0] > 0 and all(k == 0x12000000 for k in kicks) and 0x817F0000 < t23 < 0x81800000
+    print(('OK   ' if good else 'FAUX ') + 'reveil provoque (v476) : %d erreurs voulues, %d commandes au vrai lecteur, fonction 23 %08X' % (selfirq[0], len(kicks), t23)); ok &= good
 # v57 : A+Z+START -> redemarrage (la fin normale n'est donc pas atteinte)
 rd32 = lambda a: struct.unpack('>I', mu.mem_read(a, 4))[0]
 tbl = [rd32(0x80003040 + i * 4) for i in (20, 21, 24)]
@@ -565,7 +575,7 @@ if jw:                                             # v54 : journal du jeu ecrit 
     jok &= u(0x130) > 0 and u(0x134) == 0x80003100 and 0x80003100 < u(0x138) < 0x80004000
     jok &= u(0x108) == 18 and u(0x10C) == 3 and u(0x110) == 5 and u(0x118) == 0x52 and u(0x114) == 2
     print('lectures en fond : %d (%d morceaux)' % (u(0xD0), u(0xD4)))
-    jok &= u(0xD0) == 2 + u(0x1E8) and u(0xD4) == 132 + u(0x1E8)   # (v88 : 0x2000 + 0x40000 octets, morceaux de 2 Ko ; v145 : + lectures passees en fond, bus EXI pris)
+    jok &= u(0xD0) == 2 + u(0x1E8) and u(0xD4) == 133 + u(0x1E8)   # (v434 : 1er morceau de la lecture non alignee raccourci jusqu'au secteur suivant : +1)   # (v88 : 0x2000 + 0x40000 octets, morceaux de 2 Ko ; v145 : + lectures passees en fond, bus EXI pris)
     jok &= (u(0xB0) == 0x102 and u(0xB4) == 0x80001234 and u(0xB8) == 0x80005678 and u(0x98) == 0) if EXC else (u(0x98) == 1 and u(0xB0) == 0)
     if EXC: print('plantage note : %X a %08X LR %08X ; secteurs du journal ecrits : %s' % (u(0xB0), u(0xB4), u(0xB8), sorted(w - js for w in ecr)))
     print(('OK   ' if jok else 'FAUX ') + 'journal du jeu : %d ecritures, secteur %X, commandes=%d' % (len(card.writes), js, struct.unpack_from('>I', jb, 0x4C)[0]))

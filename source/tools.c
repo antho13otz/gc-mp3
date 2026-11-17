@@ -481,9 +481,7 @@ enum { MCP_SD, MCP_OTHER, MCP_VC, MCP_QR, MCP_ALLVC, MCP_ALLSD, MCP_ALLQR, MCP_D
 static const char *const mcp_names[MCP_COUNT] = { "Copier sur la carte SD (.gci)", "Copier vers l'autre carte", "Copier vers la carte virtuelle (Pulse)",
     "Envoyer au t\xC3\xA9l\xC3\xA9phone (QR code)", "Tout copier vers la carte virtuelle", "Tout copier sur la carte SD (.gci)",
     "Tout envoyer au t\xC3\xA9l\xC3\xA9phone (QR code)", "Supprimer" };
-static int gm_hub_input(void);
 static void mc_input(u32 down, u32 nav, int fire) {
-    if (!mc_pop && !mc_gci && gm_hub_input()) return;     /* v84 : stick C : autre vue */
     if (mc_pop) {
         if (fire && (nav & PAD_BUTTON_DOWN)) { mc_psel = (mc_psel + 1) % MCP_COUNT; mc_pconfirm = 0; }
         if (fire && (nav & PAD_BUTTON_UP)) { mc_psel = (mc_psel + MCP_COUNT - 1) % MCP_COUNT; mc_pconfirm = 0; }
@@ -832,7 +830,7 @@ static void ap_open(void) {
     if (!ap_scanned) ap_rescan();
 }
 /* v377 : la liste des applis gardee sur la carte (comme celle des jeux) : montree tout de suite au 1er passage apres le
-   demarrage (avant : « Lecture des applis... »), puis verifiee en fond ; remplacee seulement si elle a change */
+   demarrage (avant : Â« Lecture des applis... Â»), puis verifiee en fond ; remplacee seulement si elle a change */
 #define AP_LIST AP_CACHE "/liste.txt"
 static void ap_list_clean(char *d, const char *s, int cap) { int i = 0; for (; s[i] && i < cap - 1; i++) d[i] = s[i] == '\t' || s[i] == '\n' || s[i] == '\r' ? ' ' : s[i]; d[i] = 0; }
 static void ap_list_save(const ap_ent *l, int n) {      /* (fil de fond, apres la lecture de la carte) */
@@ -971,48 +969,9 @@ static void ap_input(u32 down, u32 nav, int fire) {
     if ((down & PAD_BUTTON_A) && ap_n) ap_confirm = ap_sel;
     if (down & PAD_BUTTON_Y) { ap_rescan(); tl_note("Liste actualis\xC3\xA9" "e"); }
     if (down & PAD_BUTTON_B) tl_screen = TL_NONE;
-    gm_hub_input();
 }
 
-/* ---------- v84 : onglet Jeux / Apps : passer directement d'une vue a l'autre ----------
-   Jeux GameCube, Mes applis, Cartes memoire : une barre en haut de chaque vue montre ou l'on
-   est, et le stick C (gauche / droite) passe a la vue voisine, sans revenir a l'onglet
-   (avant : B, croix, A). Les listes sont gardees : le passage est immediat. */
-static int gm_hub_cur(void) { return tl_screen == TL_APPS ? 1 : tl_screen == TL_CARDS || (tl_screen == TL_VCARD && vc_hub) ? 2 : (tl_screen == TL_NONE && gl_on) ? 0 : -1; }
-/* (v196 : barres de l'accueil : 0 jeux, 1 cartes ; les vues : 0 jeux, 2 cartes) */
-static void gm_hub_go(int k) {
-    int cur = gm_hub_cur();
-    if (cur < 0 || k == cur) return;
-    if (cur == 0) { gl_on = 0; if (gl_list_dirty) { gl_list_dirty = 0; gl_list_save(); } }
-    tl_screen = TL_NONE; vc_hub = 0;
-    gm_sel = GM_COUNT + (k ? 1 : 0);                       /* (B : retour sur la bonne barre de l'onglet) */
-    if (k == 0) gclib_open(); else if (k == 1) ap_open(); else mc_open();
-}
-static int gm_hub_input(void) {                            /* 1 = on a change de vue */
-    static int armed = 1;
-    int sx = PAD_SubStickX(0);
-    if (abs(sx) < 30) { armed = 1; return 0; }
-    if (!armed || abs(sx) < 55 || tab != TAB_GAMES || gm_hub_cur() < 0) return 0;
-    armed = 0;
-    gm_hub_go((gm_hub_cur() + (sx > 0 ? 1 : 2)) % 3);       /* v376 : jeux, applis, cartes (v196 : jeux <-> cartes) */
-    return 1;
-}
-static f32 gm_hub_bar(f32 x, f32 y) {                      /* rend la fin (x) ; y = haut de la barre (20 de haut) */
-    static const char *const nm[3] = { "Jeux", "Applis", "Cartes" };   /* (courts : tient a cote de l'affichage / des slots) */
-    int cur = gm_hub_cur();
-    for (int k = 0; k < 3; k++) {                          /* v196 : (sans les applis) ; v376 : avec (l'accueil en Aurore les montre) */
-        const char *t = TR(nm[k]);
-        f32 w = (f32)text_width(F_SMALL, t, 1) + 22;
-        int on = k == cur;
-        gx_rrect_fill(x, y, w, 20, 6, on ? RGBA(116, 46, 236, 255) : RGBA(34, 20, 84, 230), on ? RGBA(74, 22, 172, 255) : RGBA(20, 12, 52, 230));
-        if (!on) gx_rrect_stroke(x, y, w, 20, 6, 1.0f, RGBA(90, 64, 170, 255));
-        gx_text1(F_SMALL, x + 11, y + 15, t, on ? RGBA(255, 255, 255, 255) : RGBA(170, 155, 225, 255));
-        x += w + 4;
-    }
-    draw_mini_badge(x + 10, y + 10, "C");
-    gx_text1(F_SMALL, x + 22, y + 15, "< >", RGBA(170, 155, 225, 255));
-    return x + 22 + text_width(F_SMALL, "< >", 1);
-}
+/* (v451 : la barre Jeux / Applis / Cartes et le passage au stick C d'une vue a l'autre (v84) sont retires) */
 
 /* =================== derniers jeux lances =================== */
 #define RC_FILE gp_path("jeux_recents.txt")          /* v191 : du profil actuel */
@@ -1142,16 +1101,24 @@ static void info_lines(char (*l)[2][120], int *n) {
     IL("M\xC3\xA9moire", ("%d Ko utilis\xC3\xA9s, %d Ko libres"), (int)(mi.uordblks / 1024), (int)(((u32)SYS_GetArena1Hi() - (u32)SYS_GetArena1Lo() + mi.fordblks) / 1024));
     static const char *const sl[3] = { "SD2SP2 (port s\xC3\xA9rie 2)", "SD Gecko slot A", "SD Gecko slot B" };
     if (sd_ok && !tl_sd_known && sd_space(&tl_sd_tot, &tl_sd_free)) tl_sd_known = 1;   /* v97 : FSInfo (instantane) */
-    if (sd_ok && tl_sd_known) {
+    if (sd_virtual) {                                  /* v469 : affichait SD2SP2 ; et ce que chaque slot a donne */
+        IL("Carte SD", "%s", TR("aucune (SD virtuelle en m\xC3\xA9moire)"));
+        IL("Slot A", "%s", sdx_diag[0][0] ? sdx_diag[0] : "-");
+        IL("Slot B", "%s", sdx_diag[1][0] ? sdx_diag[1] : "-");
+    }
+    else if (sd_ok && tl_sd_known) {
         unsigned long long tot = tl_sd_tot, fr = tl_sd_free;
         IL("Carte SD", ("%s : %llu Mo libres sur %llu Mo"), TR(sl[sd_slot >= 0 && sd_slot < 3 ? sd_slot : 0]), fr >> 20, tot >> 20);
+        if (sd_part_set) IL("", TR("partition %d sur %d (la plus grande)"), sd_part_k, sd_part_n);   /* (v454) */
+        if (sdx_used) IL(sdx_used == 1 ? "Slot A" : "Slot B", "%s", sdx_diag[sdx_used - 1]);   /* (v471 : notre pilote) */
     } else IL("Carte SD", "%s", TR("absente"));
     IL("R\xC3\xA9seau", "%s", net_phase != NET_DONE ? TR("pas encore connect\xC3\xA9") : net_ok ? ip_str : TR("pas de r\xC3\xA9seau"));
     if (net_ok && net_static) IL("", "%s", TR("adresse fixe"));
+    if (net_ok && net_adapter()[0]) IL("", "%s", net_adapter());   /* (v455 : quel adaptateur, sur quel port) */
     if (ld_build() > 0) IL("Lanceur de secours", "build %d", ld_build());
     else IL("Lanceur de secours", "%s", TR("pas encore t\xC3\xA9l\xC3\xA9" "charg\xC3\xA9"));
     IL("D\xC3\xA9marrage", "%s", access(SD_ROOT "/ipl.dol", R_OK) == 0 ? TR("ipl.dol pr\xC3\xA9sent \xC3\xA0 la racine") : TR("pas d'ipl.dol"));
-    u64 s = now_ms() / 1000;
+    u64 s = (now_ms() - up_t0) / 1000;                 /* (v454 : depuis le demarrage ; avant : depuis la mise a l'heure de la console, 235507 h chez un testeur) */
     IL("Allum\xC3\xA9" "e depuis", "%d h %02d min", (int)(s / 3600), (int)(s / 60 % 60));
     time_t now = time(NULL);
     struct tm *tmv = localtime(&now);
@@ -1216,7 +1183,7 @@ static void mc_pills(int cur) {
 }
 static void draw_cards(void) {
     char buf[160], fv[160];
-    if (tab == TAB_GAMES) { tl_frame("", NULL); gm_hub_bar(58, 54); }   /* v84 */
+    if (tab == TAB_GAMES) tl_frame("", NULL);
     else tl_frame("Cartes m\xC3\xA9moire", NULL);
     mc_pills(mc_slot);
     if (mc_gci) {
@@ -1398,9 +1365,8 @@ static void draw_apps(void) {
     snprintf(buf, sizeof(buf), ap_n == 1 ? "1 appli" : "%d applis", ap_n);
     if (tab == TAB_GAMES && ui_skin >= 2) {                     /* v110 : dans l'onglet, comme les jeux (pas de fenetre) */
         draw_panel(11, 73, 618, 338);
-        gm_hub_bar(26, 85);
         nv_raw = 1; gx_text_r(F_SMALL, 614, 99, buf, RGBA(160, 160, 190, 255)); nv_raw = 0;
-    } else if (tab == TAB_GAMES) { tl_frame("", buf); gm_hub_bar(58, 54); }   /* v84 */
+    } else if (tab == TAB_GAMES) tl_frame("", buf);
     else tl_frame("Mes applis", buf);
     if (ui_skin >= 1 && ap_n) {
         ap_draw_row();
@@ -1715,7 +1681,7 @@ static void draw_tools(void) {
     case TL_GUIDE: draw_guide(); break;
     case TL_PROFILS: pj_draw_profils(); break;
     case TL_RECAP: rcp_draw(); break;
-    case TL_GLOBE: draw_globe(); break;
+    case TL_GLOBE: SLOW("globe : dessin", draw_globe()); break;
     case TL_PET: draw_pet(); break;
     case TL_MEM: draw_mem(); break;
     case TL_THEMES: draw_thm(); break;

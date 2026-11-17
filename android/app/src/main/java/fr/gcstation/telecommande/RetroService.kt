@@ -20,20 +20,25 @@ class RetroService : Service() {
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        if (intent?.action == ARRET) { arreterPremierPlan(); stopSelf(); return START_NOT_STICKY }
+        // build 564 : startForeground TOUJOURS d'abord, meme pour l'arret : un demarrage (startForegroundService) suivi tout de
+        // suite d'un arret (fin de partie, appli remise devant) arrivait ici en premier par l'arret ; le service s'arretait sans
+        // jamais passer au premier plan et Android fermait l'appli (ForegroundServiceDidNotStartInTimeException)
+        val arret = intent?.action == ARRET
         val jeu = intent?.getStringExtra("jeu").orEmpty()
         val nm = getSystemService(NotificationManager::class.java)
-        if (Build.VERSION.SDK_INT >= 26 && nm.getNotificationChannel(CANAL) == null)
-            nm.createNotificationChannel(NotificationChannel(CANAL, "RetroAchievements : partie en cours", NotificationManager.IMPORTANCE_LOW))
+        Lang.init(this)
+        if (Build.VERSION.SDK_INT >= 26)                 // (build 579 : recree a chaque fois : le nom suit la langue choisie)
+            nm.createNotificationChannel(NotificationChannel(CANAL, Lang.t("RetroAchievements : partie en cours"), NotificationManager.IMPORTANCE_LOW))
         val b = if (Build.VERSION.SDK_INT >= 26) Notification.Builder(this, CANAL) else @Suppress("DEPRECATION") Notification.Builder(this)
         b.setSmallIcon(R.drawable.ic_stat).setOngoing(true)
-            .setContentTitle("RetroAchievements : partie en cours")
-            .setContentText(if (jeu.isEmpty()) "Les succès sont vérifiés, même appli en arrière-plan" else "$jeu · succès vérifiés, même appli en arrière-plan")
+            .setContentTitle(Lang.t("RetroAchievements : partie en cours"))
+            .setContentText(Lang.t(if (jeu.isEmpty()) "Les succès sont vérifiés, même appli en arrière-plan" else "$jeu · succès vérifiés, même appli en arrière-plan"))
             .setContentIntent(PendingIntent.getActivity(this, 9500, Host.home(this), PendingIntent.FLAG_IMMUTABLE))
         try {
             if (Build.VERSION.SDK_INT >= 29) startForeground(ID, b.build(), ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE)
             else startForeground(ID, b.build())
         } catch (e: Exception) { RetroSucces.noter("service au premier plan refusé par Android : " + e.javaClass.simpleName); stopSelf() }
+        if (arret) { arreterPremierPlan(); stopSelf() }
         return START_NOT_STICKY
     }
 

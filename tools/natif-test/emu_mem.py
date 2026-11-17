@@ -10,7 +10,8 @@ from unicorn import *
 from unicorn.ppc_const import *
 BIN, ELF, HDR = sys.argv[1], sys.argv[2], sys.argv[3]
 hs = open(HDR, encoding='latin-1').read()
-AT = int(re.search(r'#define NATRES_AT\s+(0x[0-9A-Fa-f]+)', hs).group(1), 16)
+AT = int(re.search(r'#define NATRES_AT(?:_FULL)?\s+(0x[0-9A-Fa-f]+)', hs).group(1), 16)
+if __import__('os').environ.get('EMU_AT'): AT = int(__import__('os').environ['EMU_AT'], 16)   # (v509 : Pulse sans journaux)
 def fields(name_start, name_end):
     b = hs[hs.index(name_start):hs.index(name_end)]
     names = []
@@ -269,9 +270,10 @@ check('GCMS v408 : taille 8, 1 image depuis le dernier envoi', bool(h) and h[0][
 wr32(H('vi_count'), 64); call(POLL); o = udp_out()
 check('GCMS v408 : 3 images depuis le dernier envoi', bool(o) and struct.unpack('>I', o[0][1][12:16])[0] >> 24 == 3)
 # v409 / v410 : anneau (option bit 3) : l'image N repart pendant N+2, N+7, N+15 et N+31 (cases a la taille de l'image)
-RING = blk + 4 + len(PN) * 4
-wr32(blk + 4 + PN.index('msr') * 4, len(PN) * 4)
-mu.mem_write(RING, bytes(16384))
+RING = blk + 4 + len(PN) * 4 + 2048                          # (v508 : la liste du direct (2 Ko) puis la reserve, en dernier)
+wr32(blk + 4 + PN.index('msr') * 4, len(PN) * 4 + 2048)
+wr32(blk + 4 + PN.index('len') * 4, (len(PN) * 4 + 2048 + 16384) // 4)
+mu.mem_write(RING - 2048, bytes(2048 + 16384))
 def anneau(morceaux, v0, nimg):
     bba.deliver(gcms(38 + v0, morceaux, 1, 8 | (1 << 1))); udp_out()
     vu = {}

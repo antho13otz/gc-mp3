@@ -13,7 +13,8 @@ export UNICORN_DIR=$W/unicorn
 # v398-v399 : Pulse compile comme la console (gcc -O2 : le Pulse de tous les jeux ; le -Os ne sert qu au mode trap) ;
 # sinon clang -Oz (plus gros : les essais trap / check_z echouent alors pour cette seule raison)
 if command -v powerpc-linux-gnu-gcc >/dev/null; then
-powerpc-linux-gnu-gcc -O2 -mcpu=750 -msoft-float -G 0 -msdata=none -fno-pic -ffreestanding -fno-builtin -fno-asynchronous-unwind-tables -fno-exceptions -nostdlib -nostartfiles -Wall -DPULSE_NET=1 -Wl,-T,$R/tools/natres.ld -Wl,--no-gc-sections -Wl,--build-id=none -Wl,--no-warn-rwx-segments $R/source/natres/natres.c -o natres.elf -lgcc
+powerpc-linux-gnu-gcc -O2 -mcpu=750 -msoft-float -G 0 -msdata=none -fno-pic -ffreestanding -fno-builtin -fno-asynchronous-unwind-tables -fno-exceptions -nostdlib -nostartfiles -Wall -DPULSE_NET=1 -Wl,-T,$R/tools/natres.ld -Wl,--no-gc-sections -Wl,--build-id=none -Wl,--no-warn-rwx-segments $R/source/natres/natres.c -o natres-xv.elf -lgcc && echo "Pulse avec lecture par interruptions (v437) : fin a $(llvm-nm natres-xv.elf | awk '/__natres_end/{print $1}') (817fff00 au plus)"   # (v437 : le Pulse des jeux ; les essais ci-dessous, mode trap compris, sans elle)
+powerpc-linux-gnu-gcc -O2 -mcpu=750 -msoft-float -G 0 -msdata=none -fno-pic -ffreestanding -fno-builtin -fno-asynchronous-unwind-tables -fno-exceptions -nostdlib -nostartfiles -Wall -DPULSE_NET=1 -DNATRES_NO_XV -Wl,-T,$R/tools/natres.ld -Wl,--no-gc-sections -Wl,--build-id=none -Wl,--no-warn-rwx-segments $R/source/natres/natres.c -o natres.elf -lgcc
 else
 clang --target=powerpc-none-eabi -mcpu=750 -Oz -ffreestanding -fno-builtin -nostdlib -fno-pic -msoft-float -Wall -Wextra -c $R/source/natres/natres.c -o natres.o
 ld.lld -T $R/tools/natres.ld natres.o -o natres.elf
@@ -27,6 +28,28 @@ python3 $T/emu_pad.py natres.bin natres.elf $R/source/natres/natres.h | tail -1 
 python3 $T/emu_gba.py natres.bin natres.elf $R/source/natres/natres.h | tail -1   # (v331 : GBA du telephone : demarrage, programme, relais)
 python3 $T/emu_mic.py natres.bin natres.elf $R/source/natres/natres.h | tail -1   # (v332 : micro du telephone : slot B)
 python3 $T/emu_mem.py natres.bin natres.elf $R/source/natres/natres.h | tail -1   # (v306 : chercheur de codes)
+# v452 : Pulse leger (sans telephone ni reseau, lie en 0x817F2800) : memes essais de base (lecture de la carte, etc.)
+if command -v powerpc-linux-gnu-gcc >/dev/null; then
+powerpc-linux-gnu-gcc -O2 -mcpu=750 -msoft-float -G 0 -msdata=none -fno-pic -ffreestanding -fno-builtin -fno-asynchronous-unwind-tables -fno-exceptions -nostdlib -nostartfiles -Wall -DNATRES_LITE -Wl,-T,$R/tools/natres_lite.ld -Wl,--no-gc-sections -Wl,--build-id=none -Wl,--no-warn-rwx-segments $R/source/natres/natres.c -o natres_lite.elf -lgcc 2>/dev/null
+llvm-objcopy -O binary natres_lite.elf natres_lite.bin
+python3 $R/tools/bin2h.py natres_lite.bin natres_lite_bin.h natres_lite_bin
+echo "Pulse leger : fin a $(llvm-nm natres_lite.elf | awk '/__natres_end/{print $1}') (817fff00 au plus)"
+for a in "1 2 0" "0 2 0" "1 0 0"; do EMU_AT=0x817F1F00 python3 $T/emu_natres.py natres_lite.bin $a | tail -1; done
+# v474 : Pulse compact (faux lecteur, carte SD, succes, A+Z+START ; lie en 0x817FA800) : memes essais de base
+powerpc-linux-gnu-gcc -O2 -mcpu=750 -msoft-float -G 0 -msdata=none -fno-pic -ffreestanding -fno-builtin -fno-asynchronous-unwind-tables -fno-exceptions -nostdlib -nostartfiles -Wall -DNATRES_COMPACT -Wl,-T,$R/tools/natres_compact.ld -Wl,--no-gc-sections -Wl,--build-id=none -Wl,--no-warn-rwx-segments $R/source/natres/natres.c -o natres_compact.elf -lgcc 2>/dev/null
+llvm-objcopy -O binary natres_compact.elf natres_compact.bin
+python3 $R/tools/bin2h.py natres_compact.bin natres_compact_bin.h natres_compact_bin
+echo "Pulse compact : fin a $(llvm-nm natres_compact.elf | awk '/__natres_end/{print $1}') (817fff00 au plus)"
+for a in "1 2 0" "0 2 0" "1 0 0"; do EMU_COMPACT=1 EMU_AT=0x817FA800 python3 $T/emu_natres.py natres_compact.bin $a | tail -1; done
+EMU_COMPACT=1 EMU_AT=0x817FA800 EMU_ACH=$(llvm-nm natres_compact.elf | awk '$3=="ach_run"{print $1}') EMU_DIREADY=$(llvm-nm natres_compact.elf | awk '$3=="di_ready"{print $1}') NATRES_H=$R/source/natres/natres.h python3 $T/emu_natres.py natres_compact.bin 1 2 0 | tail -2   # (v474 : succes avec le compact)
+powerpc-linux-gnu-gcc -O2 -mcpu=750 -msoft-float -G 0 -msdata=none -fno-pic -ffreestanding -fno-builtin -fno-asynchronous-unwind-tables -fno-exceptions -nostdlib -nostartfiles -Wall -DPULSE_NET=1 -DNATRES_NOLOG -Wl,-T,$R/tools/natres_nolog.ld -Wl,--no-gc-sections -Wl,--build-id=none -Wl,--no-warn-rwx-segments $R/source/natres/natres.c -o natres_nl.elf -lgcc 2>/dev/null   # v509 : Pulse sans journaux
+llvm-objcopy -O binary natres_nl.elf natres_nl.bin
+echo "Pulse sans journaux : fin a $(llvm-nm natres_nl.elf | awk '/__natres_end/{print $1}') (817fff00 au plus)"
+for a in "1 2 0" "0 2 0" "1 0 0"; do EMU_AT=0x817EF300 python3 $T/emu_natres.py natres_nl.bin $a | tail -1; done
+EMU_AT=0x817EF300 EMU_ACH=$(llvm-nm natres_nl.elf | awk '$3=="ach_run"{print $1}') EMU_DIREADY=$(llvm-nm natres_nl.elf | awk '$3=="di_ready"{print $1}') NATRES_H=$R/source/natres/natres.h python3 $T/emu_natres.py natres_nl.bin 1 2 0 | tail -2
+EMU_AT=0x817EF300 python3 $T/emu_pad.py natres_nl.bin natres_nl.elf $R/source/natres/natres.h | tail -1
+EMU_AT=0x817EF300 python3 $T/emu_mem.py natres_nl.bin natres_nl.elf $R/source/natres/natres.h | tail -1
+fi
 # v359 : Pulse LAN (jeu en reseau local par Internet) : le pont
 clang --target=powerpc-none-eabi -mcpu=750 -Oz -ffreestanding -fno-builtin -nostdlib -fno-pic -msoft-float -Wall -Wextra -DNATRES_LAN -c $R/source/natres/natres.c -o natres_lan.o
 ld.lld -T $R/tools/natres.ld natres_lan.o -o natres_lan.elf && llvm-objcopy -O binary natres_lan.elf natres_lan.bin
@@ -35,7 +58,7 @@ python3 $T/emu_lan.py natres_lan.bin natres_lan.elf $R/source/natres/natres.h | 
 # (build 909 : le Pulse par defaut est celui du BBA : les essais W5500 sont faits plus bas, avec le Pulse W5500)
 # build 908 : les deux Pulse de la console : Broadband Adapter seul (PULSE_NET=1) et W5500 seul (PULSE_NET=2)
 # (v411 : clang -Oz depasse la limite depuis v409 : comme la console, gcc -O2 quand il est la ; sinon clang -Oz)
-for v in 1 2; do
+for v in 1 2 3 4; do                                   # (v455 : 3 = W6100 / W6300, 4 = ENC28J60)
   if command -v powerpc-linux-gnu-gcc >/dev/null; then
   powerpc-linux-gnu-gcc -O2 -mcpu=750 -msoft-float -G 0 -msdata=none -fno-pic -ffreestanding -fno-builtin -fno-asynchronous-unwind-tables -fno-exceptions -nostdlib -nostartfiles -Wall -DPULSE_NET=$v -Wl,-T,$R/tools/natres.ld -Wl,--no-gc-sections -Wl,--build-id=none -Wl,--no-warn-rwx-segments $R/source/natres/natres.c -o natres_n$v.elf -lgcc && llvm-objcopy -O binary natres_n$v.elf natres_n$v.bin
   else
@@ -51,9 +74,17 @@ python3 $T/emu_mic.py natres_n1.bin natres_n1.elf $R/source/natres/natres.h | ta
 python3 $T/emu_mem.py natres_n1.bin natres_n1.elf $R/source/natres/natres.h | tail -1
 for wp in "0 2" "1 0" "0 0"; do set -- $wp; W_CH=$1 W_DEV=$2 python3 $T/emu_w5500.py natres_n2.bin natres_n2.elf $R/source/natres/natres.h | tail -1; done   # (Pulse W5500)
 W_BUSY=1 python3 $T/emu_w5500.py natres_n2.bin natres_n2.elf $R/source/natres/natres.h | tail -1
+# v455 : le W5500 dans le port serie 2 ; Pulse W6100 / W6300 (PULSE_NET=3) et Pulse ENC28J60 (PULSE_NET=4) sur les 4 ports
+W_CH=2 W_DEV=0 python3 $T/emu_w5500.py natres_n2.bin natres_n2.elf $R/source/natres/natres.h | tail -1
+for c in 6100 6300; do for wp in "0 2" "2 0" "1 0" "0 0"; do set -- $wp; W_CHIP=$c W_CH=$1 W_DEV=$2 python3 $T/emu_w5500.py natres_n3.bin natres_n3.elf $R/source/natres/natres.h | tail -1; done; done
+W_CHIP=6100 W_BUSY=1 python3 $T/emu_w5500.py natres_n3.bin natres_n3.elf $R/source/natres/natres.h | tail -1
+for wp in "0 2" "2 0" "1 0" "0 0"; do set -- $wp; W_CH=$1 W_DEV=$2 python3 $T/emu_enc28j60.py natres_n4.bin natres_n4.elf $R/source/natres/natres.h | tail -1; done
+W_BUSY=1 python3 $T/emu_enc28j60.py natres_n4.bin natres_n4.elf $R/source/natres/natres.h | tail -1
+for a in "1 2 0" "1 0 0"; do python3 $T/emu_natres.py natres_n3.bin $a | tail -1; python3 $T/emu_natres.py natres_n4.bin $a | tail -1; done   # (la carte SD, sans reseau)
 for a in "1 2 0" "1 0 0"; do python3 $T/emu_natres.py natres_n2.bin $a | tail -1; done   # (Pulse W5500 : la carte SD, sans reseau)
 EMU_NODMA=1 python3 $T/emu_natres.py natres.bin 1 0 0 | tail -1     # (v94 : adaptateur sans DMA)
 EMU_BAD32=1 python3 $T/emu_natres.py natres.bin 1 0 0 | tail -1     # (v94 : 32 MHz qui abime les donnees)
+for a in "1 1 0" "0 1 0"; do EMU_NOCS=1 python3 $T/emu_natres.py natres.bin $a | tail -1; done   # (build 1059 : carte de slot lue carte non choisie)
 # v187 : retour a GC Station en quittant une appli (natret en 0x80001800) : SD2SP2 SDHC, SD Gecko slot A carte SD, slot B
 clang --target=powerpc-none-eabi -mcpu=750 -Os -ffreestanding -fno-builtin -nostdlib -fno-pic -msoft-float -Wall -Wextra -c $R/source/natres/natret.c -o natret.o
 ld.lld -T $R/tools/natret.ld natret.o -o natret.elf && llvm-objcopy -O binary natret.elf natret.bin

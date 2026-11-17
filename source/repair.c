@@ -106,11 +106,20 @@ static int rep_plan(const char *id, int verdict, char *s) {
     if (!d) {                                                         /* (sans journal : tout ce qui peut aider) */
         n = rep_add(s, n, RPS_SPEED); n = rep_add(s, n, RPS_TRAP); n = rep_add(s, n, RPS_NOCARD);
     }
+    if (na_selfirq_id(id)) {                                          /* v486 : jamais Pulse universel pour les jeux en reveil provoque */
+        int k = 0;
+        for (int i = 0; i < n; i++) if (s[i] != RPS_TRAP) s[k++] = s[i] == RPS_BOTH ? RPS_SPEED : s[i];
+        s[k] = 0; n = k;
+    }
     return n;
 }
 /* (jeux_cfg_apply, lancement avec Pulse) l'essai en cours, pour ce lancement seulement */
+/* v514 : reparation automatique coupee (demande d'Antho : la fenetre des 3 essais lancait les jeux dans des modes non voulus
+   pendant les tests). Les essais en cours sont oublies ; les patchs de secours choisis sur le telephone restent. */
+#define REP_AUTO 0
 static void rep_apply(const char *id) {
     rep_msg[0] = 0;
+    if (!REP_AUTO) return;
     rep_t *p = rep_find(id);
     if (!p && cp_verdict(id) == CP_NONE && rep_n < RP_MAX) {   /* v145 : jamais essaye ici, marche sur une autre console avec un reglage */
         cpp_t *q = cpp_find(id);
@@ -143,6 +152,7 @@ static void rep_apply(const char *id) {
 static void rep_pre(const char *id) {
     jc_load(id);
     nat_nocheat = jc_v[JC_NOCHEAT - JC_V0] == 1;
+    if (!REP_AUTO) return;
     rep_t *p = rep_find(id);
     if (p && p->cur < strlen(p->steps) && p->steps[p->cur] == RPS_NOCHEAT) nat_nocheat = 1;
 }
@@ -167,6 +177,7 @@ static void rep_keep(const char *id, const char *title, int c) {
 static void rep_verdict(const char *id, const char *title, int v, int old) {
     rep_t *p = rep_find(id);
     rep_note_txt[0] = 0;
+    if (!REP_AUTO) { if (p) rep_drop(id); (void)title; (void)v; (void)old; return; }   /* v514 : ni essai, ni fenetre */
     if (p && p->base == CP_NONE && p->steps[0]) {         /* v145 : reglage repris d'une autre console du Salon */
         int c = p->steps[0], tried = p->tried;
         rep_drop(id); p = NULL;
@@ -225,6 +236,7 @@ static void rep_verdict(const char *id, const char *title, int v, int old) {
 }
 /* ligne de la fenetre de lancement */
 static int rep_line(const char *id, char *out, int cap) {
+    if (!REP_AUTO) return 0;
     rep_t *p = rep_find(id);
     if (!p || p->cur >= strlen(p->steps)) return 0;
     if (p->base == CP_NONE) { snprintf(out, cap, "R\xC3\xA9glage d'une autre console : %s", rep_name(p->steps[p->cur])); return 1; }

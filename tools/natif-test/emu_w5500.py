@@ -3,6 +3,8 @@
 # Adapter : W5500 simule (trames SPI : adresse, controle, donnees ; socket 0 en MACRAW, tampons de 16 Ko qui font le tour).
 # Verifie : demarrage (adresse Ethernet gardee, socket ouvert), GCMI -> GCMA, GCMR -> GCMD, le direct GCMS, l'anneau de
 # reception qui fait le tour, l'ETH2GC dans le port B, et un canal pris par le jeu (on reessaie, sans abandonner).
+# v455 : W_CHIP=6100 ou 6300 : la meme chose avec un W6100 / W6300 (registres ailleurs, verrous CHPLCKR / NETLCKR,
+# identifiant EXI 0xFF800000 et trames de 4 octets pour le W6300) et le Pulse W6x00 (PULSE_NET=3).
 # Usage : emu_w5500.py natres.bin natres.elf natres.h
 import os, sys, struct, re, subprocess
 os.environ['LIBUNICORN_PATH'] = os.environ.get('UNICORN_DIR', 'work/unicorn') + '/build'
@@ -11,7 +13,7 @@ from unicorn import *
 from unicorn.ppc_const import *
 BIN, ELF, HDR = sys.argv[1], sys.argv[2], sys.argv[3]
 hs = open(HDR, encoding='latin-1').read()
-AT = int(re.search(r'#define NATRES_AT\s+(0x[0-9A-Fa-f]+)', hs).group(1), 16)
+AT = int(re.search(r'#define NATRES_AT(?:_FULL)?\s+(0x[0-9A-Fa-f]+)', hs).group(1), 16)
 def fields(name_start, name_end):
     b = hs[hs.index(name_start):hs.index(name_end)]
     names = []
@@ -30,31 +32,47 @@ NRO_MEM = int(re.search(r'#define NRO_MEM\s+(0x[0-9A-Fa-f]+)', hs).group(1), 16)
 sym = {l.split()[2]: int(l.split()[0], 16) for l in subprocess.run(['llvm-nm', ELF], capture_output=True, text=True).stdout.splitlines() if len(l.split()) == 3}
 GC_IP, PH_IP = bytes([192, 168, 1, 50]), bytes([192, 168, 1, 77])
 PH_MAC = bytes([0x02, 0xAA, 0xBB, 0xCC, 0xDD, 0xEE])
+CHIP = os.environ.get('W_CHIP', '5500')
+W6 = CHIP in ('6100', '6300')
+# registres : (W5500, W6x00)
+R = dict(zip(['CR', 'SR', 'MR', 'TXFSR', 'TXRD', 'TXWR', 'RXRSR', 'RXRD', 'RXWR', 'TXBSR', 'RXBSR', 'SIMR0', 'SHAR', 'IMR', 'SIMR'],
+             [(0x01, 0x10), (0x03, 0x30), (0x00, 0x00), (0x20, 0x204), (0x22, 0x208), (0x24, 0x20C), (0x26, 0x224), (0x28, 0x228), (0x2A, 0x22C),
+              (0x1F, 0x200), (0x1E, 0x220), (0x2C, 0x24), (0x09, 0x4120), (0x16, 0x2104), (0x18, 0x2114)]))
+R = {k: v[1 if W6 else 0] for k, v in R.items()}
 class W5500:
+    def ident(s):
+        if W6: s.blk[0][0:5] = bytes([0x61, 0x00, 0x46, 0x61, 0x11 if CHIP == '6300' else 0x10])
+        else: s.blk[0][0x39] = 0x04
+        s.blk[0][0x2E] = 0x01
     def __init__(s, ch, dev):
         s.ch, s.dev = ch, dev; s.blk = {b: bytearray(0x10000) for b in range(32)}; s.st = None; s.sent = []
-        s.blk[0][0x09:0x0F] = bytes([0x00, 0x09, 0xBF, 0x01, 0x02, 0x03])      # (adresse mise par GC Station)
-        s.blk[0][0x39] = 0x04; s.blk[0][0x2E] = 0x01; s.rx_wr = 0; s.resets = 0; s.opens = 0
+        s.blk[0][R['SHAR']:R['SHAR'] + 6] = bytes([0x00, 0x09, 0xBF, 0x01, 0x02, 0x03])      # (adresse mise par GC Station)
+        s.ident(); s.rx_wr = 0; s.resets = 0; s.opens = 0; s.locked_writes = 0
     def r16(s, b, a): return s.blk[b][a] << 8 | s.blk[b][a + 1]
     def w16(s, b, a, v): s.blk[b][a] = (v >> 8) & 0xFF; s.blk[b][a + 1] = v & 0xFF
     def sync(s):
-        rd = s.r16(1, 0x28); s.w16(1, 0x26, (s.rx_wr - rd) & 0xFFFF); s.w16(1, 0x2A, s.rx_wr & 0xFFFF)
-        s.w16(1, 0x20, 0x4000 - ((s.r16(1, 0x24) - s.r16(1, 0x22)) & 0xFFFF))
+        rd = s.r16(1, R['RXRD']); s.w16(1, R['RXRSR'], (s.rx_wr - rd) & 0xFFFF); s.w16(1, R['RXWR'], s.rx_wr & 0xFFFF)
+        s.w16(1, R['TXFSR'], 0x4000 - ((s.r16(1, R['TXWR']) - s.r16(1, R['TXRD'])) & 0xFFFF))
     def put(s, v, n):
         b = [(v >> (24 - 8 * k)) & 0xFF for k in range(n)]
         if s.st is None:
             if n == 2 and b == [0, 0]: s.st = 'id'; return
-            if n == 3: s.addr = b[0] << 8 | b[1]; s.bsb = b[2] >> 3; s.wr = bool(b[2] & 4); s.st = 'data'; return
+            if n == 3 and CHIP != '6300': s.addr = b[0] << 8 | b[1]; s.bsb = b[2] >> 3; s.wr = bool(b[2] & 4); s.st = 'data'; return
+            if n == 4 and CHIP == '6300': s.bsb = b[0] & 0x1F; s.wr = bool(b[0] & 0x20); s.addr = b[1] << 8 | b[2]; s.st = 'data'; return
             s.st = 'bad'; return
         if s.st != 'data' or not s.wr: return
         for x in b:
             m = 0x3FFF if s.bsb in (2, 3) else 0xFFFF
-            a = s.addr & m; s.blk[s.bsb][a] = x
-            if s.bsb == 0 and a == 0 and x & 0x80: s.reset()
-            if s.bsb == 1 and a == 0x01: s.cmd(x)
+            a = s.addr & m
+            if W6 and s.bsb == 0 and R['SHAR'] <= a < R['SHAR'] + 6 and s.blk[0][0x41F5] != 0x3A: s.locked_writes += 1; s.addr += 1; continue   # (NETLCKR ferme)
+            if W6 and s.bsb == 0 and a == 0x2004 and s.blk[0][0x41F4] != 0xCE: s.locked_writes += 1; s.addr += 1; continue           # (CHPLCKR ferme)
+            s.blk[s.bsb][a] = x
+            if not W6 and s.bsb == 0 and a == 0 and x & 0x80: s.reset()
+            if W6 and s.bsb == 0 and a == 0x2004 and not (x & 0x80): s.reset()
+            if s.bsb == 1 and a == R['CR']: s.cmd(x)
             s.addr += 1
     def get(s, n):
-        if s.st == 'id': return 0x03000000
+        if s.st == 'id': return 0xFF800000 if CHIP == '6300' else 0x03000000
         if s.st != 'data' or s.wr: return 0
         s.sync(); v = 0
         for k in range(n):
@@ -62,17 +80,17 @@ class W5500:
             v |= s.blk[s.bsb][s.addr & m] << (24 - 8 * k); s.addr += 1
         return v
     def reset(s):
-        mac = bytes(s.blk[0][0x09:0x0F]); s.blk = {b: bytearray(0x10000) for b in range(32)}
-        s.blk[0][0x39] = 0x04; s.blk[0][0x2E] = 0x01; s.rx_wr = 0; s.resets += 1      # (la vraie puce efface aussi SHAR)
+        lk = s.blk[0][0x41F4]; s.blk = {b: bytearray(0x10000) for b in range(32)}
+        s.ident(); s.blk[0][0x41F4] = lk; s.rx_wr = 0; s.resets += 1      # (la vraie puce efface aussi SHAR)
     def cmd(s, c):
-        s.blk[1][0x01] = 0
-        if c == 0x01 and s.blk[1][0x00] & 0x0F == 0x04: s.blk[1][0x03] = 0x42; s.opens += 1
-        if c == 0x10: s.blk[1][0x03] = 0x00
+        s.blk[1][R['CR']] = 0
+        if c == 0x01 and s.blk[1][R['MR']] & 0x0F == (0x07 if W6 else 0x04): s.blk[1][R['SR']] = 0x42; s.opens += 1
+        if c == 0x10: s.blk[1][R['SR']] = 0x00
         if c == 0x20:
-            rd, wr = s.r16(1, 0x22), s.r16(1, 0x24)
-            s.sent.append(bytes(s.blk[2][(rd + i) & 0x3FFF] for i in range((wr - rd) & 0xFFFF))); s.w16(1, 0x22, wr)
+            rd, wr = s.r16(1, R['TXRD']), s.r16(1, R['TXWR'])
+            s.sent.append(bytes(s.blk[2][(rd + i) & 0x3FFF] for i in range((wr - rd) & 0xFFFF))); s.w16(1, R['TXRD'], wr)
     def deliver(s, f):
-        if s.blk[1][0x03] != 0x42: return
+        if s.blk[1][R['SR']] != 0x42: return
         f = f + bytes(max(0, 60 - len(f))); d = struct.pack('>H', len(f) + 2) + f
         for x in d: s.blk[3][s.rx_wr & 0x3FFF] = x; s.rx_wr = (s.rx_wr + 1) & 0xFFFF
 wz = W5500(int(os.environ.get('W_CH', '0')), int(os.environ.get('W_DEV', '2')))
@@ -186,9 +204,10 @@ if os.environ.get('W_BUSY'):
     check('canal pris par le jeu : pas abandonne (on reessaiera)', padw('state') == 0, 'etat %d' % padw('state'))
     busy['ch'] = -1
 call(POLL)
-check('W5500 (%s) demarre' % where, padw('state') == 1 and wz.blk[1][0x03] == 0x42 and wz.resets == 1 and wz.opens == 1, 'etat %d sr %02X' % (padw('state'), wz.blk[1][0x03]))
-check('adresse Ethernet gardee (celle de GC Station)', bytes(wz.blk[0][0x09:0x0F]) == bytes([0x00, 0x09, 0xBF, 0x01, 0x02, 0x03]), bytes(wz.blk[0][0x09:0x0F]).hex())
-check('socket 0 : MACRAW filtre, 16 Ko + 16 Ko, sans interruption', wz.blk[1][0x00] == 0x84 and wz.blk[1][0x1E] == 16 and wz.blk[1][0x1F] == 16 and wz.blk[0][0x18] == 0 and wz.blk[1][0x2C] == 0)
+check('W%s (%s) demarre' % (CHIP, where), padw('state') == 1 and wz.blk[1][R['SR']] == 0x42 and wz.resets == 1 and wz.opens == 1, 'etat %d sr %02X resets %d' % (padw('state'), wz.blk[1][R['SR']], wz.resets))
+check('adresse Ethernet gardee (celle de GC Station)', bytes(wz.blk[0][R['SHAR']:R['SHAR'] + 6]) == bytes([0x00, 0x09, 0xBF, 0x01, 0x02, 0x03]) and wz.locked_writes == 0, bytes(wz.blk[0][R['SHAR']:R['SHAR'] + 6]).hex() + ' (ecritures refusees par un verrou : %d)' % wz.locked_writes)
+check('socket 0 : MACRAW filtre, 16 Ko + 16 Ko, sans interruption', wz.blk[1][R['MR']] == (0x87 if W6 else 0x84) and wz.blk[1][R['RXBSR']] == 16 and wz.blk[1][R['TXBSR']] == 16 and wz.blk[0][R['SIMR']] == 0 and wz.blk[1][R['SIMR0']] == 0)
+if W6: check('W6x00 : verrous refermes (CHPLCKR, NETLCKR)', wz.blk[0][0x41F4] == 0x31 and wz.blk[0][0x41F5] == 0xC5)
 wz.deliver(gcm('I', 7)); call(POLL)
 o = udp_out()
 check('GCMI -> GCMA vers le telephone', len(o) == 1 and o[0][1][:4] == b'GCMA' and o[0][0][0:6] == PH_MAC and o[0][0][30:34] == PH_IP, str([x[1][:4] for x in o]))
@@ -206,6 +225,6 @@ for i in range(300):
     wz.deliver(gcm('I', 100 + i)); call(POLL)
     o = [x for x in udp_out() if x[1][:4] == b'GCMA']
     if len(o) == 1 and struct.unpack('>I', o[0][1][4:8])[0] == 100 + i: n_ok += 1
-check('300 demandes de suite (tampons de 16 Ko qui font le tour) : 300 reponses justes', n_ok == 300 and wz.rx_wr > 16384 and wz.r16(1, 0x24) > 16384, '%d / 300, reception a %d, envoi a %d (au-dela de 16384 : les deux tampons ont fait le tour)' % (n_ok, wz.rx_wr, wz.r16(1, 0x24)))
+check('300 demandes de suite (tampons de 16 Ko qui font le tour) : 300 reponses justes', n_ok == 300 and wz.rx_wr > 16384 and wz.r16(1, R['TXWR']) > 16384, '%d / 300, reception a %d, envoi a %d (au-dela de 16384 : les deux tampons ont fait le tour)' % (n_ok, wz.rx_wr, wz.r16(1, R['TXWR'])))
 wz.deliver(gcms(33, [])); call(POLL); udp_out()
 print('TOUT OK' if ok else 'ECHEC')

@@ -1070,7 +1070,6 @@ static void vc_to_real(int i, int slot) {
 static void vc_input(u32 down, u32 nav, int fire) {
     int rows = vc_n + 3;
     if (vc_hub && !vc_pop && vc_mode == 0) {                   /* v145 : vue Cartes de l'onglet JEUX */
-        if (gm_hub_input()) return;
         if (down & (PAD_TRIGGER_L | PAD_TRIGGER_R)) { vc_hub = 0; mc_slot = (down & PAD_TRIGGER_R) ? 0 : 1; tl_screen = TL_CARDS; mc_gci = 0; mc_pop = 0; mc_sel = 0; mc_top = 0; mc_mount(mc_slot); return; }
         if (down & PAD_BUTTON_B) { vc_hub = 0; tl_screen = TL_NONE; return; }
     }
@@ -1155,7 +1154,7 @@ static void vc_input(u32 down, u32 nav, int fire) {
 }
 static void draw_vcard(void) {
     char buf[200], fv[200];
-    if (vc_hub && tab == TAB_GAMES) { tl_frame("", NULL); gm_hub_bar(58, 54); mc_pills(2); }   /* v145 */
+    if (vc_hub && tab == TAB_GAMES) { tl_frame("", NULL); mc_pills(2); }   /* v145 */
     else tl_frame("Cartes m\xC3\xA9moire virtuelles", NULL);
     if (vc_mode == 1) {
         gx_text1(F_SMALL, 58, 98, "Copier une sauvegarde de SD:/gci sur la carte virtuelle :", RGBA(200, 190, 240, 255));

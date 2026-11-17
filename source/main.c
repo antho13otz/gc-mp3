@@ -234,7 +234,7 @@ static void theme_apply(int id) {
    sombre, cartes plates, une seule couleur d'accent, onglets en haut).
    En Moderne, les couleurs violettes deviennent du gris (fonds, textes) ou la
    couleur d'accent (selection) ; le theme choisit la couleur d'accent. */
-static int ui_skin = 0;                                 /* v101 : 2 = Nouvelle interface (ui_nova.c) */
+static int ui_skin = 3;                                 /* v101 : 2 = Nouvelle interface (ui_nova.c) ; v469 : Aurore (3) par defaut (nouvelles installations : sans gc-mp3.txt) */
 static int sx_quiet = 0;                                /* v263 : test de la console en cours : rien n'est enregistre
                                                            (reglages, ecoutes, compagnon, records, historique, reprise) */
 static int nv_raw = 0;                                  /* v101 : 1 = couleurs telles quelles (Nouvelle : en-tete, fond) */
@@ -296,7 +296,11 @@ static char radio_last_url[URL_MAX], radio_last_name[48];
 static int nat_card = 1;                                /* v65 : carte memoire virtuelle (slot A) pour Resident ; v122 : 2 = slots A et B */
 static int nat_card_reg;                                 /* v122 : une carte par region (natif.c) */
 static int nat_card_game = 0;                            /* v239 : une carte par jeu (natif.c) */
+static int nat_pmode = 0;                                /* v503 : mode de Pulse : 0 automatique, 1 leger, 2 avec le telephone (natif.c) */
+static int nat_xv = 1;                                   /* v437 : carte SD (port serie 2) lue par interruptions dans les jeux (v445 : toujours ; v461 : reglage remis, oui par defaut) */
 static int nat_memtel = 0;                               /* v306 : chercheur de codes de l'appli (memoire du jeu par le reseau) */
+static int nat_jcomplet = 0;                             /* v467 : journal complet de Pulse pour tous les jeux (diagnostic ; gc-mp3.txt) */
+static int nat_plog = 1;                                 /* v509 : journaux de Pulse (non : Pulse sans journaux, 5 Ko de plus pour le jeu ; gc-mp3.txt) */
 static int nat_tvsucc = 1;                               /* v397 : bandeau des succes sur la tele pendant les jeux (Pulse) */
 static int nat_tvbas = 0;                                /* v400 : bandeau en bas de l'image (0 : en haut, au milieu) */
 static int ntf_son = 1;                                  /* v400 : petit son quand une notification du telephone descend (menu) */
@@ -418,12 +422,13 @@ static GXRModeObj *rmode = NULL;
 static int displayed_fb = 0;
 
 static u64 now_ms(void) { return ticks_to_millisecs(gettime()); }
+static u64 up_t0 = 0;                                  /* v454 : heure du demarrage de GC Station (Infos console : allumee depuis) */
 /* v390 : fil de la bibliotheque (lsc_thread) en pause pendant un lancement (carte SD demontee) : voir bg_quiesce ;
    v391 : les parcours de dossiers s'arretent aussi en cours de route (lsc_hold) */
 static volatile int lsc_hold = 0, lsc_busy = 0;
 static volatile u64 lsc_hold_t = 0;                       /* (au plus 120 s : un lancement rate qui revient ne l'arrete pas pour toujours) */
 
-/* ---------- v69 : mesure de fluidite (START > « Mesure de fluidite ») ----------
+/* ---------- v69 : mesure de fluidite (START > Â« Mesure de fluidite Â») ----------
    Chaque image : temps de chaque tache de la boucle (reseau, pochettes, decodage, dessin,
    processeur graphique, attente de l'ecran). A l'ecran : images/s, pire image, tache la plus
    lente. Quand on coupe la mesure : rapport SD:/gc-mp3/journaux/fluidite.txt (par onglet). */
@@ -460,6 +465,22 @@ static u32 perf_us(void) {
 #define PF(ph, call) do { if (perf_on) { u32 pf_t0_ = perf_us(); call; pfx_cur[ph] += perf_us() - pf_t0_; } else { call; } } while (0)
 static void sx_frame_hook(u32 tot, int tb, int top, u32 top_us);   /* v261 : selftest.c */
 static u32 sx_padmask = 0;
+/* v422 : les moments les plus lents de la mesure (une image de plus de 30 ms) : l'etape en cause, l'onglet et la
+   derniere action notee (crumb : onglet ouvert, jeu choisi, station...) ; dans fluidite.txt, pour savoir QUOI corriger */
+#define PFX_NLENT 16
+typedef struct { u32 tot, tv; u8 tb, top; char act[64]; } pfx_lent_t;
+static pfx_lent_t pfx_lents[PFX_NLENT];
+static int pfx_nlent = 0;
+static const char *crumb_last(void);                      /* (crashlog.c) */
+static void pfx_note_lent(u32 tot, int tb, int top, u32 tv) {
+    int k = pfx_nlent;
+    if (k >= PFX_NLENT) {                                 /* (plein : remplace le plus court) */
+        k = 0; for (int i = 1; i < PFX_NLENT; i++) if (pfx_lents[i].tot < pfx_lents[k].tot) k = i;
+        if (pfx_lents[k].tot >= tot) return;
+    } else pfx_nlent++;
+    pfx_lents[k].tot = tot; pfx_lents[k].tv = tv; pfx_lents[k].tb = (u8)tb; pfx_lents[k].top = (u8)top;
+    snprintf(pfx_lents[k].act, sizeof(pfx_lents[k].act), "%s", crumb_last());
+}
 static void perf_frame(int tb) {                    /* debut d'une image : on compte la precedente */
     u32 n = perf_us();
     if (!perf_on) { pfx_frame_t0 = n; return; }
@@ -487,6 +508,7 @@ static void perf_frame(int tb) {                    /* debut d'une image : on co
             if (tot > VID_VSLOW_US) pfx_vslow[tb]++;
             if (top < PH_N) pfx_top[tb][top]++;
             pfx_last_top = (u32)top; pfx_last_top_us = tv;
+            if (tot > 30000u) pfx_note_lent(tot, tb, top, tv);   /* (v422) */
         }
         pfx_sec_n++;
         if (tot > pfx_sec_worst) pfx_sec_worst = tot;
@@ -620,6 +642,13 @@ static int stat_counted;                    /* morceau en cours deja compte (lib
 static void lyrics_load(int track);
 static void bg_tick(void);              /* musique/radio pendant les attentes reseau */
 static void crumb(const char *fmt, ...);   /* journal de plantage (crashlog.c) */
+/* v448 : mesure de fluidite : une etape de plus de 60 ms est notee (son nom, sa duree, le temps pris par le reseau
+   pendant ce temps) ; c'est alors la "derniere action" des moments les plus lents de fluidite.txt */
+static void slow_note(const char *nm, u32 us, u32 stolen) {
+    if (perf_on) crumb("lent : %s %u ms (dont reseau %u ms)", nm, (unsigned)(us / 1000u), (unsigned)(stolen / 1000u));
+}
+#define SLOW(nm, call) do { if (!perf_on) { call; break; } u32 sl_t0_ = perf_us(), sl_s0_ = pfx_stolen_acc; call; \
+    u32 sl_d_ = perf_us() - sl_t0_; if (sl_d_ > 60000u) slow_note(nm, sl_d_, pfx_stolen_acc - sl_s0_); } while (0)
 static void crash_beat(void);
 static void draw_crash_notice(void);
 static void update_value(char *out, int cap);   /* update.c */
@@ -659,7 +688,7 @@ static u32 consumed_skip;
    programme est occupe (carte SD, reseau, image a decoder...) ne fait plus
    de trou dans le son. S'il n'y a vraiment plus rien, on joue du silence. */
 /* v154 : trous dans le son (echantillons joues en silence alors qu'un morceau joue et n'est pas fini) : mesure de la
-   fluidite (simulateur : ligne � son � a la fin du journal) */
+   fluidite (simulateur : ligne « son » a la fin du journal) */
 static volatile u32 au_gap = 0, au_gap_ev = 0, au_play = 0, au_tot = 0;
 static int au_in_gap = 0;
 /* v154 : apres un manque (debut d'un morceau, carte SD lente...), on attend d'avoir AU_PRE echantillons d'avance
@@ -1433,7 +1462,7 @@ static const DISC_INTERFACE *sd_real_if = NULL;
 static DISC_INTERFACE sd_cnt_if;
 /* v277 : un seul acces a la fois a la carte SD : libfat (tous les fils) et les lectures directes des jaquettes (v270 :
    boucle de l'ecran ET fil de fond, sans le verrou de libfat) se croisaient sur le bus de la carte : lectures ratees,
-   et le jeu touche restait sans jaquette (� GM4P01 � sur un disque a la place de l'image) */
+   et le jeu touche restait sans jaquette (« GM4P01 » sur un disque a la place de l'image) */
 static mutex_t sd_mx;
 static int sd_mx_ok = 0;
 static bool sd_io_read(sec_t s, sec_t n, void *b) {
@@ -1450,15 +1479,69 @@ static bool sd_cnt_write(sec_t s, sec_t n, const void *b) {
     if (sd_mx_ok) LWP_MutexUnlock(sd_mx);
     return r;
 }
+/* v454 : cartes a plusieurs partitions. libfat (et FatFs) prennent la 1re partition FAT de la table : sur une carte avec
+   une petite partition devant (6 Mo vus chez un testeur, jeux invisibles), GC Station montait la petite. Maintenant, s'il y
+   a au moins 2 partitions FAT / exFAT (table MBR ou GPT), ou une table GPT (que libfat ne lit pas), on monte la PLUS
+   GRANDE. sd_part / sd_part_set : son 1er secteur, utilise aussi par tout ce qui lit la carte en direct (lancement des
+   jeux, place libre, onglet Fichiers) ; sd_part_n / sd_part_k : nombre de partitions vues et numero de celle prise. */
+static u32 sd_part = 0; static int sd_part_set = 0, sd_part_n = 0, sd_part_k = 0, sd_part_exf = 0;
+static int sd_vbr_kind(const u8 *b) {                      /* 1 FAT12/16/32, 2 exFAT, 0 autre */
+    if (b[510] != 0x55 || b[511] != 0xAA) return 0;
+    if (!memcmp(b + 3, "EXFAT   ", 8)) return 2;
+    if ((b[11] | b[12] << 8) == 512 && b[13] && (!memcmp(b + 0x36, "FAT", 3) || !memcmp(b + 0x52, "FAT", 3))) return 1;
+    return 0;
+}
+static void sd_pick_part(const DISC_INTERFACE *i) {
+    static u8 b[512] ATTRIBUTE_ALIGN(32), e[512] ATTRIBUTE_ALIGN(32);
+    sd_part = 0; sd_part_set = 0; sd_part_n = 0; sd_part_k = 0; sd_part_exf = 0;
+    if (!i->startup() || !i->isInserted() || !i->readSectors(0, 1, b)) return;
+    if (sd_vbr_kind(b) || b[510] != 0x55 || b[511] != 0xAA) return;          /* (sans table : rien a choisir) */
+    u32 lba[32], len[32]; int n = 0, gpt = 0;
+    for (int k = 0; k < 4; k++) {
+        const u8 *m = b + 0x1BE + k * 16;
+        if (m[4] == 0xEE) gpt = 1;
+        u32 l = m[8] | m[9] << 8 | m[10] << 16 | (u32)m[11] << 24, c = m[12] | m[13] << 8 | m[14] << 16 | (u32)m[15] << 24;
+        if (m[4] && m[4] != 0xEE && m[4] != 0x05 && m[4] != 0x0F && l && c) { lba[n] = l; len[n] = c; n++; }
+    }
+    if (gpt && i->readSectors(1, 1, e) && !memcmp(e, "EFI PART", 8)) {
+        n = 0;
+        u32 el = e[72] | e[73] << 8 | e[74] << 16 | (u32)e[75] << 24, ne = e[80] | e[81] << 8 | e[82] << 16 | (u32)e[83] << 24;
+        u32 es = e[84] | e[85] << 8 | e[86] << 16 | (u32)e[87] << 24;
+        if (es >= 128 && es <= 512 && !(512 % es) && el) {
+            if (ne > 128) ne = 128;
+            for (u32 x = 0; x < ne && n < 32; x++) {
+                if (x % (512 / es) == 0 && !i->readSectors(el + x / (512 / es), 1, e)) break;
+                const u8 *g = e + (x % (512 / es)) * es;
+                int used = 0; for (int y = 0; y < 16; y++) used |= g[y];
+                if (!used || g[36] | g[37] | g[38] | g[39] || g[44] | g[45] | g[46] | g[47]) continue;   /* (vide, ou au-dela de 2 To) */
+                u32 f = g[32] | g[33] << 8 | g[34] << 16 | (u32)g[35] << 24, t = g[40] | g[41] << 8 | g[42] << 16 | (u32)g[43] << 24;
+                if (f && t >= f) { lba[n] = f; len[n] = t - f + 1; n++; }
+            }
+        }
+    }
+    int best = -1, bk = 0, cnt = 0;
+    for (int k = 0; k < n; k++) {
+        if (!i->readSectors(lba[k], 1, e)) continue;
+        int kind = sd_vbr_kind(e);
+        if (!kind) continue;
+        cnt++;
+        if (best < 0 || len[k] > len[best]) { best = k; bk = kind; sd_part_k = cnt; }
+    }
+    sd_part_n = cnt;
+    if (best >= 0 && (cnt >= 2 || gpt)) { sd_part = lba[best]; sd_part_set = 1; sd_part_exf = bk == 2; }
+}
 static int sd_mount_cnt(const DISC_INTERFACE *i) {
     if (!sd_mx_ok && LWP_MutexInit(&sd_mx, true) >= 0) sd_mx_ok = 1;
     sd_real_if = i;
     sd_cnt_if = *i;
     sd_cnt_if.readSectors = sd_cnt_read;
     sd_cnt_if.writeSectors = sd_cnt_write;
-    return fatMount("sd", &sd_cnt_if, 0, 8, 64);
+    sd_pick_part(i);
+    if (sd_part_set && sd_part_exf) return 0;              /* (la plus grande est en exFAT : FatFs, plus bas) */
+    return fatMount("sd", &sd_cnt_if, sd_part_set ? sd_part : 0, 8, 64);
 }
 #include "exfat_sd.c"                                  /* v326 : cartes SD en exFAT (FatFs) */
+#include "sd_slot.c"                                   /* v469 : SD des slots A / B refusee par libogc : notre pilote */
 /* v386 : SD2SP2 a 32 MHz (libogc demarre la carte a 16 MHz) : toute lecture ou ecriture de la carte SD va deux fois plus
    vite sur le fil (Pulse lit deja la carte a 32 MHz pendant les jeux, sans erreur chez le proprietaire). Essai d'abord :
    trois endroits de la carte lus a 16 puis a 32 MHz doivent etre identiques (et sans erreur : les lectures sont controlees
@@ -1491,9 +1574,21 @@ static int mount_sd(void) {
     if (sd_mount_cnt(&__io_gcsdb)) { sd_slot = 2; return 1; }   // SD Gecko slot B
 #ifdef GEKKO
     /* v326 : pas de FAT lisible par libfat (carte en exFAT) : FatFs, dans le meme ordre */
-    if (exf_mount_sd(&__io_gcsd2)) { sd_slot = 0; return 1; }
-    if (exf_mount_sd(&__io_gcsda)) { sd_slot = 1; return 1; }
-    if (exf_mount_sd(&__io_gcsdb)) { sd_slot = 2; return 1; }
+    for (int k = 0; k < 3; k++) {
+        const DISC_INTERFACE *di = k == 0 ? &__io_gcsd2 : k == 1 ? &__io_gcsda : &__io_gcsdb;
+        sd_pick_part(di);                                  /* (v454 : la plus grande partition, sinon comme avant) */
+        if (exf_mount_sd(di)) { sd_slot = k; return 1; }
+    }
+    sd_part = 0; sd_part_set = 0;
+    /* v469 : slots A / B avec notre pilote (adaptateurs que libogc refuse : identifiant autre que FFFFFFFF...) */
+    for (int k = 0; k < 2; k++) {
+        if (!sdx_init(k)) continue;
+        if (sd_mount_cnt(&sdx_if[k])) { sd_slot = k + 1; sdx_used = k + 1; return 1; }
+        sd_pick_part(&sdx_if[k]);
+        if (exf_mount_sd(&sdx_if[k])) { sd_slot = k + 1; sdx_used = k + 1; return 1; }
+        sd_part = 0; sd_part_set = 0;
+        strncat(sdx_diag[k], " - but no FAT32/exFAT volume mounted", sizeof(sdx_diag[k]) - strlen(sdx_diag[k]) - 1);
+    }
 #endif
     return 0;
 }
@@ -1667,6 +1762,21 @@ static int cover_from_memory(const unsigned char *data, long len) {
     return 1;
 }
 
+/* v422 : lire / ecrire un gros fichier par morceaux de 16 Ko. libfat garde la carte SD pour lui pendant tout un
+   fread / fwrite : un fichier de plusieurs centaines de Ko lu ou ecrit d'un bloc par un travail en fond (jaquette
+   telechargee, convertie, rangee) bloquait la boucle des qu'elle touchait la carte (fluidite.txt, onglet JEUX :
+   « dessin » 1,8 s, « manette » 1 s pendant l'arrivee d'une jaquette). Entre deux morceaux, la boucle passe. */
+#define SD_MORCEAU 16384u
+static size_t fread_m(void *b, size_t n, FILE *f) {
+    size_t t = 0;
+    while (t < n) { size_t k = n - t > SD_MORCEAU ? SD_MORCEAU : n - t; size_t r = fread((char *)b + t, 1, k, f); t += r; if (r < k) break; }
+    return t;
+}
+static size_t fwrite_m(const void *b, size_t n, FILE *f) {
+    size_t t = 0;
+    while (t < n) { size_t k = n - t > SD_MORCEAU ? SD_MORCEAU : n - t; size_t r = fwrite((const char *)b + t, 1, k, f); t += r; if (r < k) break; }
+    return t;
+}
 static unsigned char *read_file(const char *path, long maxsz, long *out_len) {
     FILE *fp = fopen(path, "rb");
     if (!fp) return NULL;
@@ -1674,7 +1784,7 @@ static unsigned char *read_file(const char *path, long maxsz, long *out_len) {
     if (fseek(fp, 0, SEEK_END) == 0) size = ftell(fp);
     if (size <= 0 || size > maxsz || fseek(fp, 0, SEEK_SET) != 0) { fclose(fp); return NULL; }
     unsigned char *buf = (unsigned char *)malloc(size + 1);  /* v325 : + 1 octet nul (le journal de Pulse etait lu */
-    if (buf && fread(buf, 1, size, fp) != (size_t)size) { free(buf); buf = NULL; }   /* comme du texte : strstr debordait) */
+    if (buf && fread_m(buf, (size_t)size, fp) != (size_t)size) { free(buf); buf = NULL; }   /* (v422 : par morceaux) */   /* comme du texte : strstr debordait) */
     fclose(fp);
     if (buf) { buf[size] = 0; *out_len = size; }
     return buf;
@@ -1790,8 +1900,24 @@ static u8 net_thread_stack[64 * 1024] ATTRIBUTE_ALIGN(32);
 
 /* Initialisation du reseau (DHCP : jusqu'a 20 x 0,5 s) dans un thread a part,
    pour que la musique continue pendant ce temps. */
+/* v455 : pile reseau recompilee (tools/fast_net.py) : adaptateurs BBA, W6100/W6300, W5500, ENC28J60. gcmp3_net_skip_exi2 :
+   ne pas essayer le port serie 2 si la carte SD y est (SD2SP2) ; gcmp3_netif_name : nom de l'adaptateur trouve (Infos console).
+   Faibles : absents si la pile normale de libogc est utilisee. */
+extern int gcmp3_net_skip_exi2 __attribute__((weak));
+extern const char *gcmp3_netif_name(void) __attribute__((weak));
+static const char *net_adapter(void) {
+    if (!net_ok || !gcmp3_netif_name) return "";
+    const char *n = gcmp3_netif_name();
+    static char b[48];
+    const char *port = n[1] == '1' ? "port s\xC3\xA9rie 1" : n[1] == '2' ? "port s\xC3\xA9rie 2" : n[1] == 'A' ? "slot A" : n[1] == 'B' ? "slot B" : "";
+    const char *chip = n[0] == 'W' ? "W5500" : n[0] == 'w' ? "W6100/W6300" : n[0] == 'E' ? "ENC28J60" : "Broadband Adapter";
+    if (n[0] == 'W' || n[0] == 'w' || n[0] == 'E') snprintf(b, sizeof(b), "%s, %s", chip, port);
+    else snprintf(b, sizeof(b), "%s", chip);
+    return b;
+}
 static void *net_thread(void *arg) {
     (void)arg;
+    if (&gcmp3_net_skip_exi2) gcmp3_net_skip_exi2 = sd_ok && !sd_virtual && sd_slot == 0;
     s32 r = if_config(ip_str, mask_str, gw_str, net_static ? FALSE : TRUE, 20);
     net_ok = (r >= 0 && ip_str[0] && strcmp(ip_str, "0.0.0.0") != 0);
     net_phase = NET_DONE;
@@ -2144,9 +2270,10 @@ static void conn_close(conn_t *c) {
 }
 
 /* Recoit sans bloquer : > 0 octets lus, 0 fin du flux, -EAGAIN rien pour l'instant, < 0 erreur. */
+static int conn_last_err = 0;                            /* (build 1048 : derniere erreur de lecture, pour le diagnostic des coupures) */
 static int conn_recv(conn_t *c, unsigned char *buf, int len) {
     if (c->fd < 0) return -EIO;
-    if (!c->tls) { int r = net_recv(c->fd, buf, len, 0); if (r > 0) net_rx_bytes += (u32)r; return r; }
+    if (!c->tls) { int r = net_recv(c->fd, buf, len, 0); if (r > 0) net_rx_bytes += (u32)r; else if (r < 0 && r != -EAGAIN && r != -EWOULDBLOCK) conn_last_err = r; return r; }
     for (;;) {
         if (!tls_try()) return -EAGAIN;                    /* v83 : (le fil des connexions calcule : a l'image suivante) */
         int r = mbedtls_ssl_read(&c->ssl, buf, (size_t)len);
@@ -2157,6 +2284,7 @@ static int conn_recv(conn_t *c, unsigned char *buf, int len) {
         if (r == MBEDTLS_ERR_SSL_RECEIVED_NEW_SESSION_TICKET) { if (tls_try()) { tls_sc_put_raw(&c->ssl, c->host); TLS_UNLOCK(); } continue; }   /* TLS 1.3 : ticket a garder (v194 : sans attendre le verrou) */
 #endif
         if (r == 0 || r == MBEDTLS_ERR_SSL_PEER_CLOSE_NOTIFY) return 0;
+        conn_last_err = r;
         return -EIO;
     }
 }
@@ -2212,12 +2340,12 @@ static int conn_start_tls(conn_t *c, const char *host, const char **err) {
 #endif
         if (r != MBEDTLS_ERR_SSL_WANT_READ && r != MBEDTLS_ERR_SSL_WANT_WRITE) {
             if (r == MBEDTLS_ERR_X509_CERT_VERIFY_FAILED || vr != 0)
-                *err = "Certificat du serveur refusé";
+                *err = "Certificat du serveur refusÃ©";
             else
-                *err = "Échec de la connexion sécurisée";
+                *err = "Ãchec de la connexion sÃ©curisÃ©e";
             return 0;
         }
-        if (now_ms() - t0 > 15000) { *err = "Connexion sécurisée trop lente"; return 0; }
+        if (now_ms() - t0 > 15000) { *err = "Connexion sÃ©curisÃ©e trop lente"; return 0; }
         bg_tick();
         usleep(1000);
     }
@@ -2239,10 +2367,10 @@ static int conn_tcp(conn_t *c, const char *host, int port, const char **err, int
     u32 addr;
     if (!resolve_host(host, &addr)) { *err = "Serveur introuvable (DNS)"; return 0; }
 
-    snprintf(msg, sizeof(msg), "Connexion à %s...", host);
+    snprintf(msg, sizeof(msg), "Connexion Ã  %s...", host);
     if (show) ui_status(msg);
     s32 s = net_socket(AF_INET, SOCK_STREAM, 0);
-    if (s < 0) { *err = "Erreur réseau (socket)"; return 0; }
+    if (s < 0) { *err = "Erreur rÃ©seau (socket)"; return 0; }
     struct sockaddr_in sa;
     memset(&sa, 0, sizeof(sa));
     sa.sin_family = AF_INET;
@@ -2257,13 +2385,13 @@ static int conn_tcp(conn_t *c, const char *host, int port, const char **err, int
         if (!resolve_host(host, &addr)) { *err = "Serveur introuvable (DNS)"; return 0; }
         sa.sin_addr.s_addr = addr;
         s = net_socket(AF_INET, SOCK_STREAM, 0);
-        if (s < 0) { *err = "Erreur réseau (socket)"; return 0; }
+        if (s < 0) { *err = "Erreur rÃ©seau (socket)"; return 0; }
         cr = net_connect(s, (struct sockaddr *)&sa, sizeof(sa));
     }
     conn_last_cr = cr;
     if (cr < 0) {
         net_close(s);
-        *err = "Connexion refusée par le serveur";
+        *err = "Connexion refusÃ©e par le serveur";
         if (refused) *refused = 1;
         return 0;
     }
@@ -2277,7 +2405,7 @@ static int conn_open(conn_t *c, const char *host, int port, int tls, const char 
     char msg[200];
     if (!conn_tcp(c, host, port, err, refused, 1)) return 0;
     if (tls) {
-        snprintf(msg, sizeof(msg), "Connexion sécurisée à %s...", host);
+        snprintf(msg, sizeof(msg), "Connexion sÃ©curisÃ©e Ã  %s...", host);
         ui_status(msg);
         snprintf(c->host, sizeof(c->host), "%s:%d", host, port);
         if (!conn_start_tls(c, host, err)) {
@@ -2742,13 +2870,13 @@ static int http_open(const char *url_in, int depth) {
                       "%sIcy-MetaData: 1\r\nAccept: */*\r\nConnection: close\r\n\r\n", ho_path, v11, hosthdr, range);
     ho.rl = rl; ho.sent = 0; ho.depth = depth; ho.v11 = v11; ho.hlen = 0; ho.body_off = -1;
     if (rc_async) { ho.st = HO_SEND; ho.t0 = now_ms(); return http_ho_pump(); }   /* v195 : sans attendre (radio) */
-    if (!conn_send_all(&cn, ho_req, rl)) { set_error("Erreur d'envoi de la requête"); return 0; }
+    if (!conn_send_all(&cn, ho_req, rl)) { set_error("Erreur d'envoi de la requÃªte"); return 0; }
 
     /* lecture des en-tetes */
     int hlen = 0, body_off = -1;
     while (hlen < (int)sizeof(ho_hdr) - 1) {
         int r = recv_timeout(ho_hdr + hlen, (int)sizeof(ho_hdr) - 1 - hlen, 8000);
-        if (r <= 0) { set_error(r == -2 ? "Le serveur ne répond pas" : "Connexion coupée"); return 0; }
+        if (r <= 0) { set_error(r == -2 ? "Le serveur ne rÃ©pond pas" : "Connexion coupÃ©e"); return 0; }
         hlen += r;
         ho_hdr[hlen] = 0;
         char *e = strstr((char *)ho_hdr, "\r\n\r\n");
@@ -2756,7 +2884,7 @@ static int http_open(const char *url_in, int depth) {
         char *e2 = strstr((char *)ho_hdr, "\n\n");                /* serveurs approximatifs */
         if (e2) { body_off = (int)(e2 - (char *)ho_hdr) + 2; e2[1] = 0; break; }
     }
-    if (body_off < 0) { set_error("Réponse du serveur invalide"); return 0; }
+    if (body_off < 0) { set_error("RÃ©ponse du serveur invalide"); return 0; }
     ho.hlen = hlen; ho.body_off = body_off;
     return http_after_hdr();
 }
@@ -2768,7 +2896,7 @@ static int http_after_hdr(void) {
 #endif
     int code = 0;
     if (sscanf((char *)ho_hdr, "HTTP/%*d.%*d %d", &code) != 1 && sscanf((char *)ho_hdr, "ICY %d", &code) != 1) {
-        set_error("Réponse du serveur invalide");
+        set_error("RÃ©ponse du serveur invalide");
         return 0;
     }
     char *hdrs = (char *)ho_hdr;
@@ -2850,7 +2978,7 @@ static int http_after_hdr(void) {
     } else {
         stream_codec = strstr(ctype, "aac") ? 1 : (strstr(ctype, "ogg") || strstr(ctype, "vorbis")) ? 2 : 0;
         if (strstr(ctype, "opus") || strstr(ctype, "flac")) {
-            set_error("Format non géré (MP3, AAC, M4A ou OGG Vorbis)");
+            set_error("Format non gÃ©rÃ© (MP3, AAC, M4A ou OGG Vorbis)");
             return 0;
         }
     }
@@ -2985,8 +3113,8 @@ static void start_station(int idx, int is_reconnect) {
     mp3dec_init(&dec);
     rpos = 0.0; prevL = prevR = 0;
     state = ST_CONNECT;
-    if (net_phase != NET_DONE) { set_error("Réseau en cours de connexion..."); return; }
-    if (!net_ok) { set_error("Pas de réseau (Broadband Adapter)"); return; }
+    if (net_phase != NET_DONE) { set_error("RÃ©seau en cours de connexion..."); return; }
+    if (!net_ok) { set_error("Pas de rÃ©seau (Broadband Adapter)"); return; }
     /* v71 : reconnexion : d'abord l'adresse finale deja trouvee (sans redirections ni liste .m3u) */
     conn_msg[0] = 0;
     rc_final_try = is_reconnect && rad_final_idx == idx && rad_final[0];
@@ -3074,33 +3202,33 @@ static void stream_recv(void) {
 
 /* Appele a chaque tour de boucle : recoit, decode, gere le tampon. */
 static void stream_pump(void) {
-    tls_defer_pump();                                      /* v194 : contextes TLS a liberer */
-    station_pump();                                        /* v193 : connexion en tache de fond */
+    SLOW("radio : contextes TLS", tls_defer_pump());      /* v194 : contextes TLS a liberer */
+    SLOW("radio : connexion", station_pump());            /* v193 : connexion en tache de fond */
     /* v71 : la radio a deja joue puis s'est arretee (reseau, serveur) : on reessaie tout seul,
        de plus en plus espace (1, 2, 4, 8, 15 puis 30 s), au lieu de rester sur une erreur */
     if (state == ST_ERROR && src == SRC_RADIO && !pod_on && rad_played && reconnects != 99 && rt_n < 30) {
         static const u32 dl[6] = { 1000, 2000, 4000, 8000, 15000, 30000 };
         u64 n = now_ms();
         if (!rt_at) rt_at = n + dl[rt_n < 6 ? rt_n : 5];
-        else if (n >= rt_at && net_ok) { rt_n++; rt_at = 0; reconnects = 0; start_station(cur_station, 1); }
+        else if (n >= rt_at && net_ok) { rt_n++; rt_at = 0; reconnects = 0; SLOW("radio : reconnexion", start_station(cur_station, 1)); }
         return;
     }
     if (state != ST_BUFFER && state != ST_PLAY) return;
     if (state == ST_PLAY && src == SRC_RADIO) { rad_played = 1; if (rt_n && now_ms() - connect_ms > 60000) rt_n = 0; }
 
     /* 1. reception (sans bloquer) */
-    stream_recv();
+    SLOW("radio : reception", stream_recv());
     if (!hls_on && !stream_closed && now_ms() - last_data_ms > 10000) {   /* plus rien depuis 10 s */
         stream_closed = 1;
-        stream_close();
+        SLOW("radio : fermeture", stream_close());
     }
 
     /* 2. decodage */
     int k = 0;
-    while (k < 6 && FIFO_SIZE - f_count >= FIFO_MARGIN && decode_stream_one(stream_closed)) {
+    SLOW("radio : decodage", while (k < 6 && FIFO_SIZE - f_count >= FIFO_MARGIN && decode_stream_one(stream_closed)) {
         service_audio();
         k++;
-    }
+    });
 
     /* Une connexion stable depuis 2 min remet le compteur de reconnexions a zero :
        une coupure de temps en temps ne doit jamais arreter la radio. */
@@ -3116,7 +3244,7 @@ static void stream_pump(void) {
         } else if (stream_closed && cbuf_avail() < MP3_MIN_BYTES) {
             if (reconnects < 3) {                              /* coupure : on se reconnecte */
                 reconnects++;
-                start_station(cur_station, 1);
+                SLOW("radio : reconnexion", start_station(cur_station, 1));
             } else {
                 set_error("Flux interrompu");
             }
@@ -3125,7 +3253,7 @@ static void stream_pump(void) {
             rebuffers++;
         }
     } else if (state == ST_BUFFER && stream_closed && cbuf_avail() < MP3_MIN_BYTES && f_count == 0) {
-        if (reconnects < 3) { reconnects++; start_station(cur_station, 1); }
+        if (reconnects < 3) { reconnects++; SLOW("radio : reconnexion", start_station(cur_station, 1)); }
         else set_error("Flux interrompu ou illisible");
     }
 }
@@ -6073,6 +6201,9 @@ static void setting_apply(const char *k, char *v) {
         else if (!strcasecmp(k, "resident_carte_virtuelle")) nat_card = has_word(v, "non") ? 0 : strchr(v, 'b') || strchr(v, 'B') ? 2 : 1;   /* (v122 : "a+b" = slots A et B) */
         else if (!strcasecmp(k, "resident_carte_par_region")) nat_card_reg = !has_word(v, "non");
         else if (!strcasecmp(k, "resident_carte_par_jeu")) nat_card_game = !has_word(v, "non");
+        else if (!strcasecmp(k, "pulse_mode")) nat_pmode = has_word(v, "leger") ? 1 : has_word(v, "telephone") ? 2 : 0;   /* v503 (lecture par interruptions : plus un reglage, toujours) */
+        else if (!strcasecmp(k, "pulse_journaux")) nat_plog = !has_word(v, "non");   /* v509 */
+        else if (!strcasecmp(k, "pulse_journal_complet")) nat_jcomplet = has_word(v, "oui");   /* v467 */   /* (v461 : nouveau nom : les anciens fichiers avaient "non" par defaut) */
         else if (!strcasecmp(k, "chercheur_codes")) nat_memtel = atoi(v) ? 1 : 0;
         else if (!strcasecmp(k, "succes_tele")) nat_tvsucc = atoi(v) ? 1 : 0;   /* v397 */
         else if (!strcasecmp(k, "succes_tele_bas")) nat_tvbas = atoi(v) ? 1 : 0;   /* v400 */
@@ -6214,6 +6345,9 @@ static void settings_print(FILE *f) {                   /* v194 : le texte de gc
     fprintf(f, "# Pulse (X) : cartes memoire virtuelles (gc-mp3/resident/carte-A.raw ; a+b : aussi carte-B.raw au slot B)\nresident_carte_virtuelle = %s\n", nat_card >= 2 ? "a+b" : nat_card ? "oui" : "non");
     fprintf(f, "# Pulse : une carte par region du jeu (carte-A-EUR.raw, -USA, -JAP)\nresident_carte_par_region = %s\n", nat_card_reg ? "oui" : "non");
     fprintf(f, "# Pulse : une carte par jeu (carte-A-GALE01-Nom-du-jeu.raw ; le reglage du jeu passe avant)\nresident_carte_par_jeu = %s\n", nat_card_game ? "oui" : "non");
+    fprintf(f, "# v503 : mode de Pulse : auto (leger sauf si le telephone sert pendant le jeu), leger (toujours), telephone (jamais force en leger)\npulse_mode = %s\n", nat_pmode == 1 ? "leger" : nat_pmode == 2 ? "telephone" : "auto");
+    fprintf(f, "# Pulse : journaux (comptes rendus de plantage et de blocage ; non = Pulse sans journaux, 5 Ko de plus pour le jeu)\npulse_journaux = %s\n", nat_plog ? "oui" : "non");
+    fprintf(f, "# Pulse : journal complet (diagnostic : tout ce qui se passe, gc-mp3/natif/journal-complet.txt ; jeu un peu ralenti, sans telephone)\npulse_journal_complet = %s\n", nat_jcomplet ? "oui" : "non");
     fprintf(f, "# manettes du telephone dans les jeux : 0 non, 1 port 2, 2 ports 2-3, 3 ports 2-4, 4 port 1\nmanettes_telephone = %d\n", nat_padtel);
     fprintf(f, "# chercheur de codes de l'appli : le telephone lit la memoire du jeu (Pulse, BBA) : 0 non, 1 oui\nchercheur_codes = %d\n", nat_memtel);
     fprintf(f, "# v397 : succes sur la tele pendant les jeux (bandeau dessine par Pulse ; ~10 Ko de memoire pris au jeu) : 0 non, 1 oui\nsucces_tele = %d\n", nat_tvsucc);
@@ -7550,12 +7684,12 @@ static void draw_player_radio(void) {
         break;
     case ST_ERROR:
         if (rt_at && src == SRC_RADIO) { u64 n = now_ms(); snprintf(buf, sizeof(buf), TR("Reconnexion dans %d s... (essai %d)"), rt_at > n ? (int)((rt_at - n + 999) / 1000) : 0, rt_n + 1); }
-        else snprintf(buf, sizeof(buf), "A : réessayer");
+        else snprintf(buf, sizeof(buf), "A : rÃ©essayer");
         break;
     default:
-        if (net_phase == NET_BUSY) snprintf(buf, sizeof(buf), "Connexion au réseau...");
-        else if (net_phase == NET_DONE && !net_ok) { snprintf(buf, sizeof(buf), "Pas de réseau (Broadband Adapter)"); sc = RGBA(255, 150, 80, 255); }
-        else snprintf(buf, sizeof(buf), "Prêt");
+        if (net_phase == NET_BUSY) snprintf(buf, sizeof(buf), "Connexion au rÃ©seau...");
+        else if (net_phase == NET_DONE && !net_ok) { snprintf(buf, sizeof(buf), "Pas de rÃ©seau (Broadband Adapter)"); sc = RGBA(255, 150, 80, 255); }
+        else snprintf(buf, sizeof(buf), "PrÃªt");
         break;
     }
     char fb[200];
@@ -7755,6 +7889,16 @@ static void perf_report(void) {                      /* SD:/gc-mp3/journaux/flui
         }
         fprintf(f, "\n");
     }
+    if (pfx_nlent) {                                      /* v422 : les moments les plus lents, du plus long au plus court */
+        fprintf(f, "Moments les plus lents (image de plus de 30 ms) : onglet, etape en cause, derniere action\n");
+        for (int a = 0; a < pfx_nlent; a++) for (int b = a + 1; b < pfx_nlent; b++)
+            if (pfx_lents[b].tot > pfx_lents[a].tot) { pfx_lent_t x = pfx_lents[a]; pfx_lents[a] = pfx_lents[b]; pfx_lents[b] = x; }
+        for (int a = 0; a < pfx_nlent; a++) {
+            const pfx_lent_t *l = &pfx_lents[a];
+            fprintf(f, "   %5u ms  [%s]  %s %.0f ms  -- %s\n", (unsigned)(l->tot / 1000u), l->tb < TAB_COUNT ? tab_names[l->tb] : "autre",
+                    l->top < PH_N ? pfx_names[l->top] : "?", l->tv / 1000.0f, l->act[0] ? l->act : "-");
+        }
+    }
     fclose(f);
 }
 static u8 pfx_sampler_stack[8 * 1024] ATTRIBUTE_ALIGN(32);
@@ -7775,7 +7919,7 @@ static void perf_toggle(void) {
 #endif
     memset(pfx_frames, 0, sizeof(pfx_frames)); memset(pfx_slow, 0, sizeof(pfx_slow)); memset(pfx_vslow, 0, sizeof(pfx_vslow)); memset(pfx_worst, 0, sizeof(pfx_worst));
     memset(pfx_sum, 0, sizeof(pfx_sum)); memset(pfx_max, 0, sizeof(pfx_max)); memset(pfx_top, 0, sizeof(pfx_top));
-    pfx_frame_t0 = 0; pfx_last_top = PH_N; perf_on = 1;
+    pfx_frame_t0 = 0; pfx_last_top = PH_N; pfx_nlent = 0; perf_on = 1;
 }
 #ifndef GEKKO
 void gcs_audio_report(void) {                              /* v154 : (simulateur) */
@@ -8942,7 +9086,7 @@ static char dl_ep_url[URL_MAX], dl_ep_used[URL_MAX];   /* v71 : episode de podca
 static void pod_dl_note(const char *url, const char *path);
 static long dl_total = -1, dl_got = 0;
 static long dl_resume_from = 0;             /* v203 : reprise (Range) d'un telechargement coupe : octets deja la */
-static int dl_resume_tries = 0, dl_ranges = 0;   /* (essais ; le serveur accepte � Range �) */
+static int dl_resume_tries = 0, dl_ranges = 0;   /* (essais ; le serveur accepte « Range ») */
 static char dl_url[URL_MAX];
 static u64 dl_t0 = 0, dl_last = 0;
 static dechunk_t dl_dc;
@@ -9049,8 +9193,8 @@ static void dl_begin(const unsigned char *body, int n, const char *ctype, const 
     }
     snprintf(dl_url, sizeof(dl_url), "%s", url);
     dl_resume_tries = 0;
-    if (dl_active) { conn_close(PCONN); web_note("Un téléchargement est déjà en cours (X : accueil pour l'annuler)", 1); return; }
-    if (!sd_ok) { conn_close(PCONN); web_note("Carte SD absente : téléchargement impossible", 1); return; }
+    if (dl_active) { conn_close(PCONN); web_note("Un tÃ©lÃ©chargement est dÃ©jÃ  en cours (X : accueil pour l'annuler)", 1); return; }
+    if (!sd_ok) { conn_close(PCONN); web_note("Carte SD absente : tÃ©lÃ©chargement impossible", 1); return; }
     snprintf(dl_dest_dir_used, sizeof(dl_dest_dir_used), "%s", dl_dest_dir[0] ? dl_dest_dir : DL_DIR);
     const char *dir = dl_dest_dir_used;
     mkdir(dir, 0777);
@@ -9077,7 +9221,7 @@ static void dl_begin(const unsigned char *body, int n, const char *ctype, const 
     crumb("telechargement : %s", dl_name);
     snprintf(dl_part, sizeof(dl_part), "%s.part", dl_path);
     dl_fp = fopen(dl_part, "wb");
-    if (!dl_fp) { conn_close(PCONN); web_note("Impossible de créer le fichier sur la carte SD", 1); return; }
+    if (!dl_fp) { conn_close(PCONN); web_note("Impossible de crÃ©er le fichier sur la carte SD", 1); return; }
     static char dl_vbuf[65536];                 /* ecritures SD par gros blocs : plus rapide */
     setvbuf(dl_fp, dl_vbuf, _IOFBF, sizeof(dl_vbuf));
     wpi = 1 - wpi;                          /* la connexion devient celle du telechargement */
@@ -9091,11 +9235,11 @@ static void dl_begin(const unsigned char *body, int n, const char *ctype, const 
         static unsigned char first[16384];
         memcpy(first, body, n);
         int m = chunked ? dechunk(&dl_dc, first, n) : n;
-        if (m > 0 && fwrite(first, 1, m, dl_fp) != (size_t)m) { dl_stop("Écriture impossible sur la carte SD (pleine ?)", 1); return; }
+        if (m > 0 && fwrite(first, 1, m, dl_fp) != (size_t)m) { dl_stop("Ãcriture impossible sur la carte SD (pleine ?)", 1); return; }
         dl_got += m;
     }
     char msg[200];
-    snprintf(msg, sizeof(msg), "Téléchargement de %s...", dl_name);
+    snprintf(msg, sizeof(msg), "TÃ©lÃ©chargement de %s...", dl_name);
     web_note(msg, 0);
 }
 
@@ -9116,9 +9260,9 @@ static void dl_finish(void) {
         }
         remove(dl_part); web_note(U_DLCUT, 1); return;
     }
-    if (dl_got == 0) { remove(dl_part); web_note("Le fichier reçu est vide", 1); return; }
+    if (dl_got == 0) { remove(dl_part); web_note("Le fichier reÃ§u est vide", 1); return; }
     remove(dl_path);
-    if (rename(dl_part, dl_path) != 0) { web_note("Fichier reçu mais impossible de le renommer", 1); return; }
+    if (rename(dl_part, dl_path) != 0) { web_note("Fichier reÃ§u mais impossible de le renommer", 1); return; }
     int n = (int)strlen(dl_path);
     char msg[260], spd[40] = "";
     u64 el = now_ms() - dl_t0;
@@ -9128,8 +9272,8 @@ static void dl_finish(void) {
     ev_download(dl_path);
     if (n > 4 && audio_ext_len(dl_path)) {
         music_add_file(dl_path);
-        snprintf(msg, sizeof(msg), "Téléchargé : %s (dans l'onglet MUSIQUE%s)", dl_name, spd);
-    } else snprintf(msg, sizeof(msg), "Enregistré : SD:/downloads/%s%s", dl_name, spd[0] ? spd + 1 : "");
+        snprintf(msg, sizeof(msg), "TÃ©lÃ©chargÃ© : %s (dans l'onglet MUSIQUE%s)", dl_name, spd);
+    } else snprintf(msg, sizeof(msg), "EnregistrÃ© : SD:/downloads/%s%s", dl_name, spd[0] ? spd + 1 : "");
     web_note(msg, 0);
 }
 
@@ -9141,7 +9285,7 @@ static void dl_pump(void) {
         int r = conn_recv(DCONN, tmp, sizeof(tmp));
         if (r > 0) {
             int m = dl_dc.on ? dechunk(&dl_dc, tmp, r) : r;
-            if (m > 0 && fwrite(tmp, 1, m, dl_fp) != (size_t)m) { dl_stop("Écriture impossible sur la carte SD (pleine ?)", 1); return; }
+            if (m > 0 && fwrite(tmp, 1, m, dl_fp) != (size_t)m) { dl_stop("Ãcriture impossible sur la carte SD (pleine ?)", 1); return; }
             dl_got += m;
             got += r;
             dl_last = now_ms();
@@ -9155,7 +9299,7 @@ static void dl_pump(void) {
     }
     if (now_ms() - dl_last > 30000) {
         if (dl_ranges && dl_total > 0 && dl_resume_tries < 5) { conn_close(DCONN); dl_finish(); return; }   /* v203 : reprise */
-        dl_stop("Téléchargement interrompu (le serveur ne répond plus)", 1);
+        dl_stop("TÃ©lÃ©chargement interrompu (le serveur ne rÃ©pond plus)", 1);
     }
 }
 
@@ -9190,9 +9334,9 @@ static void sb_esc(sbuf_t *s, const char *t) {
 
 static const char DEFAULT_FAVS[] =
     "Recherche web (DuckDuckGo) | https://html.duckduckgo.com/html/\n"
-    "Wikipédia (version mobile) | https://fr.m.wikipedia.org/\n"
+    "WikipÃ©dia (version mobile) | https://fr.m.wikipedia.org/\n"
     "FrogFind (le web en version simple) | http://frogfind.com/\n"
-    "68k.news (actualités en texte) | http://68k.news/\n";
+    "68k.news (actualitÃ©s en texte) | http://68k.news/\n";
 
 /* v144 : accents abimes (texte UTF-8 re-encode une ou plusieurs fois : "\xC3\x83\xC2\xA9" au lieu de "\xC3\xA9") :
    on defait l'encodage en trop tant qu'il y en a (favoris.txt cree par les versions 134 a 143) */
@@ -9262,16 +9406,16 @@ static char *build_home(void) {
     sbuf_t s = { NULL, 0, 0 };
     char t[300];
     sb_add(&s, "<html><head><title>Accueil</title></head><body><h1>GC Station Web</h1>");
-    sb_add(&s, "<p>Y : taper une adresse ou une recherche. X : revenir à l'accueil. B : page précédente. "
-               "Croix : choisir un lien, A : l'ouvrir. Stick principal : la flèche (pointer un lien, A pour l'ouvrir). "
-               "Stick C : faire défiler. Depuis le téléphone : « Ouvrir sur la télé ».</p>");
+    sb_add(&s, "<p>Y : taper une adresse ou une recherche. X : revenir Ã  l'accueil. B : page prÃ©cÃ©dente. "
+               "Croix : choisir un lien, A : l'ouvrir. Stick principal : la flÃ¨che (pointer un lien, A pour l'ouvrir). "
+               "Stick C : faire dÃ©filer. Depuis le tÃ©lÃ©phone : Â« Ouvrir sur la tÃ©lÃ© Â».</p>");
     if (dl_active) {
-        sb_add(&s, "<h2>Téléchargement en cours</h2><p>");
+        sb_add(&s, "<h2>TÃ©lÃ©chargement en cours</h2><p>");
         sb_esc(&s, dl_name);
         if (dl_total > 0) snprintf(t, sizeof(t), " : %ld %%", (long)((long long)dl_got * 100 / dl_total));
         else snprintf(t, sizeof(t), " : %ld Ko", dl_got / 1024);
         sb_add(&s, t);
-        sb_add(&s, "</p><p><a href=\"gc:annuler\">Annuler le téléchargement</a></p>");
+        sb_add(&s, "</p><p><a href=\"gc:annuler\">Annuler le tÃ©lÃ©chargement</a></p>");
     }
     sb_add(&s, "<h2>Rechercher</h2><ul>"
                "<li><a href=\"gc:recherche\">Rechercher sur le web</a></li>"
@@ -9300,9 +9444,9 @@ static char *build_home(void) {
         else sb_add(&s, "Aucun identifiant enregistr\xC3\xA9.");
         sb_add(&s, "</p>");
     }
-    sb_add(&s, "<h2>Téléchargements</h2><p>Un lien vers un fichier (MP3, ZIP...) est enregistré dans SD:/downloads. "
-               "Les MP3 apparaissent ensuite dans l'onglet MUSIQUE. La musique continue pendant le téléchargement.</p>"
-               "<p>Ce navigateur n'exécute pas le JavaScript : les sites simples marchent, "
+    sb_add(&s, "<h2>TÃ©lÃ©chargements</h2><p>Un lien vers un fichier (MP3, ZIP...) est enregistrÃ© dans SD:/downloads. "
+               "Les MP3 apparaissent ensuite dans l'onglet MUSIQUE. La musique continue pendant le tÃ©lÃ©chargement.</p>"
+               "<p>Ce navigateur n'exÃ©cute pas le JavaScript : les sites simples marchent, "
                "pas YouTube, Spotify ni SoundCloud.</p></body></html>");
     return s.b;
 }
@@ -9457,7 +9601,7 @@ static char *archive_meta_to_html(const char *js, int len, const char *url) {
     sb_esc(&s, title[0] ? title : id);
     sb_add(&s, "</h1>");
     if (creator[0]) { sb_add(&s, "<p>"); sb_esc(&s, creator); sb_add(&s, "</p>"); }
-    sb_add(&s, "<p>Choisis un fichier MP3 : il sera enregistré dans SD:/downloads.</p><ul>");
+    sb_add(&s, "<p>Choisis un fichier MP3 : il sera enregistrÃ© dans SD:/downloads.</p><ul>");
     int count = 0;
     if (files >= 0 && tk[files].type == JT_ARR) {
         for (int f = files + 1; f < n && tk[f].start < tk[files].end; f = jskip(tk, n, f)) {
@@ -9486,7 +9630,7 @@ static char *archive_meta_to_html(const char *js, int len, const char *url) {
         }
     }
     sb_add(&s, "</ul>");
-    if (!count) sb_add(&s, "<p>Aucun fichier MP3 dans cet élément.</p>");
+    if (!count) sb_add(&s, "<p>Aucun fichier MP3 dans cet Ã©lÃ©ment.</p>");
     sb_add(&s, "<p><a href=\"https://archive.org/download/");
     path_encode(id, enc, sizeof(enc));
     sb_add(&s, enc);
@@ -9502,7 +9646,7 @@ static char *archive_to_html(const char *js, int len) {
     sb_esc(&s, arch_query);
     sb_add(&s, "</title></head><body><h1>archive.org : ");
     sb_esc(&s, arch_query);
-    sb_add(&s, "</h1><p>Ouvre un résultat, puis choisis un fichier .mp3 pour le télécharger.</p><ul>");
+    sb_add(&s, "</h1><p>Ouvre un rÃ©sultat, puis choisis un fichier .mp3 pour le tÃ©lÃ©charger.</p><ul>");
     const char *end = js + len;
     const char *p = js;
     const char *d = NULL;
@@ -9533,7 +9677,7 @@ static char *archive_to_html(const char *js, int len) {
         d = e + 1;
     }
     sb_add(&s, "</ul>");
-    if (!count) sb_add(&s, "<p>Aucun résultat. Essaie avec d'autres mots (en anglais par exemple).</p>");
+    if (!count) sb_add(&s, "<p>Aucun rÃ©sultat. Essaie avec d'autres mots (en anglais par exemple).</p>");
     sb_add(&s, "</body></html>");
     return s.b;
 }
@@ -9645,7 +9789,7 @@ static void web_finish_load(void) {
     wb_len = wb_cap = 0;
     web_show(buf, len, wb_url, wb_kind, wb_latin, wb_mode);   /* v223 : page entiere a Cube Browser (qui recharge la page partielle) */
     wb_partial = 0;
-    if (wb_trunc) web_note("Page trop grande : seul le début est affiché", 1);
+    if (wb_trunc) web_note("Page trop grande : seul le dÃ©but est affichÃ©", 1);
 }
 
 
@@ -9681,8 +9825,8 @@ static void web_fetch(const char *url_in, int mode, int typed) {
     wb_partial = 0;
     wb_shown_len = 0;
     crumb("web : %.80s", url_in);
-    if (net_phase != NET_DONE) { net_start_async(); web_note("Réseau en cours de connexion, réessaie dans quelques secondes", 1); return; }
-    if (!net_ok) { web_note("Pas de réseau (vérifie le Broadband Adapter et le câble)", 1); return; }
+    if (net_phase != NET_DONE) { net_start_async(); web_note("RÃ©seau en cours de connexion, rÃ©essaie dans quelques secondes", 1); return; }
+    if (!net_ok) { web_note("Pas de rÃ©seau (vÃ©rifie le Broadband Adapter et le cÃ¢ble)", 1); return; }
     snprintf(url, sizeof(url), "%s", url_in);
     web_msg[0] = 0;
 
@@ -9690,12 +9834,12 @@ static void web_fetch(const char *url_in, int mode, int typed) {
         urlp_t u;
         if (!url_parse(url, &u)) { web_note("Adresse invalide", 1); return; }
         conn_t *c = PCONN;
-        const char *err = "Erreur réseau";
+        const char *err = "Erreur rÃ©seau";
         int refused = 0;
         wb_busy = 1;
         if (!conn_open(c, u.host, u.port, u.tls, &err, &refused)) {
             wb_busy = 0;
-            if (typed && u.tls && hop == 0 && (refused || strstr(err, "sécurisée"))) {
+            if (typed && u.tls && hop == 0 && (refused || strstr(err, "sÃ©curisÃ©e"))) {
                 char alt[URL_MAX];
                 snprintf(alt, sizeof(alt), "http://%s", url + 8);
                 snprintf(url, sizeof(url), "%s", alt);
@@ -9722,13 +9866,13 @@ static void web_fetch(const char *url_in, int mode, int typed) {
         ui_status("Envoi de la demande...");
         int sent_ok = rl < (int)sizeof(req) && conn_send_all(c, req, rl);
         if (sent_ok && post && post_len > 0) sent_ok = conn_send_all(c, post, post_len);
-        if (!sent_ok) { conn_close(c); wb_busy = 0; web_note("Erreur d'envoi de la requête", 1); return; }
-        ui_status("Attente de la réponse...");
+        if (!sent_ok) { conn_close(c); wb_busy = 0; web_note("Erreur d'envoi de la requÃªte", 1); return; }
+        ui_status("Attente de la rÃ©ponse...");
 
         int hlen = 0, body_off = -1;
         while (hlen < (int)sizeof(hdr) - 1) {
             int r = crecv_timeout(c, hdr + hlen, (int)sizeof(hdr) - 1 - hlen, 15000);
-            if (r <= 0) { conn_close(c); wb_busy = 0; web_note(r == -2 ? "Le serveur ne répond pas" : "Connexion coupée", 1); return; }
+            if (r <= 0) { conn_close(c); wb_busy = 0; web_note(r == -2 ? "Le serveur ne rÃ©pond pas" : "Connexion coupÃ©e", 1); return; }
             hlen += r;
             hdr[hlen] = 0;
             char *e = strstr((char *)hdr, "\r\n\r\n");
@@ -9740,7 +9884,7 @@ static void web_fetch(const char *url_in, int mode, int typed) {
         int code = 0;
         if (body_off < 0 || sscanf((char *)hdr, "HTTP/%*d.%*d %d", &code) != 1) {
             conn_close(c);
-            web_note("Réponse du serveur invalide", 1);
+            web_note("RÃ©ponse du serveur invalide", 1);
             return;
         }
         char *hdrs = (char *)hdr;
@@ -9809,7 +9953,7 @@ static void web_fetch(const char *url_in, int mode, int typed) {
         /* page : le reste arrive dans web_pump() */
         wb_cap = 64 * 1024;
         wb_buf = (unsigned char *)malloc(wb_cap);
-        if (!wb_buf) { conn_close(c); web_note("Mémoire insuffisante", 1); return; }
+        if (!wb_buf) { conn_close(c); web_note("MÃ©moire insuffisante", 1); return; }
         memset(&wb_dc, 0, sizeof(wb_dc));
         wb_dc.on = chunked;
         if (body_len > 0) {
@@ -9839,7 +9983,7 @@ static void web_fetch(const char *url_in, int mode, int typed) {
         }
         if (code != 200) {
             char m[64];
-            snprintf(m, sizeof(m), "Le serveur a répondu : erreur %d", code);
+            snprintf(m, sizeof(m), "Le serveur a rÃ©pondu : erreur %d", code);
             web_note(m, 1);
         }
         if ((wb_expect >= 0 && wb_len >= wb_expect) || (wb_dc.on && wb_dc.st == 3)) web_finish_load();
@@ -9880,6 +10024,9 @@ typedef struct {
     FILE *sink;                             /* v212 : le corps va directement dans ce fichier (pas en memoire) ; len = octets ecrits */
     int sink_err;                           /* v212 : ecriture refusee (carte pleine...) */
     int frame_cap;                          /* v288 : octets lus au plus par image (0 : 256 Ko) ; petit = le reseau prend moins le processeur */
+    int stall_ms;                           /* build 1050 : abandon apres ce temps sans rien recevoir pendant le corps (0 : 20 s) */
+    int why, werr;                          /* build 1048 : raison du dernier echec (1 rien recu 20 s, 2 serveur a ferme, 3 erreur de lecture,
+                                               4 reponse pas arrivee, 5 coupe pendant la reponse, 6 connexion securisee ratee, 7 connexion ratee) */
 } hfetch_t;
 
 /* v77 : en-tetes plus gros que le tampon (GitHub : 11 Ko, dont une tres longue
@@ -10033,7 +10180,7 @@ static void hf_pump(hfetch_t *h) {
         }
         if (j) j->st = 0;
         h->job = 0;
-        if (!ok) { hf_fail(h); return; }
+        if (!ok) { h->why = 7; hf_fail(h); return; }
         h->alive = 1;
         if (!hf_send(h)) { hf_close(h); hf_fail(h); }
         return;
@@ -10054,6 +10201,7 @@ static void hf_pump(hfetch_t *h) {
             if (retry) tls_sc_drop(h->c.host);            /* session refusee : sans elle */
             hf_close(h);
             if (retry) { hf_request(h); return; }
+            h->why = 6; h->werr = r;
             hf_fail(h);
         }
         return;
@@ -10064,13 +10212,14 @@ static void hf_pump(hfetch_t *h) {
             int before = h->hlen;
             int r = conn_recv(&h->c, h->hdr + h->hlen, (int)sizeof(h->hdr) - 1 - h->hlen);
             if (r == -EAGAIN || r == -EWOULDBLOCK) {
-                if (now_ms() - h->t0 > (u64)(h->tmo_ms > 0 ? h->tmo_ms : 15000)) { hf_close(h); hf_fail(h); }
+                if (now_ms() - h->t0 > (u64)(h->tmo_ms > 0 ? h->tmo_ms : 15000)) { h->why = 4; hf_close(h); hf_fail(h); }
                 return;
             }
             if (r <= 0) {
                 int retry = h->reused && h->hlen == 0;
                 hf_close(h);
                 if (retry) { hf_request(h); return; }                 /* le site avait ferme la connexion */
+                h->why = 5; h->werr = r < 0 ? conn_last_err : 0;
                 hf_fail(h);
                 return;
             }
@@ -10148,7 +10297,8 @@ static void hf_pump(hfetch_t *h) {
     if (h->st == HF_BODY) {
         static unsigned char tmp[16384];
         int got = 0;
-        int lim = h->frame_cap > 0 ? h->frame_cap : h->sink ? 96 * 1024 : 256 * 1024;   /* (v212 : vers la carte SD : un peu moins par image ; v288 : limite choisie) */
+        int lim = h->frame_cap > 0 ? h->frame_cap : h->sink ? 48 * 1024 : 64 * 1024;   /* v450 : (avant 96 / 256 Ko : la pile reseau de libogc,
+                                                            prioritaire, figeait l'image ; fluidite.txt v448 : "dont reseau" = tout l'arret) */   /* (v212 : vers la carte SD : un peu moins par image ; v288 : limite choisie) */
         while (got < lim) {
             int want = lim - got < (int)sizeof(tmp) ? lim - got : (int)sizeof(tmp);
             int r = conn_recv(&h->c, tmp, want);
@@ -10178,12 +10328,13 @@ static void hf_pump(hfetch_t *h) {
                 continue;
             }
             if (r == -EAGAIN || r == -EWOULDBLOCK) break;
+            h->why = r == 0 ? 2 : 3; h->werr = r < 0 ? conn_last_err : 0;   /* (build 1048) */
             hf_close(h);                                                /* fin du fichier */
             if ((h->expect > 0 && h->len < h->expect) || h->len == 0) { hf_fail(h); return; }
             hf_done(h);
             return;
         }
-        if (now_ms() - h->t0 > (u64)(h->tmo_ms > 20000 ? h->tmo_ms : 20000)) { hf_close(h); hf_fail(h); }
+        if (now_ms() - h->t0 > (u64)(h->stall_ms > 0 ? h->stall_ms : h->tmo_ms > 20000 ? h->tmo_ms : 20000)) { h->why = 1; hf_close(h); hf_fail(h); }
     }
 }
 
@@ -10958,8 +11109,12 @@ static void *dec_thread_fn(void *arg) {
    en fond en cours doit finir. Sinon le fil de decodage fermait son fichier sur une carte demontee :
    ecran rouge (DSI dans _lseek_r <- fclose <- dec_thread_fn), vu en lancant Wind Waker. */
 static void tp_park(void);                                /* (tab_phone.c) */
+static void jb_halt(void);                                /* v456 : jukebox.c */
 static void bg_quiesce(void) {
+    jb_halt();                                            /* v456 : recherche des musiques d'un jeu arretee */
     tp_park();                                            /* v247 : et le serveur du telephone (ecran rouge dans _fstat_r <- fseek <- tp_handle) */
+    cfgw_wait();                                          /* v486 : et l'enregistrement des reglages en fond (ecran rouge : la carte SD
+                                                             demontee pendant qu'il ecrivait gc-mp3.txt, reglage change juste avant) */
     gj_hold = 1;
     lsc_hold_t = now_ms(); lsc_hold = 1;                  /* v390 : le fil de la bibliotheque aussi (parcours de dossiers) */
     u64 t0 = now_ms();
@@ -11638,7 +11793,7 @@ static void web_pump(void) {
         }
         if (wb_loading && now_ms() - wb_last > 20000) {
             if (wb_len > 0) web_finish_load();
-            else { web_cancel_load(); web_note("Le serveur ne répond plus", 1); }
+            else { web_cancel_load(); web_note("Le serveur ne rÃ©pond plus", 1); }
         }
         /* le texte tout de suite : debut de la page affiche pendant le chargement */
         if (wb_loading && !wb_gz && wb_kind == WK_HTML && wb_buf && wb_len >= 3000 && wb_len < 600 * 1024 &&
@@ -11695,13 +11850,13 @@ static void add_favorite(void) {
     const whist_t *lp = last_web_page();
     if (!lp || !sd_ok) return;
     FILE *f = fopen(FAV_FILE, "a");
-    if (!f) { web_note("Impossible d'écrire SD:/gc-mp3/reglages/favoris.txt", 1); return; }
+    if (!f) { web_note("Impossible d'Ã©crire SD:/gc-mp3/reglages/favoris.txt", 1); return; }
     char name[96];
     snprintf(name, sizeof(name), "%s", lp->title[0] ? lp->title : lp->url);
     for (char *p = name; *p; p++) if (*p == '|' || *p == '\n' || *p == '\r') *p = '-';
     fprintf(f, "%s | %s\n", name, lp->url);
     fclose(f);
-    web_note("Ajouté aux favoris", 0);
+    web_note("AjoutÃ© aux favoris", 0);
 }
 
 static void web_go(const char *url, int mode) {
@@ -11711,8 +11866,8 @@ static void web_go(const char *url, int mode) {
         else if (strcmp(w, "archive") == 0) kb_start(KB_ARCHIVE, "", -1, -1);
         else if (strcmp(w, "adresse") == 0) kb_start(KB_URL, "", -1, -1);
         else if (strcmp(w, "favori") == 0) { add_favorite(); web_render_home(NAV_REPLACE); }
-        else if (strcmp(w, "annuler") == 0) { if (dl_active) dl_stop("Téléchargement annulé", 0); web_render_home(NAV_REPLACE); }
-        else if (strcmp(w, "cookies") == 0) { ck_clear(); web_note("Cookies effacés", 0); web_render_home(NAV_REPLACE); }
+        else if (strcmp(w, "annuler") == 0) { if (dl_active) dl_stop("TÃ©lÃ©chargement annulÃ©", 0); web_render_home(NAV_REPLACE); }
+        else if (strcmp(w, "cookies") == 0) { ck_clear(); web_note("Cookies effacÃ©s", 0); web_render_home(NAV_REPLACE); }
         else if (strcmp(w, "id-oui") == 0 || strcmp(w, "id-non") == 0) { id_answer(w[3] == 'o'); web_relayout(); }
         else if (strcmp(w, "ia") == 0) ia_render(mode, 1);     /* v206 : assistant IA */
         else if (strcmp(w, "ia-nouveau") == 0) { if (!ia_busy) ia_clear(); ia_render(NAV_REPLACE, 0); }
@@ -11900,7 +12055,7 @@ static void kb_key_label(int r, int c, char *out, int sz) {
     snprintf(out, sz, "%s", k);
     if (kb_shift) {
         if (out[0] >= 'a' && out[0] <= 'z') out[0] = (char)(out[0] - 32);
-        else if ((unsigned char)out[0] == 0xC3) out[1] = (char)((unsigned char)out[1] - 0x20);   /* é -> É */
+        else if ((unsigned char)out[0] == 0xC3) out[1] = (char)((unsigned char)out[1] - 0x20);   /* Ã© -> Ã */
     }
 }
 
@@ -12581,7 +12736,7 @@ static void draw_list_radio(void) {
 // ---------- Menu (START) : reglages et Quitter ----------
 enum { MI_SHUFFLE, MI_REPEAT, MI_XFADE, MI_VIEW, MI_VOLUME, MI_RG, MI_EQ, MI_BASS, MI_LOWMID, MI_MID, MI_PRES, MI_TREBLE, MI_SKIN, MI_THEME, MI_WALL, MI_SEASON, MI_SAVER, MI_SAVERSTYLE,
        MI_COVERS, MI_LYRICS, MI_PODAUTO, MI_PODSPEED, MI_PODSIL, MI_RESUME, MI_RADIORES, MI_GAPLESS, MI_TV, MI_VIDEO, MI_SCREEN, MI_SCREENH, MI_SCREENY, MI_SCREENX, MI_WIDE, MI_UILANG, MI_LANG, MI_GAMES, MI_GLVIEW, MI_GLANIM, MI_TITLES, MI_PARTY, MI_RUMBLE, MI_SLEEP, MI_NIGHT, MI_LAYOUT, MI_VIZ, MI_SGPAL, MI_LYRSHOW, MI_FLASH, MI_ELEMS, MI_TABS, MI_REC, MI_RECAT, MI_RECLEN, MI_AUTOSTART, MI_IGR, MI_NATIGR, MI_NATCARD, MI_PULSELD, MI_PERF, MI_LAUNCHER, MI_UPDATE,
-       MI_HIDDEN, MI_UNKNOWN, MI_GLANG, MI_GSOUND, MI_DHCP, MI_IP, MI_MASK, MI_GW, MI_PHONEAUTO, MI_UPDAUTO, MI_NETSMB, MI_NETFTP, MI_NETFSP, MI_NATCARDREG, MI_SALON, MI_CLOCK, MI_GLAUTO, MI_PLAYLIM, MI_UPDXZ, MI_APNOIMG, MI_THEMEDL, MI_UPDOLD, MI_NATCARDGAME, MI_PADTEL, MI_QUIT, MI_GLCOVALL, MI_MEMTEL, MI_APPENV, MI_GBATEL, MI_MICTEL, MI_SALONAMI, MI_SALONCODE, MI_TVSUCC, MI_TVBAS, MI_NTFSON, MI_COUNT };   /* (MI_GLCOVALL : v289, retire en v293 ; garde pour la table des noms) */
+       MI_HIDDEN, MI_UNKNOWN, MI_GLANG, MI_GSOUND, MI_DHCP, MI_IP, MI_MASK, MI_GW, MI_PHONEAUTO, MI_UPDAUTO, MI_NETSMB, MI_NETFTP, MI_NETFSP, MI_NATCARDREG, MI_SALON, MI_CLOCK, MI_GLAUTO, MI_PLAYLIM, MI_UPDXZ, MI_APNOIMG, MI_THEMEDL, MI_UPDOLD, MI_NATCARDGAME, MI_PADTEL, MI_QUIT, MI_GLCOVALL, MI_MEMTEL, MI_APPENV, MI_GBATEL, MI_MICTEL, MI_SALONAMI, MI_SALONCODE, MI_TVSUCC, MI_TVBAS, MI_NTFSON, MI_NATXV, MI_NATJC, MI_PMODE, MI_NATCARDMODE, MI_PLOG, MI_COUNT };   /* (MI_GLCOVALL : v289, retire en v293 ; garde pour la table des noms) */
 static void pj_limit_text(char *o, int cap);            /* v191 (profils.c) */
 static void pj_limit_next(int d);
 static int ipl_get(void);                                  /* v57 : la console demarre sur GC Station (gclib.c) */
@@ -12589,13 +12744,13 @@ static const char *ipl_set(int on);
 /* v75 : les reglages de GC Station, ranges par sections (v90 : plus rien de Swiss) */
 enum { SEC_MUSIC, SEC_RADIO, SEC_DISPLAY, SEC_VIDEO, SEC_GAMES, SEC_NET, SEC_TOOLS, SEC_COUNT };
 /* v148 : chaque section en groupes, avec un sous-titre (valeur -2 - k : sec_heads[k], pas un reglage) */
-static const char *const sec_heads[] = { "Lecture", "Son", "Biblioth\xC3\xA8que", "F\xC3\xAAte", "Radio", "Enregistrement", "Podcasts", "Langue", "Apparence", "Lecteur", "Veille", "Fichiers", "Diagnostic", "T\xC3\xA9l\xC3\xA9", "Image", "Console", "Liste des jeux", "Pulse", "Lanceur de secours", "Connexion", "Partages", "Salon et t\xC3\xA9l\xC3\xA9phone", "Mises \xC3\xA0 jour" };
+static const char *const sec_heads[] = { "Lecture", "Son", "Biblioth\xC3\xA8que", "F\xC3\xAAte", "Radio", "Enregistrement", "Podcasts", "Langue", "Apparence", "Lecteur", "Veille", "Fichiers", "Diagnostic", "T\xC3\xA9l\xC3\xA9", "Image", "Console", "Liste des jeux", "Pulse", "Lanceur de secours", "Connexion", "Partages", "Salon et t\xC3\xA9l\xC3\xA9phone", "Mises \xC3\xA0 jour", "T\xC3\xA9l\xC3\xA9phone pendant la partie", "D\xC3\xA9pannage" };
 static const s8 sec_items[6][32] = {
     { -2, MI_SHUFFLE, MI_REPEAT, MI_XFADE, MI_GAPLESS, MI_RESUME, MI_SLEEP, -3, MI_VOLUME, MI_RG, MI_EQ, MI_BASS, MI_LOWMID, MI_MID, MI_PRES, MI_TREBLE, -4, MI_VIEW, MI_COVERS, MI_LYRICS, -5, MI_PARTY, MI_FLASH, MI_GAMES, -1 },
     { -6, MI_RADIORES, MI_TITLES, -7, MI_REC, MI_RECAT, MI_RECLEN, -8, MI_PODAUTO, MI_PODSPEED, MI_PODSIL, -1 },
     { -9, MI_UILANG, MI_LANG, -10, MI_SKIN, MI_THEME, MI_THEMEDL, MI_WALL, MI_SEASON, MI_TABS, -11, MI_LAYOUT, MI_ELEMS, MI_VIZ, MI_SGPAL, MI_LYRSHOW, -12, MI_SAVER, MI_SAVERSTYLE, MI_NIGHT, -13, MI_HIDDEN, MI_UNKNOWN, -14, MI_PERF, -1 },
     { -15, MI_TV, MI_VIDEO, MI_WIDE, -16, MI_SCREEN, MI_SCREENH, MI_SCREENY, MI_SCREENX, -1 },
-    { -17, MI_GLANG, MI_GSOUND, MI_CLOCK, MI_RUMBLE, MI_AUTOSTART, -18, MI_GLVIEW, MI_GLANIM, MI_GLAUTO, MI_APNOIMG, MI_PLAYLIM, -19, MI_NATIGR, MI_NATCARD, MI_NATCARDREG, MI_NATCARDGAME, MI_PADTEL, MI_GBATEL, MI_MICTEL, MI_MEMTEL, MI_TVSUCC, MI_TVBAS, MI_NTFSON, MI_PULSELD, -20, MI_LAUNCHER, MI_IGR, -1 },
+    { -17, MI_GLANG, MI_GSOUND, MI_CLOCK, MI_RUMBLE, MI_AUTOSTART, -18, MI_GLVIEW, MI_GLANIM, MI_GLAUTO, MI_APNOIMG, MI_PLAYLIM, -19, MI_PMODE, MI_NATIGR, MI_NATCARD, MI_NATCARDMODE, MI_TVSUCC, MI_PULSELD, -25, MI_PADTEL, MI_GBATEL, MI_MICTEL, MI_MEMTEL, MI_NTFSON, -26, MI_PLOG, MI_NATJC, -20, MI_LAUNCHER, MI_IGR, -1 },
     { -21, MI_DHCP, MI_IP, MI_MASK, MI_GW, -22, MI_NETSMB, MI_NETFTP, MI_NETFSP, -23, MI_SALON, MI_SALONAMI, MI_SALONCODE, MI_PHONEAUTO, MI_APPENV, -24, MI_UPDAUTO, MI_UPDXZ, MI_UPDATE, MI_UPDOLD, -1 } };
 static int sec_n(int sec) { int n = 0; if (sec < 0 || sec >= SEC_TOOLS) return 0; while (n < 32 && sec_items[sec][n] != -1) n++; return n; }
 static int sec_pos(int sec, int mi) { if (mi < 0) return -1; for (int i = 0; i < sec_n(sec); i++) if (sec_items[sec][i] == mi) return i; return -1; }   /* (v321 : jamais un sous-titre) */
@@ -12615,7 +12770,7 @@ static int mi_shown(int mi) {
     case MI_RECLEN: return rp_on;                                                                     /* (enregistrement programme) */
     case MI_SAVERSTYLE: return saver_min != 0;                                                        /* (economiseur) */
     case MI_SALONAMI: case MI_SALONCODE: return salon_on;                                             /* (Salon par Internet : Salon d'abord) */
-    case MI_NATCARDREG: case MI_NATCARDGAME: return nat_card != 0;                                    /* (carte memoire virtuelle) */
+    case MI_NATCARDREG: case MI_NATCARDGAME: case MI_NATCARDMODE: return nat_card != 0;                                    /* (carte memoire virtuelle) */
     case MI_PADTEL: case MI_GBATEL: case MI_MICTEL: case MI_MEMTEL: return app_envoi != 0;            /* (rien vers l'appli) */
     default: return 1;
     }
@@ -12765,8 +12920,13 @@ static void menu_value(int i, char *out, int cap) {
     case MI_NATCARD: snprintf(out, cap, "%s", nat_card >= 2 ? TR("Slots A et B") : nat_card ? TR("Oui (slot A)") : TR("Non")); break;
     case MI_NATCARDREG: snprintf(out, cap, "%s", nat_card_reg ? TR("Oui") : TR("Non")); break;
     case MI_NATCARDGAME: snprintf(out, cap, "%s", nat_card_game ? TR("Oui") : TR("Non")); break;
+    case MI_NATXV:  snprintf(out, cap, "%s", nat_xv ? TR("Oui") : TR("Non")); break;
+    case MI_PMODE:  { static const char *const pm[3] = { "Automatique", "L\xC3\xA9ger", "Avec le t\xC3\xA9l\xC3\xA9phone" }; snprintf(out, cap, "%s", TR(pm[nat_pmode % 3])); break; }   /* v503 */
+    case MI_NATCARDMODE: snprintf(out, cap, "%s", TR(nat_card_game ? "Par jeu" : nat_card_reg ? "Par r\xC3\xA9gion" : "Pour tous les jeux")); break;   /* v503 */
+    case MI_NATJC:  snprintf(out, cap, "%s", nat_jcomplet ? TR("Oui") : TR("Non")); break;   /* v496 */
+    case MI_PLOG:   snprintf(out, cap, "%s", nat_plog ? TR("Oui") : TR("Non")); break;       /* v509 */
     case MI_MEMTEL: snprintf(out, cap, "%s", TR(nat_memtel ? "Oui" : "Non")); break;
-    case MI_TVSUCC: snprintf(out, cap, "%s", TR(nat_tvsucc ? "Oui" : "Non")); break;   /* v397 */
+    case MI_TVSUCC: snprintf(out, cap, "%s", TR(!nat_tvsucc ? "Non" : nat_tvbas ? "Bandeau en bas" : "Bandeau en haut")); break;   /* v397 ; v503 : avec la place du bandeau */
     case MI_TVBAS: snprintf(out, cap, "%s", TR(nat_tvbas ? "En bas" : "En haut")); break;   /* v400 */
     case MI_NTFSON: snprintf(out, cap, "%s", TR(ntf_son ? "Oui" : "Non")); break;      /* v400 */
     case MI_GBATEL: if (nat_gbatel) snprintf(out, cap, "Port %d", nat_gbaport); else snprintf(out, cap, "%s", TR("Non")); break;   /* (v334) */
@@ -12828,7 +12988,7 @@ static const char *const menu_labels[MI_COUNT] = {
     "\xC3\x89l\xC3\xA9ments du lecteur", "Onglets affich\xC3\xA9s", "Enregistrer la radio", "Enregistrement programm\xC3\xA9", "Dur\xC3\xA9" "e de l'enregistrement programm\xC3\xA9", "D\xC3\xA9marrer la console sur GC Station", "A+Z+START (lanceur de secours)", "A+Z+START (Pulse)", "Carte m\xC3\xA9moire virtuelle (Pulse)", "\xC3\x89" "cran de chargement (Pulse)", "Mesure de fluidit\xC3\xA9", "Lanceur de secours", "Mise \xC3\xA0 jour",
     "Fichiers cach\xC3\xA9s (FICHIERS)", "Cacher les fichiers inconnus", "Langue des jeux (console)", "Son (console)",
     "Adresse automatique (DHCP)", "Adresse IP de la console", "Masque", "Passerelle (box)", "T\xC3\xA9l\xC3\xA9" "commande au d\xC3\xA9marrage",
-    "Chercher les mises \xC3\xA0 jour au d\xC3\xA9marrage", "Partage SMB (PC, NAS)", "Serveur FTP", "Serveur FSP", "Une carte par r\xC3\xA9gion (Pulse)", "Salon (autres GC Station)", "Date et heure (console)", "Nouveaux jeux vus tout seuls", "Limite de jeu par jour", "Version compress\xC3\xA9" "e", "Applis sans image", "Th\xC3\xA8mes en ligne", "Ancienne version (.ancien)", "Une carte par jeu (Pulse)", "Manettes du t\xC3\xA9l\xC3\xA9phone", "Quitter GC Station", "Toutes les jaquettes (bo\xC3\xAEte 3D, HD)", "Chercheur de codes (appli)", "Envoi vers l'appli", "GBA du t\xC3\xA9l\xC3\xA9phone", "Micro du t\xC3\xA9l\xC3\xA9phone (slot B)", "Salon par Internet : adresse de l'ami", "Salon par Internet : code", "Succ\xC3\xA8s sur la t\xC3\xA9l\xC3\xA9 (Pulse)", "Place du bandeau (Pulse)", "Son des notifications du t\xC3\xA9l\xC3\xA9phone" };
+    "Chercher les mises \xC3\xA0 jour au d\xC3\xA9marrage", "Partage SMB (PC, NAS)", "Serveur FTP", "Serveur FSP", "Une carte par r\xC3\xA9gion (Pulse)", "Salon (autres GC Station)", "Date et heure (console)", "Nouveaux jeux vus tout seuls", "Limite de jeu par jour", "Version compress\xC3\xA9" "e", "Applis sans image", "Th\xC3\xA8mes en ligne", "Ancienne version (.ancien)", "Une carte par jeu (Pulse)", "Manettes du t\xC3\xA9l\xC3\xA9phone", "Quitter GC Station", "Toutes les jaquettes (bo\xC3\xAEte 3D, HD)", "Chercheur de codes (appli)", "Envoi vers l'appli", "GBA du t\xC3\xA9l\xC3\xA9phone", "Micro du t\xC3\xA9l\xC3\xA9phone (slot B)", "Salon par Internet : adresse de l'ami", "Salon par Internet : code", "Succ\xC3\xA8s sur la t\xC3\xA9l\xC3\xA9 (Pulse)", "Place du bandeau (Pulse)", "Son des notifications du t\xC3\xA9l\xC3\xA9phone", "Lecture SD par interruptions (Pulse)", "Journal complet de Pulse", "Mode de Pulse", "Une carte m\xC3\xA9moire", "Journaux de Pulse" };
 
 static void web_relayout(void);
 static void scr_set_wide(int w) {
@@ -12914,9 +13074,14 @@ static void menu_change(int i, int d) {
     case MI_NATCARD: nat_card = (nat_card + (d < 0 ? 2 : 1)) % 3; break;   /* v318 : (gauche : en arriere) */
     case MI_NATCARDREG: nat_card_reg = !nat_card_reg; break;
     case MI_NATCARDGAME: nat_card_game = !nat_card_game; break;
+    case MI_NATXV:  nat_xv = !nat_xv; break;
+    case MI_PMODE:  nat_pmode = (nat_pmode + (d < 0 ? 2 : 1)) % 3; break;   /* v503 */
+    case MI_NATCARDMODE: { int c = nat_card_game ? 1 : nat_card_reg ? 2 : 0; c = (c + (d < 0 ? 2 : 1)) % 3; nat_card_game = c == 1; nat_card_reg = c == 2; break; }   /* v503 : pour tous / par jeu / par region */
+    case MI_NATJC:  nat_jcomplet = !nat_jcomplet; break;   /* v496 */
+    case MI_PLOG:   nat_plog = !nat_plog; break;           /* v509 */
     case MI_PADTEL: nat_padtel = (nat_padtel + (d < 0 ? 4 : 1)) % 5; break;
     case MI_MEMTEL: nat_memtel = !nat_memtel; break;
-    case MI_TVSUCC: nat_tvsucc = !nat_tvsucc; break;   /* v397 */
+    case MI_TVSUCC: { int c = !nat_tvsucc ? 0 : nat_tvbas ? 2 : 1; c = (c + (d < 0 ? 2 : 1)) % 3; nat_tvsucc = c != 0; if (c) nat_tvbas = c == 2; break; }   /* v503 : non / en haut / en bas */
     case MI_TVBAS: nat_tvbas = !nat_tvbas; break;      /* v400 */
     case MI_NTFSON: ntf_son = !ntf_son; if (ntf_son) ntf_son_jouer(); break;   /* v400 : (on l'entend tout de suite) */
     case MI_GBATEL: if (!nat_gbatel) { nat_gbatel = 1; nat_gbaport = 1; } else if (nat_gbaport < 4) nat_gbaport++; else nat_gbatel = 0; break;   /* (v334 : Non, port 1, 2, 3, 4) */
@@ -13204,16 +13369,21 @@ static void draw_menu(void) {
     if (menu_sel == MI_RECLEN) hint = "La radio enregistr\xC3\xA9" "e est celle qui joue quand tu r\xC3\xA8gles l'heure";
     if (menu_sel == MI_LOWMID || menu_sel == MI_PRES) hint = "\xC3\x89galiseur 5 bandes : graves, bas-m\xC3\xA9" "diums, m\xC3\xA9" "diums, pr\xC3\xA9sence, aigus";
     if (menu_sel == MI_PERF) hint = "Images/s en haut de l'\xC3\xA9" "cran ; en coupant : rapport SD:/gc-mp3/journaux/fluidite.txt";
+    if (menu_sel == MI_PMODE) hint = "Automatique : Pulse l\xC3\xA9ger, sauf si le t\xC3\xA9l\xC3\xA9phone sert pendant le jeu (certains jeux, comme Shrek, toujours en l\xC3\xA9ger). L\xC3\xA9ger : jamais le t\xC3\xA9l\xC3\xA9phone, le plus compatible";   /* v503 */
+    if (menu_sel == MI_NATCARDMODE) hint = "Pour tous les jeux : carte-A.raw. Par jeu : une carte au nom du jeu. Par r\xC3\xA9gion : une carte pour les jeux europ\xC3\xA9" "ens, une pour les am\xC3\xA9ricains, une pour les japonais. Le r\xC3\xA9glage du jeu (Y) passe avant";   /* v503 */
+    if (menu_sel == MI_PLOG) hint = "Non : Pulse sans comptes rendus de plantage ni de blocage, plus petit : 5 Ko de m\xC3\xA9moire en plus pour le jeu. Le journal du jeu garde son r\xC3\xA9sum\xC3\xA9. Sonic Adventure 2 Battle le prend tout seul si besoin";   /* v509 */
+    if (menu_sel == MI_NATJC) hint = "Diagnostic : Pulse note tout ce qui se passe pendant le jeu (gc-mp3/natif/journal-complet.txt). Jeu un peu ralenti, sans t\xC3\xA9l\xC3\xA9phone";
+    if (menu_sel == MI_NATXV) hint = "La carte SD2SP2 est lue pendant que le jeu tourne (vid\xC3\xA9" "os plus fluides). Si un jeu se fige, mets Non pour essayer";
     if (menu_sel == MI_PULSELD) hint = "Le style de l'\xC3\xA9" "cran qui s'affiche pendant le lancement d'un jeu avec Pulse";
     if (menu_sel == MI_NATCARD) hint = "Jeux lanc\xC3\xA9s avec Pulse : sauvegardes dans SD:/gc-mp3/resident (slot B : carte-B.raw)";
     if (menu_sel == MI_APPENV) hint = "Coup\xC3\xA9 : rien vers l'appli (direct, \xC3\xA9tat, Pulse). Si connect\xC3\xA9" "e : seulement quand un t\xC3\xA9l\xC3\xA9phone \xC3\xA9" "coute";
-    if (menu_sel == MI_MEMTEL) hint = "L'appli lit la m\xC3\xA9moire du jeu pendant la partie (Pulse, Broadband Adapter ou ETH2SP1) : trouver ses propres cheats et succ\xC3\xA8s";
+    if (menu_sel == MI_MEMTEL) hint = "L'appli lit la m\xC3\xA9moire du jeu pendant la partie (Pulse, Broadband Adapter ou ETH2SP1) : trouver ses propres cheats et succ\xC3\xA8s. Passe Pulse en mode normal";
     if (menu_sel == MI_TVBAS) hint = "O\xC3\xB9 s'affiche le bandeau des succ\xC3\xA8s et des notifications pendant les jeux : en haut au milieu de l'image, ou en bas.";
     if (menu_sel == MI_NTFSON) hint = "Un petit carillon quand une notification du t\xC3\xA9l\xC3\xA9phone descend en haut de l'\xC3\xA9" "cran de GC Station (message, appel...).";
-    if (menu_sel == MI_TVSUCC) hint = "Un bandeau sur l'image (en haut ou en bas : r\xC3\xA9glage suivant) quand un succ\xC3\xA8s tombe pendant la partie (GC Station, et RetroAchievements avec l'appli). Non : rien de pris au jeu";   /* v397 */
-    if (menu_sel == MI_GBATEL) hint = "L'appli devient une GBA branch\xC3\xA9" "e au port choisi (Wind Waker, Pac-Man Vs. : port 2 ; Four Swords seul : port 1, la manette de ce port n'est plus vue). Pulse, Broadband Adapter. Essai";
-    if (menu_sel == MI_MICTEL) hint = "Le micro du t\xC3\xA9l\xC3\xA9phone devient le micro GameCube du slot B (Mario Party 6 et 7 ; Pulse, Broadband Adapter). Pas de carte m\xC3\xA9moire en B tant que c'est sur Oui. Essai";
-    if (menu_sel == MI_PADTEL) hint = "L'appli du t\xC3\xA9l\xC3\xA9phone devient une manette dans les jeux (Pulse, Broadband Adapter ou ETH2SP1). Un port par t\xC3\xA9l\xC3\xA9phone";
+    if (menu_sel == MI_TVSUCC) hint = "Un bandeau sur l'image quand un succ\xC3\xA8s tombe pendant la partie (GC Station, et RetroAchievements avec l'appli), en haut ou en bas de l'image. Non : rien de pris au jeu";   /* v397 */
+    if (menu_sel == MI_GBATEL) hint = "L'appli devient une GBA branch\xC3\xA9" "e au port choisi (Wind Waker, Pac-Man Vs. : port 2 ; Four Swords seul : port 1, la manette de ce port n'est plus vue). Pulse, Broadband Adapter. Essai. Passe Pulse en mode normal";
+    if (menu_sel == MI_MICTEL) hint = "Le micro du t\xC3\xA9l\xC3\xA9phone devient le micro GameCube du slot B (Mario Party 6 et 7 ; Pulse, Broadband Adapter). Pas de carte m\xC3\xA9moire en B tant que c'est sur Oui. Essai. Passe Pulse en mode normal";
+    if (menu_sel == MI_PADTEL) hint = "L'appli du t\xC3\xA9l\xC3\xA9phone devient une manette dans les jeux (Pulse, Broadband Adapter ou ETH2SP1). Un port par t\xC3\xA9l\xC3\xA9phone. Passe Pulse en mode normal";
     if (menu_sel == MI_NATCARDGAME) hint = "Chaque jeu sa propre carte, au nom du jeu (carte-A-GALE01-Super-Smash-Bros-Melee.raw), cr\xC3\xA9\xC3\xA9" "e au premier lancement. Le r\xC3\xA9glage du jeu (Y) passe avant";
     if (menu_sel == MI_NATCARDREG) hint = "Jeux europ\xC3\xA9" "ens, am\xC3\xA9ricains, japonais : chacun sa carte (carte-A-EUR.raw...)";
     if (menu_sel == MI_NATIGR) hint = "Jeux lanc\xC3\xA9s avec Pulse (A) : A+Z+START tenus 1 s = retour \xC3\xA0 GC Station";
@@ -14442,7 +14612,7 @@ static void music_pump(void) {
 #include "catalog.c"                           /* v151 : catalogue d'applis (homebrews a installer depuis Internet) */
 #include "profils.c"                           /* v191 : profils de joueurs, limite de temps de jeu */
 #include "recap.c"                             /* v191 : ton recap (Outils, page /recap du telephone) */
-#include "jeux_hub.c"                          /* v376 : accueil de JEUX en Aurore (� A la une �) */
+#include "jeux_hub.c"                          /* v376 : accueil de JEUX en Aurore (« A la une ») */
 
 /* v76 : petit controle au demarrage (memoire libre, carte SD, duree), note dans le
    journal (Outils > Infos console > journal) ; un message bref si un souci. */
@@ -14498,7 +14668,8 @@ static void boot_selfcheck(int sd_wr) {        /* v386 : sd_wr : demarrage.txt a
     u32 ms = boot_t0 ? (u32)(now_ms() - boot_t0) : 0;
     crumb("demarrage : %u ms, memoire libre %u Ko, carte SD %s", (unsigned)ms, (unsigned)freekb,
           !sd_ok ? "absente" : sd_wr ? "ecriture OK" : "LECTURE SEULE");
-    if (sd_ok && !sd_wr) snprintf(boot_check, sizeof(boot_check), "Carte SD en lecture seule : les r\xC3\xA9glages ne seront pas gard\xC3\xA9s (languette de protection ?)");
+    if (sd_virtual) snprintf(boot_check, sizeof(boot_check), "Aucune carte SD trouv\xC3\xA9" "e : d\xC3\xA9tails dans Outils > Infos console");   /* v469 (avant : \"lecture seule\") */
+    else if (sd_ok && !sd_wr) snprintf(boot_check, sizeof(boot_check), "Carte SD en lecture seule : les r\xC3\xA9glages ne seront pas gard\xC3\xA9s (languette de protection ?)");
     else if (freekb < 2048) snprintf(boot_check, sizeof(boot_check), "M\xC3\xA9moire presque pleine : certaines images peuvent ne pas s'afficher");
 }
 
@@ -14528,12 +14699,14 @@ int main(int argc, char **argv) {
     }
 #endif
     boot_t0 = ticks_to_millisecs(gettime());
+    up_t0 = boot_t0;
     up_argv0 = (argc > 0 && argv && argv[0]) ? argv[0] : NULL;
     if (!setlocale(LC_CTYPE, "C.UTF-8")) setlocale(LC_CTYPE, "C-UTF-8");   /* v26 : noms de fichiers en UTF-8 (accents, tirets longs...) : sans ca, libfat s'arrete sur certains noms */
     sd_ok = mount_sd();                     /* d'abord les reglages (mode video, theme...) */
     if (sd_ok && sd_slot == 0) sd_fast();   /* v386 : SD2SP2 a 32 MHz si la carte le supporte */
     if (!sd_ok) sd_ok = ramfs_mount();      /* (Dolphin : SD en memoire, reglages sur la carte memoire) */
-    bt_step(sd_mhz == 32 ? "carte SD (32 MHz)" : "carte SD (16 MHz)");
+    { static char bs[64]; snprintf(bs, sizeof(bs), "carte SD (%d MHz%s)", sd_mhz, sd_part_set ? ", plus grande partition" : ""); bt_step(bs); }
+    if (sd_part_set) crumb("carte SD : %d partitions, la %de (secteur %u, %s) montee", sd_part_n, sd_part_k, (unsigned)sd_part, sd_part_exf ? "exFAT" : "FAT");
     /* v220 : le rangement (anciens fichiers deplaces) et les dossiers de SD:/gc-mp3 ne se font qu'une fois :
        ensuite un repere (SD:/gc-mp3/reglages/.range) evite ~80 recherches sur la carte SD a chaque demarrage */
     int gcd_done = 0;
@@ -14626,7 +14799,7 @@ int main(int argc, char **argv) {
         down = gp_input(down);                              /* v23 : curseur au stick dans tous les onglets */
 
         pet_tick();                                         /* v207 : le compagnon se nourrit de ce qui joue (pet.c) */
-        gb_bg();                                            /* v213 : radios du globe chargees en fond (globe.c) */
+        SLOW("globe : chargement en fond", gb_bg());       /* v213 : radios du globe chargees en fond (globe.c) */
         mem_tick();                                         /* v220 : memoire (memview.c) */
         mp_tick();                                          /* v323 : memoire par partie (memview.c) */
         upg_tick();                                         /* v229 : garde-fou apres une mise a jour (update.c) */
@@ -14837,6 +15010,25 @@ int main(int argc, char **argv) {
             if (tab_shown(TAB_INFO)) PF(PH_INFOS, infos_pump());
         }
         gl_dl_pump();                                      /* v280 : jaquettes manquantes (gclib.c) */
+        {   /* v451 : la liste de Mes jeux preparee en fond, une fois, quand tu ne touches a rien (avant : a la 1re ouverture,
+               un arret d'une demi-seconde) ; seulement si elle est deja gardee sur la carte (sinon : le tour complet de la
+               carte, plus long, reste fait a l'ouverture comme avant) */
+            static int gl_pre = 0;
+            if (!gl_pre && !gl_scanned && !in_game && sd_ok && !sd_virtual && now_ms() > 10000 && now_ms() - last_input_ms > 3000) {
+                gl_pre = 1;
+                if (gcd_exists(GL_LIST)) SLOW("mes jeux : liste preparee", gl_scan_full(0));
+            }
+        }
+        {   /* v453 : fiche d'un jeu ouverte, rien touche depuis 1,2 s : analyse puis position sur la carte faites a l'avance
+               (une etape par image ; le lancement les reprend : natif.c, nat_pre_step) */
+            static u64 pre_t = 0;
+            if (gl_on && gl_detail && gl_n && gl_sel >= 0 && gl_sel < gl_n && gl_launch_sel < 0 && !gl[gl_sel].dvd && !gcl_path(gl[gl_sel].path) && !in_game && sd_ok && !sd_virtual
+                && now_ms() - last_input_ms > 1200 && now_ms() - pre_t > 150) {
+                pre_t = now_ms();
+                SLOW("fiche : lancement prepare", nat_pre_step(gl_sel));
+            }
+        }
+        jb_poll();                                        /* v456 : musiques d'un jeu cherchees en fond */
         PF(PH_PHONE, phone_pump());                       /* v246 : toujours (onglet TELEPHONE cache : la telecommande reste active) */
         PF(PH_DL, dltab_pump());
         if (!in_game) PF(PH_UPDATE, update_pump());

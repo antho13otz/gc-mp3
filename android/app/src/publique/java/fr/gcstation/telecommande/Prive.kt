@@ -41,6 +41,8 @@ object Prive {
         if (id.startsWith("GZL")) { Spacer(Modifier.height(22.dp)); Titre("Wind Waker : les lieux en 3D"); Spacer(Modifier.height(8.dp)); SectionWW(act) }
         if (id.startsWith("GM4")) { Spacer(Modifier.height(22.dp)); Titre("Mario Kart : circuits en 3D"); Spacer(Modifier.height(8.dp)); SectionMKDD(act) }
     }
+    @Composable fun CompagnonJeu(id: String) { }                        // (appli 581 : Ocarina of Time en 3D, appli privee seulement)
+    fun packCompagnon(id: String): ((android.content.Context, android.net.Uri) -> Int)? = null
     @Composable fun Ecran(sous: String): Boolean = when (sous) {
         "Compagnon de jeu" -> { EcranCompagnon(); true }
         "Rayman 3 : progression" -> { EcranRayman3(); true }
