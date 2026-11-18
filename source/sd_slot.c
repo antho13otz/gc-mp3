@@ -139,7 +139,7 @@ static int sdx_init(int k) {
         r = sdx_cmd(ch, 0, 0, 0x94);
         sdx_desel(ch);
     }
-    if (r != 0x01) { snprintf(dg, 120, "ID %08X%s (probe %d); libogc refused it; card does not answer (CMD0: %02X)", (unsigned)id, idok ? "" : " (?)", (int)pr, r); return 0; }
+    if (r != 0x01) { snprintf(dg, 120, "ID %08X%s (probe %d); not read by libogc; card does not answer (CMD0: %02X)", (unsigned)id, idok ? "" : " (?)", (int)pr, r); return 0; }
     /* CMD8 : carte de 2e generation (SDHC / SDXC) ? */
     int v2 = 0;
     if (sdx_sel(ch, EXI_SPEED1MHZ)) {
@@ -157,7 +157,7 @@ static int sdx_init(int k) {
         sdx_desel(ch);
         if (r) usleep(1000);
     }
-    if (r != 0x00) { snprintf(dg, 120, "ID %08X; libogc refused it; card does not start (ACMD41: %02X%s)", (unsigned)id, r, v2 ? ", SDHC" : ""); return 0; }
+    if (r != 0x00) { snprintf(dg, 120, "ID %08X; not read by libogc; card does not start (ACMD41: %02X%s)", (unsigned)id, r, v2 ? ", SDHC" : ""); return 0; }
     if (v2 && sdx_sel(ch, EXI_SPEED1MHZ)) {                /* CMD58 : adressage par secteur (SDHC) ? */
         u8 o[4] ATTRIBUTE_ALIGN(32);
         if (sdx_cmd(ch, 58, 0, 0) == 0) { sdx_rdn(ch, o, 4); sdx_hc[k] = (o[0] & 0x40) != 0; }
@@ -166,7 +166,7 @@ static int sdx_init(int k) {
     if (!sdx_hc[k] && sdx_sel(ch, EXI_SPEED1MHZ)) { sdx_cmd(ch, 16, 512, 0); sdx_desel(ch); }   /* (blocs de 512 octets) */
     /* vitesse : la plus haute qui relit le secteur 0 comme a 1 MHz */
     static u8 a[512] ATTRIBUTE_ALIGN(32), b[512] ATTRIBUTE_ALIGN(32);
-    if (!sdx_read1(k, 0, a)) { snprintf(dg, 120, "ID %08X; libogc refused it; %s card started but sector 0 unreadable", (unsigned)id, sdx_hc[k] ? "SDHC" : "SD"); return 0; }
+    if (!sdx_read1(k, 0, a)) { snprintf(dg, 120, "ID %08X; not read by libogc; %s card started but sector 0 unreadable", (unsigned)id, sdx_hc[k] ? "SDHC" : "SD"); return 0; }
     /* v505 : 32 MHz essaye d'abord, comme Swiss (le GC2SD est donne pour 32 MHz) : 4 lectures justes et au bon CRC */
     static const int fr[4] = { EXI_SPEED32MHZ, EXI_SPEED16MHZ, EXI_SPEED8MHZ, EXI_SPEED4MHZ };
     static const int mhz[4] = { 32, 16, 8, 4 };
@@ -213,7 +213,7 @@ static int sdx_init(int k) {
     sdx_frq[k] = rf;
     if (rf != EXI_SPEED32MHZ && rf > sdx_sfrq[k]) sdx_frq[k] = sdx_sfrq[k];
     sdx_wfrq[k] = sdx_nc[k] ? sdx_frq[k] : sdx_sfrq[k];   /* (build 1051 : slot B, lecture horloge seule : ecritures essayees a la vitesse des lectures) */
-    snprintf(dg, 120, "ID %08X; libogc refused it; read by GC Station driver (%s, %d MHz, writes %d MHz%s%s)", (unsigned)id, sdx_hc[k] ? "SDHC" : "SD", got, wm,
+    snprintf(dg, 120, "ID %08X; not read by libogc, so GC Station driver (%s, %d MHz, writes %d MHz%s%s)", (unsigned)id, sdx_hc[k] ? "SDHC" : "SD", got, wm,
              sdx_nc[k] ? ", reads CS off" : "", sdx_crcon[k] ? ", CRC on" : "");
     return 1;
 }

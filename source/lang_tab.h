@@ -2207,3 +2207,6 @@
     { "processeur graphique", "graphics processor" },
     { "r\xC3\xA9seau (DNS)", "network (DNS)" },
     { "cartes m\xC3\xA9moire A et B", "memory cards A and B" },
+    /* build 1070 */
+    { "Lectures imm\xC3\xA9" "diates (Pulse)", "Immediate reads (Pulse)" },
+    { "Oui : chaque lecture est finie d'un coup, jamais en fond. Auto : si le jeu en a besoin (Sunshine).", "Yes: each read finishes in one go, never in the background. Auto: if the game needs it (Sunshine)." },

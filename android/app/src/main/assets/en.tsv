@@ -2344,3 +2344,5 @@ points de jeu	play points
 Une vie de plus toutes les 100 bananes.	One extra life every 100 bananas.
 Trouver Link pour la 3D en direct (une fois)	Find Link for the live 3D view (once)
 Point rouge : Link, en direct.	Red dot: Link, live.
+Lectures immédiates (Pulse)	Immediate reads (Pulse)
+Oui : chaque lecture est finie d'un coup, jamais en fond. Auto : si le jeu en a besoin (Sunshine).	Yes: each read finishes in one go, never in the background. Auto: if the game needs it (Sunshine).

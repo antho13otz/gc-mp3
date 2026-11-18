@@ -7,6 +7,12 @@ la **musique de jeux rétro**, des **podcasts**, tes **photos et vidéos**, un *
 la **météo / actualités / réveil**, et une **télécommande sur téléphone** (Broadband Adapter),
 dans une interface GX style Indigo. Lancer `gc-mp3player.dol` comme un autre homebrew.
 
+## Console v541 (build 1070) et appli 586 — « Lectures immédiates » dans les réglages du jeu, texte libogc plus clair
+
+- Réglages du jeu sur la console (Y sur la fiche) : nouvelle ligne « Lectures immédiates (Pulse) » : Auto (seulement pour les jeux qui en ont besoin : Super Mario Sunshine) ou Oui (comme le patch de secours I). Pour essayer sans le téléphone : Platter n'a plus de réseau sur sa console, donc pas d'appli.
+- Infos de la console, ligne du slot : « libogc refused it » devient « not read by libogc, so GC Station driver (…) » : Platter le prenait pour un bug ; c'est voulu (libogc ne démarre pas sa carte, le pilote de GC Station la lit à 32 MHz).
+- Appli 586 : traductions anglaises de la nouvelle ligne.
+
 ## Appli 585 (publique) — patch de secours « Lectures immédiates » dans l'appli publique
 
 - Choix du propriétaire : le patch de secours « Lectures immédiates » (chaque lecture du disque finie d'un coup, jamais en fond), qui a réglé Super Mario Sunshine (build 1069), passe aussi dans l'appli publique, pour que les testeurs puissent l'essayer (Platter : ambiance trop forte dans Super Monkey Ball). Les autres patchs en test restent dans l'appli privée.
